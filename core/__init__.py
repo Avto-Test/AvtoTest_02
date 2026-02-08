@@ -1,0 +1,3 @@
+"""
+AUTOTEST Core Package
+"""
