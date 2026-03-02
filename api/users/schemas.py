@@ -18,6 +18,8 @@ class UserMeResponse(BaseModel):
     is_active: bool
     is_admin: bool
     is_premium: bool
+    has_instructor_profile: bool = False
+    has_school_profile: bool = False
     created_at: datetime
     
     model_config = ConfigDict(from_attributes=True)

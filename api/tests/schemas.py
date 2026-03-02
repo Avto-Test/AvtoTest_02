@@ -22,6 +22,11 @@ class PublicQuestion(BaseModel):
     id: UUID
     text: str
     image_url: str | None = None
+    video_url: str | None = None
+    media_type: str | None = None
+    topic: str | None = None
+    category: str | None = None
+    difficulty: str | None = None
     answer_options: list[PublicAnswerOption]
     
     model_config = ConfigDict(from_attributes=True)
@@ -33,6 +38,8 @@ class PublicTestList(BaseModel):
     title: str
     description: str | None = None
     difficulty: str
+    is_premium: bool
+    duration: int | None = None
     question_count: int
     created_at: datetime
     
@@ -45,6 +52,8 @@ class PublicTestDetail(BaseModel):
     title: str
     description: str | None = None
     difficulty: str
+    is_premium: bool
+    duration: int | None = None
     questions: list[PublicQuestion]
     created_at: datetime
     

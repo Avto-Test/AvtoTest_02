@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.pool import NullPool
 
 from api.auth.router import create_access_token
 from core.config import settings
@@ -22,17 +23,28 @@ from models.user import User
 # For this environment, we'll use the configured DB but typically you'd use a test DB
 TEST_DATABASE_URL = settings.DATABASE_URL
 
-engine = create_async_engine(TEST_DATABASE_URL, echo=False)
+# Use NullPool to avoid asyncio loop issues with the connection pool
+engine = create_async_engine(TEST_DATABASE_URL, echo=False, poolclass=NullPool)
 TestingSessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
 
 
-@pytest.fixture(scope="session")
-def event_loop() -> Generator:
-    """Create an instance of the default event loop for each test case."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
-
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    """Reset in-memory rate limiter state before each test to prevent bleed-over."""
+    from main import app
+    from middleware.rate_limit import RateLimitMiddleware
+    
+    # Traverse the middleware stack to find and clear the rate limit history.
+    try:
+        stack = app.middleware_stack
+        while hasattr(stack, 'app'):
+            if isinstance(stack, RateLimitMiddleware):
+                stack.request_history.clear()
+                break
+            stack = stack.app
+    except Exception:
+        pass  # Best-effort cleanup
+    yield
 
 @pytest.fixture(scope="session", autouse=True)
 async def init_db() -> AsyncGenerator:
@@ -55,10 +67,11 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
         transaction = await connection.begin()
         session = AsyncSession(bind=connection, expire_on_commit=False)
         
-        yield session
-        
-        await session.close()
-        await transaction.rollback()
+        try:
+            yield session
+        finally:
+            await session.close()
+            await transaction.rollback()
 
 
 @pytest.fixture

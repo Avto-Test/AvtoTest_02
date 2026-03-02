@@ -29,7 +29,14 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
     """
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
     
+    from core.config import settings
+    
+    content = {"detail": "Internal server error. Please try again later."}
+    if settings.DEBUG:
+        content["detail"] = str(exc)
+        content["type"] = type(exc).__name__
+    
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": "Internal server error. Please try again later."},
+        content=content,
     )
