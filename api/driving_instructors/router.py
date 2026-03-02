@@ -11,7 +11,7 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -27,7 +27,9 @@ from api.driving_instructors.schemas import (
     DrivingInstructorDetailResponse,
     DrivingInstructorLeadCreate,
     DrivingInstructorLeadResponse,
+    DrivingInstructorMediaCreate,
     DrivingInstructorMediaResponse,
+    DrivingInstructorMediaUpdate,
     DrivingInstructorMetaResponse,
     DrivingInstructorRegistrationSettingsResponse,
     DrivingInstructorReviewCreate,
@@ -519,6 +521,91 @@ async def update_my_instructor_profile(
     await db.commit()
     await db.refresh(instructor)
     return _to_admin_profile_response(instructor)
+
+
+@router.post("/me/media", response_model=DrivingInstructorMediaResponse, status_code=status.HTTP_201_CREATED)
+async def create_my_media(
+    payload: DrivingInstructorMediaCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> DrivingInstructorMedia:
+    instructor = await _get_my_instructor(current_user, db)
+    if instructor is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instructor profile not found")
+
+    row = DrivingInstructorMedia(
+        instructor_id=instructor.id,
+        media_type=(payload.media_type or "image").strip().lower(),
+        url=payload.url.strip(),
+        caption=payload.caption.strip() if payload.caption else None,
+        sort_order=payload.sort_order,
+        is_active=payload.is_active,
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+@router.put("/me/media/{media_id}", response_model=DrivingInstructorMediaResponse)
+async def update_my_media(
+    media_id: UUID,
+    payload: DrivingInstructorMediaUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> DrivingInstructorMedia:
+    instructor = await _get_my_instructor(current_user, db)
+    if instructor is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instructor profile not found")
+
+    result = await db.execute(
+        select(DrivingInstructorMedia).where(
+            DrivingInstructorMedia.id == media_id,
+            DrivingInstructorMedia.instructor_id == instructor.id,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media item not found")
+
+    data = payload.model_dump(exclude_unset=True)
+    for key, value in data.items():
+        if key == "media_type" and value is not None:
+            setattr(row, key, value.strip().lower())
+            continue
+        if isinstance(value, str):
+            setattr(row, key, value.strip())
+        else:
+            setattr(row, key, value)
+
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+@router.delete("/me/media/{media_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_my_media(
+    media_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    instructor = await _get_my_instructor(current_user, db)
+    if instructor is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instructor profile not found")
+
+    result = await db.execute(
+        select(DrivingInstructorMedia).where(
+            DrivingInstructorMedia.id == media_id,
+            DrivingInstructorMedia.instructor_id == instructor.id,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media item not found")
+
+    await db.delete(row)
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{instructor_slug}", response_model=DrivingInstructorDetailResponse)

@@ -17,7 +17,9 @@ from services.payments.provider import PaymentProvider
 from services.payments.types import (
     CreateCheckoutSessionRequest,
     CreateCheckoutSessionResponse,
+    GetTransactionStatusResponse,
     PaymentProviderError,
+    PaymentEventType,
     PaymentReplayError,
     PaymentSignatureError,
     VerifiedWebhookEvent,
@@ -111,74 +113,158 @@ class TSPayProvider(PaymentProvider):
 
     def __init__(self) -> None:
         self.base_url = settings.TSPAY_API_BASE_URL.rstrip("/")
+        self.access_token = (settings.TSPAY_ACCESS_TOKEN or settings.TSPAY_API_KEY).strip()
         self.merchant_id = settings.TSPAY_MERCHANT_ID
-        self.api_key = settings.TSPAY_API_KEY
         self.webhook_secret = settings.TSPAY_WEBHOOK_SECRET
+        self.require_webhook_signature = settings.TSPAY_REQUIRE_WEBHOOK_SIGNATURE
         self.webhook_tolerance_seconds = settings.TSPAY_WEBHOOK_TOLERANCE_SECONDS
-        self.create_session_path = settings.TSPAY_CREATE_SESSION_PATH
+        self.create_transaction_path = (
+            settings.TSPAY_CREATE_TRANSACTION_PATH
+            or settings.TSPAY_CREATE_SESSION_PATH
+            or "/transactions/create/"
+        )
+        self.transaction_status_path_template = (
+            settings.TSPAY_TRANSACTION_STATUS_PATH_TEMPLATE
+            or "/transactions/{cheque_id}/"
+        )
         self.request_timeout_seconds = settings.TSPAY_REQUEST_TIMEOUT_SECONDS
 
     async def create_checkout_session(
         self,
         payload: CreateCheckoutSessionRequest,
     ) -> CreateCheckoutSessionResponse:
-        if not self.base_url or not self.merchant_id or not self.api_key:
-            raise PaymentProviderError("TSPay merchant credentials are not configured.")
+        if not self.base_url or not self.access_token:
+            raise PaymentProviderError("TSPay access token is not configured.")
 
         request_payload: dict[str, Any] = {
-            "merchant_id": self.merchant_id,
             "amount": payload.amount_cents,
-            "currency": payload.currency.upper(),
-            "customer": {
-                "email": payload.email,
-                "external_user_id": payload.user_id,
-            },
-            "success_url": payload.success_url,
-            "cancel_url": payload.cancel_url,
-            "idempotency_key": payload.idempotency_key,
-            "metadata": payload.metadata,
+            "access_token": self.access_token,
         }
+        if payload.success_url:
+            request_payload["redirect_url"] = payload.success_url
+        if payload.metadata:
+            request_payload["comment"] = (
+                payload.metadata.get("comment")
+                or payload.metadata.get("order_comment")
+                or f"AUTOTEST subscription order {payload.idempotency_key}"
+            )
 
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "X-Merchant-Id": self.merchant_id,
-        }
+        headers = {"Content-Type": "application/json"}
 
         timeout = httpx.Timeout(self.request_timeout_seconds)
 
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(
-                    f"{self.base_url}{self.create_session_path}",
+                    f"{self.base_url}{self.create_transaction_path}",
                     json=request_payload,
                     headers=headers,
                 )
                 response.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            message = f"TSPay session creation failed: {exc.response.status_code}"
+            body_excerpt: str | None = None
+            try:
+                body_excerpt = exc.response.text
+            except Exception:
+                body_excerpt = None
+            message = f"TSPay transaction create failed: {exc.response.status_code}"
+            if body_excerpt:
+                message = f"{message} | {body_excerpt[:240]}"
             raise PaymentProviderError(message) from exc
         except httpx.HTTPError as exc:
-            raise PaymentProviderError("TSPay session request failed.") from exc
+            raise PaymentProviderError("TSPay transaction create request failed.") from exc
 
         body = response.json()
-        session_id = (
-            body.get("session_id")
-            or body.get("id")
-            or body.get("checkout_session_id")
-        )
-        checkout_url = body.get("checkout_url") or body.get("url")
+        if not isinstance(body, dict):
+            raise PaymentProviderError("Invalid TSPay create response.")
+        status_raw = body.get("status")
+        if isinstance(status_raw, str) and status_raw.lower() != "success":
+            raise PaymentProviderError(
+                f"TSPay create failed with status '{status_raw}'."
+            )
 
-        if not isinstance(session_id, str) or not session_id:
-            raise PaymentProviderError("TSPay response missing session_id.")
-        if not isinstance(checkout_url, str) or not checkout_url:
-            raise PaymentProviderError("TSPay response missing checkout_url.")
+        transaction = body.get("transaction")
+        if not isinstance(transaction, dict):
+            raise PaymentProviderError("TSPay response missing transaction object.")
+
+        session_id_raw = transaction.get("id")
+        checkout_url = transaction.get("url")
+        if session_id_raw is None:
+            raise PaymentProviderError("TSPay response missing transaction.id.")
+
+        session_id = str(session_id_raw).strip()
+        if not session_id:
+            raise PaymentProviderError("TSPay response contains empty transaction.id.")
+        if not isinstance(checkout_url, str) or not checkout_url.strip():
+            raise PaymentProviderError("TSPay response missing transaction.url.")
 
         return CreateCheckoutSessionResponse(
             provider=self.provider_name,
             session_id=session_id,
-            checkout_url=checkout_url,
+            checkout_url=checkout_url.strip(),
             raw_response=body if isinstance(body, dict) else {"raw": body},
+        )
+
+    async def get_transaction_status(
+        self,
+        cheque_id: str,
+    ) -> GetTransactionStatusResponse:
+        if not self.base_url or not self.access_token:
+            raise PaymentProviderError("TSPay access token is not configured.")
+
+        normalized_cheque_id = str(cheque_id).strip()
+        if not normalized_cheque_id:
+            raise PaymentProviderError("cheque_id is required.")
+
+        status_path = self.transaction_status_path_template.format(
+            cheque_id=normalized_cheque_id
+        )
+        timeout = httpx.Timeout(self.request_timeout_seconds)
+        params = {"access_token": self.access_token}
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.get(
+                    f"{self.base_url}{status_path}",
+                    params=params,
+                )
+                response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            body_excerpt: str | None = None
+            try:
+                body_excerpt = exc.response.text
+            except Exception:
+                body_excerpt = None
+            message = f"TSPay status check failed: {exc.response.status_code}"
+            if body_excerpt:
+                message = f"{message} | {body_excerpt[:240]}"
+            raise PaymentProviderError(message) from exc
+        except httpx.HTTPError as exc:
+            raise PaymentProviderError("TSPay status request failed.") from exc
+
+        body = response.json()
+        if not isinstance(body, dict):
+            raise PaymentProviderError("Invalid TSPay status response.")
+
+        payload_data = body.get("data")
+        if not isinstance(payload_data, dict):
+            payload_data = body
+
+        return GetTransactionStatusResponse(
+            provider=self.provider_name,
+            cheque_id=str(payload_data.get("id") or normalized_cheque_id),
+            transaction_id=(
+                str(payload_data.get("transaction_id"))
+                if payload_data.get("transaction_id") is not None
+                else None
+            ),
+            pay_status=(
+                str(payload_data.get("pay_status"))
+                if payload_data.get("pay_status") is not None
+                else None
+            ),
+            amount=_safe_int(payload_data.get("amount")),
+            raw_response=body,
         )
 
     def verify_webhook(
@@ -186,24 +272,26 @@ class TSPayProvider(PaymentProvider):
         payload: bytes,
         signature_header: str | None,
     ) -> VerifiedWebhookEvent:
-        if not self.webhook_secret:
-            raise PaymentSignatureError("TSPay webhook secret is not configured.")
+        signature_ts = int(utc_now().timestamp())
+        if self.webhook_secret and signature_header:
+            timestamp, signature = _parse_signature_header(signature_header)
 
-        timestamp, signature = _parse_signature_header(signature_header)
+            now_ts = int(utc_now().timestamp())
+            if abs(now_ts - timestamp) > self.webhook_tolerance_seconds:
+                raise PaymentReplayError("Webhook timestamp outside tolerance window.")
 
-        now_ts = int(utc_now().timestamp())
-        if abs(now_ts - timestamp) > self.webhook_tolerance_seconds:
-            raise PaymentReplayError("Webhook timestamp outside tolerance window.")
+            signed_payload = _build_signature_payload(timestamp, payload)
+            expected_signature = hmac.new(
+                self.webhook_secret.encode("utf-8"),
+                signed_payload,
+                hashlib.sha256,
+            ).hexdigest()
 
-        signed_payload = _build_signature_payload(timestamp, payload)
-        expected_signature = hmac.new(
-            self.webhook_secret.encode("utf-8"),
-            signed_payload,
-            hashlib.sha256,
-        ).hexdigest()
-
-        if not hmac.compare_digest(expected_signature, signature):
-            raise PaymentSignatureError("TSPay webhook signature mismatch.")
+            if not hmac.compare_digest(expected_signature, signature):
+                raise PaymentSignatureError("TSPay webhook signature mismatch.")
+            signature_ts = timestamp
+        elif self.require_webhook_signature:
+            raise PaymentSignatureError("Missing TSPay signature header.")
 
         try:
             parsed = json.loads(payload.decode("utf-8"))
@@ -213,63 +301,98 @@ class TSPayProvider(PaymentProvider):
         if not isinstance(parsed, dict):
             raise PaymentProviderError("Invalid TSPay webhook payload shape.")
 
-        data = parsed.get("data")
-        if not isinstance(data, dict):
-            data = parsed
-
         metadata = {}
         payload_metadata = parsed.get("metadata")
         if isinstance(payload_metadata, dict):
             metadata.update(payload_metadata)
-        data_metadata = data.get("metadata")
-        if isinstance(data_metadata, dict):
-            metadata.update(data_metadata)
 
-        provider_event_id = parsed.get("event_id") or parsed.get("id")
-        if not isinstance(provider_event_id, str) or not provider_event_id:
-            raise PaymentProviderError("Missing TSPay event identifier.")
+        event_type_raw = parsed.get("event") or parsed.get("type") or parsed.get("event_type")
+        event_type = str(event_type_raw).strip().lower() if event_type_raw is not None else ""
+        status_raw = parsed.get("status")
+        status = str(status_raw).strip().lower() if status_raw is not None else ""
 
-        event_type = parsed.get("type") or parsed.get("event_type")
-        if not isinstance(event_type, str) or not event_type:
-            raise PaymentProviderError("Missing TSPay event type.")
+        if not event_type:
+            if status in {"success", "paid", "succeeded"}:
+                event_type = PaymentEventType.TSPAY_PAYMENT_SUCCESS.value
+            elif status in {"canceled", "cancelled"}:
+                event_type = PaymentEventType.TSPAY_PAYMENT_CANCELED.value
+            elif status in {"failed", "error"}:
+                event_type = PaymentEventType.TSPAY_PAYMENT_FAILED.value
+            else:
+                raise PaymentProviderError("Missing TSPay event type.")
 
-        occurred_at = _safe_datetime_from_value(parsed.get("created_at"))
+        transaction_id_raw = parsed.get("transaction_id")
+        cheque_id_raw = parsed.get("cheque_id")
+        transaction_id = (
+            str(transaction_id_raw).strip()
+            if transaction_id_raw is not None and str(transaction_id_raw).strip()
+            else None
+        )
+        cheque_id = (
+            str(cheque_id_raw).strip()
+            if cheque_id_raw is not None and str(cheque_id_raw).strip()
+            else None
+        )
+
+        provider_event_id_raw = parsed.get("event_id") or parsed.get("id")
+        if provider_event_id_raw is not None and str(provider_event_id_raw).strip():
+            provider_event_id = str(provider_event_id_raw).strip()
+        else:
+            id_part = cheque_id or transaction_id or "unknown"
+            timestamp_part = str(parsed.get("timestamp") or signature_ts)
+            provider_event_id = f"tspay:{event_type}:{id_part}:{timestamp_part}"
+
+        occurred_at = _safe_datetime_from_value(parsed.get("timestamp"))
         if occurred_at is None:
-            occurred_at = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            occurred_at = _safe_datetime_from_value(parsed.get("created_at"))
+        if occurred_at is None:
+            occurred_at = datetime.fromtimestamp(signature_ts, tz=timezone.utc)
 
-        session_id = data.get("session_id") or data.get("checkout_session_id")
-        payment_id = data.get("payment_id") or data.get("id")
-
-        user_id = metadata.get("user_id") or data.get("user_id") or parsed.get("user_id")
+        user_id = metadata.get("user_id") or parsed.get("user_id")
         if user_id is not None and not isinstance(user_id, str):
             user_id = str(user_id)
 
-        status = data.get("status") or parsed.get("status")
-        if status is not None and not isinstance(status, str):
-            status = str(status)
+        if not status:
+            if event_type == PaymentEventType.TSPAY_PAYMENT_SUCCESS.value:
+                status = "success"
+            elif event_type == PaymentEventType.TSPAY_PAYMENT_CANCELED.value:
+                status = "canceled"
+            elif event_type == PaymentEventType.TSPAY_PAYMENT_FAILED.value:
+                status = "failed"
+            else:
+                status = ""
 
-        amount_cents = (
-            _safe_int(data.get("amount_cents"))
-            or _safe_int(data.get("amount"))
-            or _safe_int(parsed.get("amount_cents"))
-            or _safe_int(parsed.get("amount"))
+        amount_cents = _safe_int(parsed.get("amount")) or _safe_int(
+            parsed.get("amount_cents")
         )
 
-        currency = data.get("currency") or parsed.get("currency")
+        currency = parsed.get("currency")
         if currency is not None and isinstance(currency, str):
             currency = currency.upper()
         elif currency is not None:
             currency = str(currency).upper()
+
+        if transaction_id is not None:
+            metadata.setdefault("transaction_id", transaction_id)
+        if cheque_id is not None:
+            metadata.setdefault("cheque_id", cheque_id)
+        if parsed.get("shop_id") is not None:
+            metadata.setdefault("shop_id", parsed.get("shop_id"))
+        if parsed.get("comment") is not None:
+            metadata.setdefault("comment", parsed.get("comment"))
+
+        session_id = cheque_id or transaction_id
+        payment_id = transaction_id or cheque_id
 
         return VerifiedWebhookEvent(
             provider=self.provider_name,
             provider_event_id=provider_event_id,
             event_type=event_type,
             occurred_at=occurred_at,
-            session_id=session_id if isinstance(session_id, str) and session_id else None,
-            payment_id=payment_id if isinstance(payment_id, str) and payment_id else None,
+            session_id=session_id,
+            payment_id=payment_id,
             user_id=user_id,
-            status=status,
+            status=status or None,
             amount_cents=amount_cents,
             currency=currency if isinstance(currency, str) and currency else None,
             metadata=metadata,

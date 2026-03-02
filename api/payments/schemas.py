@@ -95,3 +95,14 @@ class WebhookResponse(BaseModel):
 
     status: str
     idempotent: bool = False
+
+
+class TransactionStatusResponse(BaseModel):
+    """TsPay cheque status lookup response."""
+
+    cheque_id: str
+    transaction_id: str | None = None
+    pay_status: str | None = None
+    amount: int | None = None
+    provider: str = "tspay"
+    raw: dict | None = None
