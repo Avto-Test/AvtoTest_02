@@ -14,3 +14,7 @@ frontend/out/
 frontend/build/
 frontend/.env.local
 uploads/
+deploy/prod.env
+deploy/do_autotest_key
+deploy/do_autotest_key.pub
+deploy/autotest-src.tar.gz

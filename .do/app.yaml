@@ -1,0 +1,57 @@
+name: autotest-backend
+region: sgp1
+services:
+  - name: api
+    source_dir: /
+    dockerfile_path: Dockerfile
+    git:
+      repo_clone_url: https://github.com/Avto-Test/AvtoTest_02.git
+      branch: main
+    run_command: alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port ${PORT}
+    http_port: 8000
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-1gb
+    health_check:
+      http_path: /health
+    envs:
+      - key: ENVIRONMENT
+        scope: RUN_AND_BUILD_TIME
+        value: production
+      - key: DEBUG
+        scope: RUN_AND_BUILD_TIME
+        value: "false"
+      - key: LOG_LEVEL
+        scope: RUN_AND_BUILD_TIME
+        value: INFO
+      - key: SECRET_KEY
+        scope: RUN_AND_BUILD_TIME
+        type: SECRET
+        value: REPLACE_WITH_STRONG_SECRET_KEY
+      - key: ALLOWED_ORIGINS
+        scope: RUN_AND_BUILD_TIME
+        value: http://localhost:3000,http://127.0.0.1:3000
+      - key: TSPAY_API_BASE_URL
+        scope: RUN_AND_BUILD_TIME
+        value: https://tspay.uz/api/v1
+      - key: TSPAY_CREATE_TRANSACTION_PATH
+        scope: RUN_AND_BUILD_TIME
+        value: /transactions/create/
+      - key: TSPAY_TRANSACTION_STATUS_PATH_TEMPLATE
+        scope: RUN_AND_BUILD_TIME
+        value: /transactions/{cheque_id}/
+      - key: TSPAY_ACCESS_TOKEN
+        scope: RUN_TIME
+        type: SECRET
+        value: REPLACE_WITH_TSPAY_MERCHANT_TOKEN
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: ${autotest-db.DATABASE_URL}
+
+databases:
+  - name: autotest-db
+    engine: PG
+    version: "16"
+    production: false
+    size: db-s-1vcpu-1gb
+    num_nodes: 1
