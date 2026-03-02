@@ -5,10 +5,11 @@ AUTOTEST Driving Schools Public Router
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +41,10 @@ from models.user import User
 from models.user_notification import UserNotification
 
 router = APIRouter(prefix="/driving-schools", tags=["driving-schools"])
+
+ALLOWED_OWNER_MEDIA_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+MAX_OWNER_MEDIA_SIZE_BYTES = 10 * 1024 * 1024
+OWNER_UPLOADS_DIR = Path(__file__).resolve().parents[2] / "uploads" / "driving_schools"
 
 
 def _average_rating(school: DrivingSchool) -> tuple[float, int]:
@@ -366,6 +371,39 @@ async def update_my_school_profile(
     if school is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driving school profile not found")
     return _to_owner_school_response(school)
+
+
+@router.post("/me/media/upload", status_code=status.HTTP_201_CREATED)
+async def upload_my_school_media(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    school = await _get_my_school(current_user, db)
+    if school is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driving school profile not found")
+
+    if not file.filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File name is required")
+
+    extension = Path(file.filename).suffix.lower()
+    if extension not in ALLOWED_OWNER_MEDIA_EXTENSIONS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported media format")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty")
+    if len(content) > MAX_OWNER_MEDIA_SIZE_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File is too large")
+
+    OWNER_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"{uuid4().hex}{extension}"
+    saved_path = OWNER_UPLOADS_DIR / filename
+    saved_path.write_bytes(content)
+
+    base_url = str(request.base_url).rstrip("/")
+    return {"url": f"{base_url}/uploads/driving_schools/{filename}", "filename": filename}
 
 
 @router.get("/me/leads", response_model=list[DrivingSchoolLeadResponse])

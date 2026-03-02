@@ -73,8 +73,16 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: str = ""
 
     # Payments (TSPay)
-    TSPAY_API_BASE_URL: str = "https://api.tspay.example"
-    TSPAY_CREATE_SESSION_PATH: str = "/v1/merchant/checkout/sessions"
+    TSPAY_API_BASE_URL: str = "https://tspay.uz/api/v1"
+    # New TsPay contract:
+    # POST /transactions/create/ body: { amount, access_token, ... }
+    TSPAY_CREATE_TRANSACTION_PATH: str = "/transactions/create/"
+    # GET /transactions/{cheque_id}/?access_token=...
+    TSPAY_TRANSACTION_STATUS_PATH_TEMPLATE: str = "/transactions/{cheque_id}/"
+    TSPAY_ACCESS_TOKEN: str = ""
+    TSPAY_REQUIRE_WEBHOOK_SIGNATURE: bool = False
+    # Legacy aliases kept for backward compatibility.
+    TSPAY_CREATE_SESSION_PATH: str = "/transactions/create/"
     TSPAY_API_KEY: str = ""
     TSPAY_MERCHANT_ID: str = ""
     TSPAY_WEBHOOK_SECRET: str = ""
@@ -93,10 +101,10 @@ class Settings(BaseSettings):
             if self.SECRET_KEY == "your-secret-key-change-in-production":
                 raise ValueError("Insecure SECRET_KEY detected in Production Mode")
 
-            if not self.TSPAY_API_KEY or not self.TSPAY_MERCHANT_ID:
+            if not self.TSPAY_ACCESS_TOKEN and not self.TSPAY_API_KEY:
                 import logging
                 logging.getLogger(__name__).warning(
-                    "TSPAY merchant credentials are missing. Subscription payments will fail."
+                    "TSPAY access token is missing. Subscription payments will fail."
                 )
         return self
 

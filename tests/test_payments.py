@@ -14,7 +14,12 @@ from models.analytics_event import AnalyticsEvent
 from models.promo_code import PromoCode
 from models.subscription import Subscription
 from models.subscription_plan import SubscriptionPlan
-from services.payments.types import CreateCheckoutSessionResponse, VerifiedWebhookEvent, utc_now
+from services.payments.types import (
+    CreateCheckoutSessionResponse,
+    GetTransactionStatusResponse,
+    VerifiedWebhookEvent,
+    utc_now,
+)
 
 
 @pytest.mark.asyncio
@@ -235,3 +240,33 @@ async def test_webhook_does_not_double_activate_on_distinct_success_events(
     )
     events = analytics_result.scalars().all()
     assert len(events) == 1
+
+
+@pytest.mark.asyncio
+async def test_get_transaction_status(
+    client: AsyncClient,
+    normal_user_token: str,
+):
+    status_response = GetTransactionStatusResponse(
+        provider="tspay",
+        cheque_id="998877",
+        transaction_id="998877",
+        pay_status="paid",
+        amount=50000,
+        raw_response={"status": "success", "data": {"id": 998877, "pay_status": "paid"}},
+    )
+
+    with patch(
+        "api.payments.router.PAYMENT_PROVIDER.get_transaction_status",
+        new=AsyncMock(return_value=status_response),
+    ):
+        response = await client.get(
+            "/api/payments/transactions/998877",
+            headers={"Authorization": f"Bearer {normal_user_token}"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["provider"] == "tspay"
+    assert body["cheque_id"] == "998877"
+    assert body["pay_status"] == "paid"

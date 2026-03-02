@@ -28,6 +28,9 @@ class PaymentEventType(str, Enum):
     PAYMENT_SUCCEEDED = "payment.succeeded"
     PAYMENT_FAILED = "payment.failed"
     CHECKOUT_COMPLETED = "checkout.session.completed"
+    TSPAY_PAYMENT_SUCCESS = "payment_success"
+    TSPAY_PAYMENT_CANCELED = "payment_canceled"
+    TSPAY_PAYMENT_FAILED = "payment_failed"
 
 
 @dataclass(slots=True, frozen=True)
@@ -55,6 +58,18 @@ class CreateCheckoutSessionResponse:
 
 
 @dataclass(slots=True, frozen=True)
+class GetTransactionStatusResponse:
+    """Provider response for cheque/transaction status lookups."""
+
+    provider: str
+    cheque_id: str
+    transaction_id: str | None
+    pay_status: str | None
+    amount: int | None
+    raw_response: dict[str, Any]
+
+
+@dataclass(slots=True, frozen=True)
 class VerifiedWebhookEvent:
     """Canonical webhook payload after signature verification."""
 
@@ -75,6 +90,8 @@ class VerifiedWebhookEvent:
     def is_success(self) -> bool:
         event_type = self.event_type.lower()
         status = (self.status or "").lower()
+        if event_type == PaymentEventType.TSPAY_PAYMENT_SUCCESS.value:
+            return True
         return event_type in {
             PaymentEventType.PAYMENT_SUCCEEDED.value,
             PaymentEventType.CHECKOUT_COMPLETED.value,
@@ -84,11 +101,17 @@ class VerifiedWebhookEvent:
     def is_failure(self) -> bool:
         event_type = self.event_type.lower()
         status = (self.status or "").lower()
+        if event_type in {
+            PaymentEventType.TSPAY_PAYMENT_FAILED.value,
+            PaymentEventType.TSPAY_PAYMENT_CANCELED.value,
+        }:
+            return True
         return event_type == PaymentEventType.PAYMENT_FAILED.value or status in {
             "failed",
             "canceled",
             "cancelled",
             "declined",
+            "error",
         }
 
 

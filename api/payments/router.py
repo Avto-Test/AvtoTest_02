@@ -26,6 +26,7 @@ from api.payments.schemas import (
     PublicSubscriptionPlanResponse,
     RedeemPromoRequest,
     RedeemPromoResponse,
+    TransactionStatusResponse,
     WebhookResponse,
 )
 from core.config import settings
@@ -198,14 +199,60 @@ async def _resolve_webhook_user_id(
     if metadata_user_id is not None:
         return metadata_user_id
 
+    lookup_filters = []
     if event.session_id:
+        lookup_filters.append(Payment.provider_session_id == event.session_id)
+        lookup_filters.append(Payment.provider_payment_id == event.session_id)
+    if event.payment_id:
+        lookup_filters.append(Payment.provider_payment_id == event.payment_id)
+        lookup_filters.append(Payment.provider_session_id == event.payment_id)
+
+    if lookup_filters:
         result = await db.execute(
-            select(Payment.user_id).where(Payment.provider_session_id == event.session_id)
+            select(Payment.user_id)
+            .where(or_(*lookup_filters))
+            .order_by(Payment.created_at.desc())
+            .limit(1)
         )
         user_id = result.scalar_one_or_none()
-        return _normalize_uuid(user_id)
+        normalized = _normalize_uuid(user_id)
+        if normalized is not None:
+            return normalized
 
     return None
+
+
+async def _resolve_reference_payment(
+    event: VerifiedWebhookEvent,
+    db: AsyncSession,
+) -> Payment | None:
+    lookup_filters = []
+    if event.session_id:
+        lookup_filters.append(Payment.provider_session_id == event.session_id)
+        lookup_filters.append(Payment.provider_payment_id == event.session_id)
+    if event.payment_id:
+        lookup_filters.append(Payment.provider_payment_id == event.payment_id)
+        lookup_filters.append(Payment.provider_session_id == event.payment_id)
+
+    if not lookup_filters:
+        return None
+
+    result = await db.execute(
+        select(Payment)
+        .where(Payment.provider == event.provider, or_(*lookup_filters))
+        .order_by(Payment.created_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+def _amount_matches_reference(
+    event_amount: int | None,
+    reference_amount: int | None,
+) -> bool:
+    if event_amount is None or reference_amount is None:
+        return True
+    return int(event_amount) == int(reference_amount)
 
 
 async def _has_settled_success_for_transaction(
@@ -488,6 +535,65 @@ async def create_session(
     return await _create_session(current_user=current_user, db=db, request_payload=payload)
 
 
+@router.get("/api/payments/transactions/{cheque_id}", response_model=TransactionStatusResponse)
+async def get_transaction_status(
+    cheque_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> TransactionStatusResponse:
+    """
+    Check TsPay cheque/transaction payment status.
+    """
+    normalized_cheque_id = cheque_id.strip()
+    if not normalized_cheque_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="cheque_id is required.",
+        )
+
+    local_payment_result = await db.execute(
+        select(Payment).where(
+            Payment.provider == PAYMENT_PROVIDER.provider_name,
+            or_(
+                Payment.provider_session_id == normalized_cheque_id,
+                Payment.provider_payment_id == normalized_cheque_id,
+            ),
+        )
+    )
+    local_payment = local_payment_result.scalar_one_or_none()
+    if (
+        local_payment is not None
+        and local_payment.user_id is not None
+        and local_payment.user_id != current_user.id
+        and not current_user.is_admin
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden.")
+
+    try:
+        provider_status = await PAYMENT_PROVIDER.get_transaction_status(
+            cheque_id=normalized_cheque_id
+        )
+    except PaymentProviderError as exc:
+        logger.error(
+            "TSPay transaction status check failed for cheque_id=%s: %s",
+            normalized_cheque_id,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Payment provider unavailable.",
+        ) from exc
+
+    return TransactionStatusResponse(
+        cheque_id=provider_status.cheque_id,
+        transaction_id=provider_status.transaction_id,
+        pay_status=provider_status.pay_status,
+        amount=provider_status.amount,
+        provider=provider_status.provider,
+        raw=provider_status.raw_response,
+    )
+
+
 @router.post("/api/payments/quote", response_model=CheckoutQuoteResponse)
 async def create_checkout_quote(
     request_payload: CreateSessionRequest | None = Body(default=None),
@@ -680,6 +786,8 @@ async def _process_verified_webhook_event(
     if payment and payment.processed_at is not None:
         return WebhookResponse(status="success", idempotent=True)
 
+    reference_payment = await _resolve_reference_payment(event=event, db=db)
+
     if payment is None:
         payment = Payment(
             provider=event.provider,
@@ -704,13 +812,36 @@ async def _process_verified_webhook_event(
         payment.raw_payload = event.raw_payload
         payment.status = "processing"
 
+    if reference_payment is not None:
+        if payment.amount_cents is None:
+            payment.amount_cents = reference_payment.amount_cents
+        if payment.currency is None:
+            payment.currency = reference_payment.currency
+
     user_id = await _resolve_webhook_user_id(event, db)
+    if user_id is None and reference_payment is not None:
+        user_id = _normalize_uuid(reference_payment.user_id)
     if user_id is not None:
         payment.user_id = user_id
 
     now = utc_now()
 
     if event.is_success:
+        if reference_payment is not None and not _amount_matches_reference(
+            event_amount=event.amount_cents,
+            reference_amount=reference_payment.amount_cents,
+        ):
+            payment.status = "failed"
+            payment.processed_at = now
+            await db.commit()
+            logger.error(
+                "TSPay webhook amount mismatch. event_id=%s event_amount=%s expected_amount=%s",
+                event.provider_event_id,
+                event.amount_cents,
+                reference_payment.amount_cents,
+            )
+            return WebhookResponse(status="ignored")
+
         if await _has_settled_success_for_transaction(event=event, db=db):
             payment.status = "ignored"
             payment.processed_at = now
@@ -786,11 +917,14 @@ async def tspay_webhook(
     try:
         event = PAYMENT_PROVIDER.verify_webhook(payload=payload, signature_header=signature)
     except PaymentReplayError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        logger.warning("TSPay webhook replay/timestamp issue: %s", exc)
+        return WebhookResponse(status="ignored")
     except PaymentSignatureError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        logger.warning("TSPay webhook signature issue: %s", exc)
+        return WebhookResponse(status="ignored")
     except PaymentProviderError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        logger.warning("TSPay webhook payload issue: %s", exc)
+        return WebhookResponse(status="ignored")
 
     return await _process_verified_webhook_event(event=event, signature=signature, db=db)
 
