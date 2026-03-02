@@ -1,0 +1,73 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+packages:
+  - git
+  - python3-venv
+  - python3-pip
+  - build-essential
+  - libpq-dev
+  - postgresql
+  - postgresql-contrib
+
+write_files:
+  - path: /etc/systemd/system/autotest.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=AUTOTEST FastAPI Service
+      After=network.target postgresql.service
+
+      [Service]
+      Type=simple
+      User=root
+      WorkingDirectory=/opt/autotest
+      EnvironmentFile=/opt/autotest/.env
+      ExecStart=/opt/autotest/.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+      Restart=always
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - export AUTOTEST_REPO_URL=https://github.com/Avto-Test/AvtoTest_02.git
+  - mkdir -p /opt/autotest
+  - if [ ! -d /opt/autotest/.git ]; then git clone "$AUTOTEST_REPO_URL" /opt/autotest; else cd /opt/autotest && git pull; fi
+  - cd /opt/autotest && python3 -m venv .venv
+  - cd /opt/autotest && .venv/bin/pip install --upgrade pip
+  - cd /opt/autotest && .venv/bin/pip install -r requirements.txt
+  - cd /opt/autotest && .venv/bin/pip install email-validator
+  - sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='autotest'" | grep -q 1 || sudo -u postgres psql -c "CREATE ROLE autotest WITH LOGIN PASSWORD 'CHANGE_ME_DB_PASSWORD';"
+  - sudo -u postgres psql -lqt | cut -d \| -f 1 | grep -qw autotest || sudo -u postgres psql -c "CREATE DATABASE autotest OWNER autotest;"
+  - |
+    cat > /opt/autotest/.env << 'EOF'
+    APP_NAME=AUTOTEST
+    ENVIRONMENT=production
+    DEBUG=false
+    SECRET_KEY=CHANGE_ME_SECRET_KEY
+    LOG_LEVEL=INFO
+    DATABASE_URL=postgresql+asyncpg://autotest:CHANGE_ME_DB_PASSWORD@localhost:5432/autotest
+    ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+    FRONTEND_SUCCESS_URL=http://localhost:3000/payment/success
+    FRONTEND_CANCEL_URL=http://localhost:3000/payment/cancel
+    TSPAY_API_BASE_URL=https://tspay.uz/api/v1
+    TSPAY_CREATE_TRANSACTION_PATH=/transactions/create/
+    TSPAY_TRANSACTION_STATUS_PATH_TEMPLATE=/transactions/{cheque_id}/
+    TSPAY_ACCESS_TOKEN=
+    TSPAY_WEBHOOK_SECRET=
+    EOF
+  - cd /opt/autotest && .venv/bin/alembic upgrade head
+  - systemctl daemon-reload
+  - systemctl enable autotest
+  - systemctl restart autotest
+  - systemctl status autotest --no-pager
+  - |
+    cat > /root/AUTOTEST_DEPLOY_INFO.txt << 'EOF'
+    AUTOTEST deployed via cloud-init.
+    App path: /opt/autotest
+    Service: autotest (systemd)
+    Health URL: http://<DROPLET_IP>:8000/health
+    DB user: autotest
+    NOTE: set SECRET_KEY, DB password and TSPAY token before public launch.
+    EOF
