@@ -6,6 +6,8 @@ Environment variables management using Pydantic Settings
 import os
 from functools import lru_cache
 
+from typing import Any, Union
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,10 +17,20 @@ class Settings(BaseSettings):
     # App
     APP_NAME: str = "AUTOTEST"
     ENVIRONMENT: str = "development"
-    DEBUG: bool = False
+    DEBUG: bool = False # Default to False for production safety
+    ENABLE_EMAIL_VERIFICATION: bool = False
+    
+    # Email (Required in Production)
+    EMAIL_HOST: str = "smtp.gmail.com"
+    EMAIL_PORT: int = 587
+    EMAIL_USERNAME: str = ""
+    EMAIL_PASSWORD: str = ""
+    EMAIL_FROM: str = ""
     
     # Security
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
+    # SECRET_KEY must be a long random string in production.
+    # It is MANDATORY if DEBUG=False.
+    SECRET_KEY: str = "" 
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     ALGORITHM: str = "HS256"
     
@@ -29,15 +41,65 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     
     # CORS
-    ALLOWED_ORIGINS: list[str] = ["http://localhost:3000"]
+    ALLOWED_ORIGINS: Union[list[str], str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def parse_debug_flag(cls, value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"1", "true", "yes", "on", "debug", "development", "dev"}:
+                return True
+            if normalized in {"0", "false", "no", "off", "release", "prod", "production"}:
+                return False
+        raise ValueError("DEBUG must be a valid boolean-like value")
+
+    @field_validator("ALLOWED_ORIGINS", mode="before")
+    @classmethod
+    def assemble_cors_origins(cls, v: str | list[str]) -> list[str]:
+        if isinstance(v, str) and not v.startswith("["):
+            return [i.strip() for i in v.split(",")]
+        elif isinstance(v, (list, str)):
+            return v
+        raise ValueError(v)
     
-    # Payment (Stripe)
-    STRIPE_SECRET_KEY: str = os.getenv("STRIPE_SECRET_KEY", "")
-    STRIPE_WEBHOOK_SECRET: str = os.getenv("STRIPE_WEBHOOK_SECRET", "")
-    PREMIUM_PRICE_USD: int = 10  # $10.00
-    FRONTEND_SUCCESS_URL: str = os.getenv("FRONTEND_SUCCESS_URL", "http://localhost:3000/payment/success")
-    FRONTEND_CANCEL_URL: str = os.getenv("FRONTEND_CANCEL_URL", "http://localhost:3000/payment/cancel")
-    
+    # Payments (Legacy Stripe)
+    # Retained for backward compatibility.
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+
+    # Payments (TSPay)
+    TSPAY_API_BASE_URL: str = "https://api.tspay.example"
+    TSPAY_CREATE_SESSION_PATH: str = "/v1/merchant/checkout/sessions"
+    TSPAY_API_KEY: str = ""
+    TSPAY_MERCHANT_ID: str = ""
+    TSPAY_WEBHOOK_SECRET: str = ""
+    TSPAY_WEBHOOK_TOLERANCE_SECONDS: int = 300
+    TSPAY_REQUEST_TIMEOUT_SECONDS: float = 10.0
+
+    PREMIUM_PRICE_USD: int = 10
+    FRONTEND_SUCCESS_URL: str = "http://localhost:3000/payment/success"
+    FRONTEND_CANCEL_URL: str = "http://localhost:3000/payment/cancel"
+
+    @model_validator(mode="after")
+    def validate_production_settings(self) -> "Settings":
+        if not self.DEBUG:
+            if not self.SECRET_KEY:
+                raise ValueError("SECRET_KEY must be set when DEBUG is False (Production Mode)")
+            if self.SECRET_KEY == "your-secret-key-change-in-production":
+                raise ValueError("Insecure SECRET_KEY detected in Production Mode")
+
+            if not self.TSPAY_API_KEY or not self.TSPAY_MERCHANT_ID:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "TSPAY merchant credentials are missing. Subscription payments will fail."
+                )
+        return self
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

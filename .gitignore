@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.env
+.pytest_cache/
+pytest_failures*.txt
+pytest_full*.txt
+ml_models/*.joblib
+ml_models/*.json
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/.env.local
+uploads/

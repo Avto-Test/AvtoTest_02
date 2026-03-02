@@ -10,14 +10,17 @@ from uuid import UUID
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from fastapi.concurrency import run_in_threadpool
+
+from core.config import settings
 
 # Password hashing configuration
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 # JWT configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+SECRET_KEY = settings.SECRET_KEY
+ALGORITHM = settings.ALGORITHM
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -25,9 +28,19 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
+async def verify_password_async(plain_password: str, hashed_password: str) -> bool:
+    """Verify password asynchronously in a thread pool."""
+    return await run_in_threadpool(verify_password, plain_password, hashed_password)
+
+
 def get_password_hash(password: str) -> str:
-    """Hash a password using bcrypt."""
+    """Hash a password using PBKDF2."""
     return pwd_context.hash(password)
+
+
+async def get_password_hash_async(password: str) -> str:
+    """Hash password asynchronously in a thread pool."""
+    return await run_in_threadpool(get_password_hash, password)
 
 
 def create_access_token(user_id: UUID, expires_delta: timedelta | None = None) -> str:

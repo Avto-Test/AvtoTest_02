@@ -19,8 +19,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from database.base import Base
 from models import (  # noqa: F401 - Import to register model metadata
     AnswerOption,
+    AnalyticsEvent,
     Attempt,
     AttemptAnswer,
+    Payment,
     Question,
     Subscription,
     Test,

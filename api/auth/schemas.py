@@ -10,6 +10,10 @@ class UserCreate(BaseModel):
     """Schema for user registration."""
     email: EmailStr
     password: str
+    
+    model_config = {
+        "extra": "ignore"
+    }
 
 
 class UserLogin(BaseModel):

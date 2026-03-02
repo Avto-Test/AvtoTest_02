@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Integer
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, JSON, String, desc
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from models.attempt_answer import AttemptAnswer
     from models.test import Test
     from models.user import User
+    from models.inference_snapshot import InferenceSnapshot
 
 
 class Attempt(Base):
@@ -53,6 +54,68 @@ class Attempt(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    mode: Mapped[str] = mapped_column(
+        String(20),
+        default="standard",
+        server_default="standard",
+        nullable=False,
+    )
+    training_level: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+    )
+    
+    # Cognitive Load & Exam Pressure Simulation Fields
+    avg_response_time: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+    response_time_variance: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+    pressure_mode: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
+    )
+    pressure_score_modifier: Mapped[float] = mapped_column(
+        Float,
+        default=1.0,
+        server_default="1.0",
+        nullable=False,
+    )
+    question_ids: Mapped[list[str]] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )
+    question_count: Mapped[int] = mapped_column(
+        Integer,
+        default=20,
+        server_default="20",
+        nullable=False,
+    )
+    time_limit_seconds: Mapped[int] = mapped_column(
+        Integer,
+        default=1500,
+        server_default="1500",
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint("avg_response_time >= 0", name="check_avg_response_time_positive"),
+        CheckConstraint("response_time_variance >= 0", name="check_response_time_variance_positive"),
+        CheckConstraint("pressure_score_modifier >= 0.7 AND pressure_score_modifier <= 1.0", name="check_pressure_score_modifier_bounds"),
+        CheckConstraint("question_count >= 1", name="check_attempt_question_count_positive"),
+        CheckConstraint("time_limit_seconds >= 30", name="check_attempt_time_limit_seconds_min"),
+        Index("ix_attempts_user_finished", "user_id", desc("finished_at")),
+    )
+    
+    @property
+    def is_adaptive(self) -> bool:
+        return self.mode == "adaptive"
     
     # Relationships
     user: Mapped["User"] = relationship(
@@ -67,6 +130,11 @@ class Attempt(Base):
         "AttemptAnswer",
         back_populates="attempt",
         cascade="all, delete-orphan",
+    )
+    inference_snapshot: Mapped["InferenceSnapshot"] = relationship(
+        "InferenceSnapshot",
+        back_populates="attempt",
+        uselist=False,
     )
     
     def calculate_score(self) -> int:

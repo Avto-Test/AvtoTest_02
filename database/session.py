@@ -11,11 +11,12 @@ from core.config import settings
 
 # Database URL from settings
 DATABASE_URL = settings.DATABASE_URL
+print(f"DEBUG: Using DATABASE_URL: {DATABASE_URL}")
 
 # Create async engine
 engine = create_async_engine(
     DATABASE_URL,
-    echo=True,  # SQL logging enabled for development
+    echo=False,  # Set to False to avoid potential sync logging issues
     future=True,
 )
 
@@ -38,9 +39,5 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_maker() as session:
         try:
             yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
         finally:
             await session.close()

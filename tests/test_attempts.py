@@ -103,3 +103,59 @@ async def test_attempt_ownership(client: AsyncClient, admin_user_token: str, db_
         # No header
     )
     assert fail_resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_bulk_submit_allows_partial_answers(
+    client: AsyncClient,
+    normal_user_token: str,
+    admin_user_token: str,
+    db_session: AsyncSession,
+):
+    # Setup first question
+    test_id, question_id, correct_option_id = await setup_test_with_questions(db_session, admin_user_token, client)
+
+    # Add second question to the same test
+    q2 = await client.post(
+        f"/admin/tests/{test_id}/questions",
+        json={"text": "Q2"},
+        headers={"Authorization": f"Bearer {admin_user_token}"},
+    )
+    q2_id = q2.json()["id"]
+    await client.post(
+        f"/admin/questions/{q2_id}/options",
+        json={"text": "Wrong 2", "is_correct": False},
+        headers={"Authorization": f"Bearer {admin_user_token}"},
+    )
+    await client.post(
+        f"/admin/questions/{q2_id}/options",
+        json={"text": "Right 2", "is_correct": True},
+        headers={"Authorization": f"Bearer {admin_user_token}"},
+    )
+
+    # Start attempt
+    start_resp = await client.post(
+        "/attempts/start",
+        json={"test_id": test_id},
+        headers={"Authorization": f"Bearer {normal_user_token}"},
+    )
+    assert start_resp.status_code == 201
+    attempt_id = start_resp.json()["id"]
+
+    # Submit only first question answer, but provide response times for all questions
+    submit_resp = await client.post(
+        "/attempts/submit",
+        json={
+            "attempt_id": attempt_id,
+            "answers": {
+                question_id: correct_option_id,
+            },
+            "response_times": [1000, 1200],
+        },
+        headers={"Authorization": f"Bearer {normal_user_token}"},
+    )
+    assert submit_resp.status_code == 200
+    data = submit_resp.json()
+    assert data["total"] == 2
+    assert data["correct_count"] == 1
+    assert data["mistakes_count"] == 1

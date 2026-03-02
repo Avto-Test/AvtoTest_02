@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -38,13 +38,46 @@ class Subscription(Base):
         nullable=False,
         default="free",
     )
+    status: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="inactive",
+    )
+    provider: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="tspay",
+    )
+    provider_subscription_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+    starts_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
+    canceled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    cancel_at_period_end: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
     
@@ -57,11 +90,16 @@ class Subscription(Base):
     @property
     def is_active(self) -> bool:
         """Check if subscription is currently active."""
+        # Free tier never counts as paid premium access.
         if self.plan == "free":
-            return True
+            return False
+        # Only explicitly active paid statuses unlock premium features.
+        if self.status not in {"active", "trialing"}:
+            return False
+        now = datetime.now(timezone.utc)
         if self.expires_at is None:
             return True
-        return self.expires_at > datetime.now(timezone.utc)
+        return self.expires_at > now
     
     def __repr__(self) -> str:
         return f"<Subscription(id={self.id}, user_id={self.user_id}, plan={self.plan})>"

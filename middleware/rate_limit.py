@@ -1,58 +1,64 @@
 """
 AUTOTEST Rate Limiting Middleware
-Simple in-memory rate limiting for auth endpoints
+Pure ASGI implementation to avoid BaseHTTPMiddleware bugs
 """
 
 import time
+import json
 from collections import defaultdict
-
-from fastapi import Request, Response
-from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from core.logging import get_logger
 
 logger = get_logger(__name__)
 
-
-class RateLimitMiddleware(BaseHTTPMiddleware):
+class RateLimitMiddleware:
     """
-    In-memory rate limiting middleware.
-    Applies strict limits to auth endpoints (login, register, verify).
+    Pure ASGI rate limiting middleware.
+    Applies strict limits to auth endpoints.
     """
-    
-    def __init__(self, app, requests_per_minute: int = 5):
-        super().__init__(app)
+    def __init__(self, app: ASGIApp, requests_per_minute: int = 5):
+        self.app = app
         self.requests_per_minute = requests_per_minute
-        # Dictionary to store request timestamps: data[ip] = [timestamp1, timestamp2, ...]
         self.request_history: dict[str, list[float]] = defaultdict(list)
-    
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        """
-        Process request and enforce rate limits on sensitive endpoints.
-        """
-        path = request.url.path
-        
-        # Only rate limit auth endpoints
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope["path"]
         if path.startswith("/auth/"):
-            client_ip = request.client.host if request.client else "unknown"
+            # Get client IP from headers or scope
+            client_ip = "unknown"
+            for host, port in [scope.get("client", [])]:
+                client_ip = host
+                break
+                
             now = time.time()
-            
-            # Clean up old requests (older than 1 minute)
             self.request_history[client_ip] = [
                 ts for ts in self.request_history[client_ip]
                 if now - ts < 60
             ]
-            
-            # Check limit
+
             if len(self.request_history[client_ip]) >= self.requests_per_minute:
                 logger.warning(f"Rate limit exceeded for IP: {client_ip} on {path}")
-                return JSONResponse(
-                    status_code=429,
-                    content={"detail": "Too many requests. Please try again later."},
-                )
-            
-            # Record request
+                
+                # Construct 429 response
+                response_body = json.dumps({"detail": "Too many requests. Please try again later."}).encode("utf-8")
+                await send({
+                    "type": "http.response.start",
+                    "status": 429,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                    ]
+                })
+                await send({
+                    "type": "http.response.body",
+                    "body": response_body,
+                })
+                return
+
             self.request_history[client_ip].append(now)
-            
-        return await call_next(request)
+
+        await self.app(scope, receive, send)
