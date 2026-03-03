@@ -687,13 +687,61 @@ async def submit_partner_application(
     db: AsyncSession = Depends(get_db),
 ) -> DrivingSchoolPartnerApplication:
     current_user = await _get_optional_user(request, db)
+    active_application_statuses = {"new", "pending", "reviewing", "approved"}
+    status_labels = {
+        "new": "kutilmoqda",
+        "pending": "kutilmoqda",
+        "reviewing": "korib chiqilmoqda",
+        "approved": "tasdiqlangan",
+        "rejected": "rad etilgan",
+    }
+
+    normalized_email = str(payload.email).strip().lower()
+    normalized_phone = payload.phone.strip()
+
+    if current_user is not None:
+        existing_school_result = await db.execute(
+            select(DrivingSchool.id).where(DrivingSchool.owner_user_id == current_user.id)
+        )
+        if existing_school_result.scalar_one_or_none() is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Sizda allaqachon avtomaktab profili mavjud.",
+            )
+
+    if current_user is not None:
+        duplicate_stmt = (
+            select(DrivingSchoolPartnerApplication)
+            .where(DrivingSchoolPartnerApplication.user_id == current_user.id)
+            .order_by(DrivingSchoolPartnerApplication.created_at.desc())
+        )
+    else:
+        duplicate_stmt = (
+            select(DrivingSchoolPartnerApplication)
+            .where(
+                (DrivingSchoolPartnerApplication.email == normalized_email)
+                | (DrivingSchoolPartnerApplication.phone == normalized_phone)
+            )
+            .order_by(DrivingSchoolPartnerApplication.created_at.desc())
+        )
+    duplicate_result = await db.execute(duplicate_stmt)
+    latest_application = duplicate_result.scalars().first()
+    if latest_application is not None:
+        latest_status = (latest_application.status or "").strip().lower()
+        if latest_status in active_application_statuses:
+            status_text = status_labels.get(latest_status, latest_status)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Sizda allaqachon ariza mavjud. Holat: {status_text}.",
+            )
+
     application = DrivingSchoolPartnerApplication(
         user_id=current_user.id if current_user else None,
         school_name=payload.school_name.strip(),
         city=payload.city.strip(),
         responsible_person=payload.responsible_person.strip(),
-        phone=payload.phone.strip(),
-        email=str(payload.email).strip().lower(),
+        phone=normalized_phone,
+        email=normalized_email,
         note=payload.note.strip() if payload.note else None,
         status="new",
     )

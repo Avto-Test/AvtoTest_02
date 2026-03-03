@@ -180,21 +180,22 @@ export default function InstructorDashboardPage() {
       };
     }
 
-    if (application?.status === 'rejected') {
+    const applicationStatus = (application?.status || '').toLowerCase();
+    if (applicationStatus === 'rejected') {
       return {
         tone: 'blocked',
         label: 'Rad etilgan',
         hint: application.rejection_reason || "Ariza qayta ko'rib chiqish uchun yangilanishi kerak.",
       };
     }
-    if (application?.status === 'approved') {
+    if (applicationStatus === 'approved') {
       return {
         tone: 'active',
         label: 'Tasdiqlangan',
         hint: 'Profil biriktirilmoqda, sahifani yangilang.',
       };
     }
-    if (application?.status === 'pending') {
+    if (['pending', 'new', 'reviewing'].includes(applicationStatus)) {
       return {
         tone: 'pending',
         label: 'Tekshiruvda',
