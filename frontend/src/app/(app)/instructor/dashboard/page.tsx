@@ -185,7 +185,7 @@ export default function InstructorDashboardPage() {
       return {
         tone: 'blocked',
         label: 'Rad etilgan',
-        hint: application.rejection_reason || "Ariza qayta ko'rib chiqish uchun yangilanishi kerak.",
+        hint: application?.rejection_reason || "Ariza qayta ko'rib chiqish uchun yangilanishi kerak.",
       };
     }
     if (applicationStatus === 'approved') {
