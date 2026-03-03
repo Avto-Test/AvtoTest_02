@@ -50,7 +50,7 @@ export function AdminLayout({ children, title, description, actions }: AdminLayo
             {/* Sidebar */}
             <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:shrink-0 lg:sticky lg:top-0 lg:h-screen border-r border-border bg-card">
                 {/* Logo */}
-                <div className="flex h-16 items-center gap-2 px-6 border-b border-border">
+                <div className="flex h-16 items-center gap-2 border-b border-border px-4 sm:px-6">
                     <Link href="/admin" className="flex items-center gap-2">
                         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
                             <span className="text-sm font-bold text-primary-foreground">AT</span>
@@ -98,7 +98,7 @@ export function AdminLayout({ children, title, description, actions }: AdminLayo
                 {/* Page Header */}
                 {(title || actions) && (
                     <div className="border-b border-border bg-card">
-                        <div className="px-6 py-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                        <div className="flex flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-6">
                             <div>
                                 {title && <h1 className="text-2xl font-bold tracking-tight">{title}</h1>}
                                 {description && <p className="text-muted-foreground mt-1">{description}</p>}
@@ -109,7 +109,7 @@ export function AdminLayout({ children, title, description, actions }: AdminLayo
                 )}
 
                 {/* Page Content */}
-                <div className="p-6">
+                <div className="p-4 sm:p-6">
                     {children}
                 </div>
             </main>

@@ -60,7 +60,7 @@ export const instructorProfileBuilderSchema = z.object({
   minLessonMinutes: z.number().int().min(15).max(240),
   maxLessonMinutes: z.number().int().min(15).max(360),
   availableSlots: z.array(scheduleSlotSchema).max(20),
-  bio: z.string().min(30, 'Bio kamida 30 ta belgi bo‘lishi kerak').max(2200),
+    bio: z.string().min(30, "Bio kamida 30 ta belgi bo'lishi kerak").max(2200),
   tags: z.array(z.string().min(2).max(32)).max(20),
   media: z.array(mediaItemSchema).max(30),
   location: locationSchema,
@@ -136,3 +136,4 @@ export const publishProfileBuilderSchema = instructorProfileBuilderSchema.pick({
 });
 
 export type PublishProfileBuilderData = z.infer<typeof publishProfileBuilderSchema>;
+

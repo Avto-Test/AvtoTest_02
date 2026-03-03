@@ -16,7 +16,7 @@ export default function AppLayout({
         <GlobalAuthGate>
             <div className="min-h-screen bg-background">
                 {!isExamMode && <AppNavbar />}
-                <main className={!isExamMode ? "p-6" : ""}>
+                <main className={!isExamMode ? "py-4 sm:py-5 md:py-6" : ""}>
                     <div className={!isExamMode ? "container-app" : "h-full"}>
                         {children}
                     </div>

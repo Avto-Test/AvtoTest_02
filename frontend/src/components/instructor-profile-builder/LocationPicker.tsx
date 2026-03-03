@@ -37,7 +37,7 @@ const MapPickerCanvas = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex h-80 items-center justify-center rounded-xl border border-cyan-400/40 bg-slate-900/70 text-sm text-slate-300">
+      <div className="flex h-[50vh] min-h-[320px] items-center justify-center rounded-xl border border-cyan-400/40 bg-slate-900/70 text-sm text-slate-300">
         Xarita yuklanmoqda...
       </div>
     ),
@@ -111,6 +111,7 @@ export function LocationPicker({
           longitude={value.longitude}
           isOpen
           readOnly
+          heightClass="h-44"
           onPick={() => {}}
         />
       ) : (
@@ -122,7 +123,7 @@ export function LocationPicker({
       {error ? <p className="text-xs text-red-300">{error}</p> : null}
 
       <Dialog open={mapOpen} onOpenChange={onMapOpenChange}>
-        <DialogContent className="max-w-2xl bg-slate-950 text-slate-100">
+        <DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto border border-cyan-400/40 bg-slate-950 text-slate-100">
           <DialogHeader>
             <DialogTitle>Xaritadan lokatsiya tanlash</DialogTitle>
             <DialogDescription className="text-slate-400">
@@ -135,6 +136,7 @@ export function LocationPicker({
             latitude={value.latitude}
             longitude={value.longitude}
             isOpen={mapOpen}
+            heightClass="h-[50vh] min-h-[320px]"
             onPick={onSetFromMap}
           />
 

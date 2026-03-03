@@ -18,7 +18,7 @@ export default function MarketingLayout({
             <footer className="border-t border-border/70 bg-background/70 backdrop-blur">
                 <div className="container-app flex flex-col gap-4 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
                     <p>&copy; {year} AUTOTEST. Zamonaviy nomzodlar uchun AI asosidagi imtihon intellekti.</p>
-                    <div className="flex items-center gap-5">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                         <Link href="/privacy" className="transition-colors hover:text-foreground">
                             Maxfiylik
                         </Link>

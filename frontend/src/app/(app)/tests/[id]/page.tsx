@@ -423,36 +423,37 @@ export default function TestAttemptPage() {
             onDragStart={(event) => event.preventDefault()}
         >
             {/* Header */}
-            <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-card px-6 shadow-sm">
-                <div className="flex items-center gap-4">
+            <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-3 shadow-sm sm:h-16 sm:px-4 md:px-6">
+                <div className="flex min-w-0 items-center gap-2 sm:gap-4">
                     <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => router.push("/tests?mode=adaptive")}
-                        className="text-muted-foreground hover:text-foreground"
+                        className="px-2 text-muted-foreground hover:text-foreground sm:px-3"
                     >
-                        <ChevronLeft className="w-4 h-4 mr-1" />
-                        {t("test.quit")}
+                        <ChevronLeft className="mr-1 h-4 w-4" />
+                        <span className="hidden sm:inline">{t("test.quit")}</span>
                     </Button>
-                    <div className="h-4 w-[1px] bg-border" />
-                    <h2 className="max-w-[200px] truncate font-semibold text-foreground md:max-w-none">
+                    <div className="hidden h-4 w-[1px] bg-border sm:block" />
+                    <h2 className="max-w-[150px] truncate text-sm font-semibold text-foreground sm:max-w-[220px] md:max-w-none md:text-base">
                         {t("test.title")}
                     </h2>
                 </div>
 
-                <div className="flex items-center gap-4">
-                    <Badge variant="secondary" className="flex items-center gap-2 border-border bg-muted px-3 py-1 font-mono text-base text-foreground">
-                        <Timer className={`w-4 h-4 ${remainingTime < 300 ? "animate-pulse text-red-500" : "text-muted-foreground"}`} />
+                <div className="flex items-center gap-2 sm:gap-4">
+                    <Badge variant="secondary" className="flex items-center gap-1.5 border-border bg-muted px-2 py-1 font-mono text-sm text-foreground sm:gap-2 sm:px-3 sm:text-base">
+                        <Timer className={`h-4 w-4 ${remainingTime < 300 ? "animate-pulse text-red-500" : "text-muted-foreground"}`} />
                         {formatTime(remainingTime)}
                     </Badge>
                     <Button
                         onClick={() => {
                             void handleSubmit();
                         }}
-                        className="bg-[#00B37E] hover:bg-[#009468] text-white rounded-lg h-9"
+                        className="h-9 rounded-lg bg-[#00B37E] px-3 text-white hover:bg-[#009468] sm:px-4"
                         disabled={isSubmitting}
                     >
-                        {t("test.finish")}
+                        <span className="hidden sm:inline">{t("test.finish")}</span>
+                        <span className="sm:hidden">Finish</span>
                     </Button>
                 </div>
             </header>
@@ -463,8 +464,8 @@ export default function TestAttemptPage() {
             </div>
 
             {/* Main Content */}
-            <main className="flex-1 overflow-y-auto p-6 md:p-12">
-                <div className="max-w-3xl mx-auto space-y-8">
+            <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-10">
+                <div className="mx-auto max-w-3xl space-y-6 sm:space-y-8">
                     {/* Question Meta */}
                     <div className="flex items-center justify-between">
                         <span className="text-sm font-semibold text-[#00B37E] uppercase tracking-wider">
@@ -479,7 +480,7 @@ export default function TestAttemptPage() {
 
                     {/* Question Text */}
                     <div className="space-y-6">
-                        <h1 className="text-2xl font-bold leading-tight text-foreground md:text-3xl">
+                        <h1 className="text-xl font-bold leading-tight text-foreground sm:text-2xl md:text-3xl">
                             {currentQuestion.text}
                         </h1>
 
@@ -520,7 +521,8 @@ export default function TestAttemptPage() {
                                 key={option.id}
                                 onClick={() => handleAnswerCapture(currentQuestion.id, option.id)}
                                 className={`
-                  w-full flex items-center gap-4 p-5 rounded-2xl border-2 text-left transition-all duration-200 group
+                  group w-full rounded-2xl border-2 p-4 text-left transition-all duration-200 sm:p-5
+                  flex items-center gap-3 sm:gap-4
                   ${answers[currentQuestion.id] === option.id
                                         ? 'border-[#00B37E] bg-[#00B37E]/5 ring-4 ring-[#00B37E]/5'
                                         : 'border-border bg-card hover:border-[#00B37E]/40 hover:bg-muted/50'
@@ -528,7 +530,8 @@ export default function TestAttemptPage() {
                 `}
                             >
                                 <div className={`
-                  w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold shrink-0 transition-colors
+                  h-8 w-8 shrink-0 rounded-lg text-sm font-bold transition-colors
+                  flex items-center justify-center
                   ${answers[currentQuestion.id] === option.id
                                         ? 'bg-[#00B37E] text-white'
                                         : 'bg-muted text-muted-foreground group-hover:bg-[#00B37E]/10 group-hover:text-[#00B37E]'
@@ -536,7 +539,7 @@ export default function TestAttemptPage() {
                 `}>
                                     {String.fromCharCode(65 + idx)}
                                 </div>
-                                <span className={`font-medium ${answers[currentQuestion.id] === option.id ? 'text-foreground' : 'text-muted-foreground'}`}>
+                                <span className={`text-sm font-medium sm:text-base ${answers[currentQuestion.id] === option.id ? 'text-foreground' : 'text-muted-foreground'}`}>
                                     {stripCorrectMarker(option.text)}
                                 </span>
                             </button>
@@ -546,18 +549,18 @@ export default function TestAttemptPage() {
             </main>
 
             {/* Footer Navigation */}
-            <footer className="flex h-20 shrink-0 items-center justify-between border-t border-border bg-card px-6 shadow-[0_-1px_3px_rgba(0,0,0,0.05)]">
+            <footer className="flex h-16 shrink-0 items-center justify-between border-t border-border bg-card px-3 shadow-[0_-1px_3px_rgba(0,0,0,0.05)] sm:h-20 sm:px-6">
                 <Button
                     variant="outline"
                     disabled={currentQuestionIndex === 0}
                     onClick={prevQuestion}
-                    className="h-11 rounded-xl border-border px-6 font-semibold text-foreground"
+                    className="h-10 rounded-xl border-border px-3 font-semibold text-foreground sm:h-11 sm:px-6"
                 >
                     <ChevronLeft className="w-4 h-4 mr-2" />
-                    {t("test.previous")}
+                    <span className="hidden sm:inline">{t("test.previous")}</span>
                 </Button>
 
-                <div className="hidden md:flex gap-1">
+                <div className="flex max-w-[42vw] items-center gap-1 overflow-x-auto py-1 md:max-w-none">
                     {questions.map((_, idx: number) => (
                         <button
                             key={idx}
@@ -576,20 +579,20 @@ export default function TestAttemptPage() {
                         onClick={() => {
                             void handleSubmit();
                         }}
-                        className="bg-[#00B37E] hover:bg-[#009468] text-white rounded-xl h-11 px-8 font-semibold shadow-lg shadow-[#00B37E]/20"
+                        className="h-10 rounded-xl bg-[#00B37E] px-3 font-semibold text-white shadow-lg shadow-[#00B37E]/20 hover:bg-[#009468] sm:h-11 sm:px-8"
                         disabled={isSubmitting}
                     >
-                        {t("test.submit")}
-                        <Send className="w-4 h-4 ml-2" />
+                        <span className="hidden sm:inline">{t("test.submit")}</span>
+                        <Send className="h-4 w-4 sm:ml-2" />
                     </Button>
                 ) : (
                     <Button
                         onClick={nextQuestion}
-                        className="h-11 rounded-xl bg-primary px-8 font-semibold text-primary-foreground hover:bg-primary/90"
+                        className="h-10 rounded-xl bg-primary px-3 font-semibold text-primary-foreground hover:bg-primary/90 sm:h-11 sm:px-8"
                         disabled={isSubmitting}
                     >
-                        {t("test.next")}
-                        <ChevronRight className="w-4 h-4 ml-2" />
+                        <span className="hidden sm:inline">{t("test.next")}</span>
+                        <ChevronRight className="h-4 w-4 sm:ml-2" />
                     </Button>
                 )}
             </footer>
