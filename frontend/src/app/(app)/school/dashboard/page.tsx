@@ -150,7 +150,7 @@ export default function SchoolDashboardPage() {
       return {
         tone: 'blocked',
         label: 'Rad etildi',
-        hint: application.note || "Ariza qayta to'ldirilishi kerak.",
+        hint: application?.note || "Ariza qayta to'ldirilishi kerak.",
       };
     }
     if (['pending', 'new', 'reviewing'].includes(applicationStatus)) {
