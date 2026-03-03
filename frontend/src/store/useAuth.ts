@@ -92,10 +92,12 @@ export const useAuth = create<AuthState>()(
                     }
                     const rawUser = res.data as Partial<User> & { is_premium?: boolean };
                     const plan = rawUser.plan ?? (rawUser.is_premium ? "premium" : "free");
+                    const isAdmin = rawUser.is_admin === true;
                     set({
                         user: {
                             ...rawUser,
                             plan,
+                            is_admin: isAdmin,
                             has_instructor_profile: rawUser.has_instructor_profile === true,
                             has_school_profile: rawUser.has_school_profile === true,
                         } as User,

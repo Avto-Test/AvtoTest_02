@@ -93,7 +93,7 @@ const MapPickerCanvas = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex h-72 items-center justify-center rounded-xl border border-cyan-400/40 bg-slate-900/70 text-sm text-slate-300">
+      <div className="flex h-[50vh] min-h-[320px] items-center justify-center rounded-xl border border-cyan-400/40 bg-slate-900/70 text-sm text-slate-300">
         Xarita yuklanmoqda...
       </div>
     ),
@@ -511,9 +511,9 @@ export function SchoolProfileBuilderPage() {
   }
 
   return (
-    <section className="container-app flex flex-col gap-4 py-6 lg:h-[calc(100dvh-88px)] lg:overflow-hidden">
+    <section className="container-app flex min-h-[calc(100dvh-72px)] flex-col gap-3 py-3">
       <Card className="border-primary/20 bg-gradient-to-br from-card to-primary/5">
-        <CardHeader className="gap-3">
+        <CardHeader className="gap-2 py-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <CardTitle className="text-2xl">Avtomaktab profil builder</CardTitle>
@@ -594,8 +594,8 @@ export function SchoolProfileBuilderPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
-        <div className={`${panelMode === 'preview' ? 'hidden md:block' : ''} lg:min-h-0 lg:overflow-y-auto lg:pr-1`}>
+      <div className="grid gap-4 lg:h-[calc(100dvh-176px)] lg:min-h-0 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
+        <div className={`${panelMode === 'preview' ? 'hidden md:block' : ''} lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pr-1`}>
           <Card className="border-border bg-card">
             <CardHeader>
               <CardTitle>Tahrirlash paneli</CardTitle>
@@ -893,7 +893,7 @@ export function SchoolProfileBuilderPage() {
           </Card>
         </div>
 
-        <div className={`${panelMode === 'edit' ? 'hidden md:block' : ''} lg:min-h-0 lg:overflow-y-auto lg:pl-1`}>
+        <div className={`${panelMode === 'edit' ? 'hidden md:block' : ''} lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pl-1`}>
           <Card className="border-primary/20 bg-gradient-to-br from-card to-primary/5">
             <CardHeader>
               <CardTitle>Live preview</CardTitle>
@@ -996,7 +996,7 @@ export function SchoolProfileBuilderPage() {
       </div>
 
       <Dialog open={locationModalOpen} onOpenChange={setLocationModalOpen}>
-        <DialogContent className="max-w-4xl border border-cyan-400/40 bg-slate-950 text-slate-100">
+        <DialogContent className="max-h-[90dvh] max-w-4xl overflow-y-auto border border-cyan-400/40 bg-slate-950 text-slate-100">
           <DialogHeader>
             <DialogTitle>Xaritadan lokatsiya tanlash</DialogTitle>
             <DialogDescription className="text-slate-300">
@@ -1008,6 +1008,7 @@ export function SchoolProfileBuilderPage() {
             longitude={locationCoords.lng}
             onPick={setLocationFromMap}
             isOpen={locationModalOpen}
+            heightClass="h-[50vh] min-h-[320px]"
           />
           <DialogFooter className="flex items-center justify-between gap-2">
             <p className="text-xs text-slate-300">
