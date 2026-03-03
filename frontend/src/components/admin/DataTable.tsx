@@ -38,28 +38,30 @@ export function DataTable<T>({
     if (isLoading) {
         return (
             <div className="rounded-lg border border-border">
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            {columns.map((col) => (
-                                <TableHead key={col.key} className={col.className}>
-                                    {col.header}
-                                </TableHead>
-                            ))}
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {[...Array(5)].map((_, i) => (
-                            <TableRow key={i}>
+                <div className="w-full overflow-x-auto">
+                    <Table className="min-w-[720px]">
+                        <TableHeader>
+                            <TableRow>
                                 {columns.map((col) => (
-                                    <TableCell key={col.key} className={col.className}>
-                                        <Skeleton className="h-5 w-full" />
-                                    </TableCell>
+                                    <TableHead key={col.key} className={col.className}>
+                                        {col.header}
+                                    </TableHead>
                                 ))}
                             </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
+                        </TableHeader>
+                        <TableBody>
+                            {[...Array(5)].map((_, i) => (
+                                <TableRow key={i}>
+                                    {columns.map((col) => (
+                                        <TableCell key={col.key} className={col.className}>
+                                            <Skeleton className="h-5 w-full" />
+                                        </TableCell>
+                                    ))}
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                </div>
             </div>
         );
     }
@@ -92,38 +94,40 @@ export function DataTable<T>({
     }
 
     return (
-        <div className="rounded-lg border border-border overflow-hidden">
-            <Table>
-                <TableHeader>
-                    <TableRow className="bg-muted/50">
-                        {columns.map((col) => (
-                            <TableHead key={col.key} className={cn("font-semibold", col.className)}>
-                                {col.header}
-                            </TableHead>
-                        ))}
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {data.map((item) => (
-                        <TableRow
-                            key={rowKey(item)}
-                            className={cn(
-                                "transition-colors",
-                                onRowClick && "cursor-pointer hover:bg-muted/50"
-                            )}
-                            onClick={() => onRowClick?.(item)}
-                        >
+        <div className="overflow-hidden rounded-lg border border-border">
+            <div className="w-full overflow-x-auto">
+                <Table className="min-w-[720px]">
+                    <TableHeader>
+                        <TableRow className="bg-muted/50">
                             {columns.map((col) => (
-                                <TableCell key={col.key} className={col.className}>
-                                    {col.render
-                                        ? col.render(item)
-                                        : (item as Record<string, unknown>)[col.key] as React.ReactNode}
-                                </TableCell>
+                                <TableHead key={col.key} className={cn("font-semibold", col.className)}>
+                                    {col.header}
+                                </TableHead>
                             ))}
                         </TableRow>
-                    ))}
-                </TableBody>
-            </Table>
+                    </TableHeader>
+                    <TableBody>
+                        {data.map((item) => (
+                            <TableRow
+                                key={rowKey(item)}
+                                className={cn(
+                                    "transition-colors",
+                                    onRowClick && "cursor-pointer hover:bg-muted/50"
+                                )}
+                                onClick={() => onRowClick?.(item)}
+                            >
+                                {columns.map((col) => (
+                                    <TableCell key={col.key} className={col.className}>
+                                        {col.render
+                                            ? col.render(item)
+                                            : (item as Record<string, unknown>)[col.key] as React.ReactNode}
+                                    </TableCell>
+                                ))}
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            </div>
         </div>
     );
 }
