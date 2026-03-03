@@ -9,6 +9,7 @@ type MapPickerCanvasProps = {
   longitude: number | null;
   isOpen?: boolean;
   readOnly?: boolean;
+  heightClass?: string;
   onPick: (lat: number, lng: number) => void;
 };
 
@@ -37,18 +38,40 @@ function MapViewportSync({ center, isOpen }: { center: [number, number]; isOpen:
   const map = useMap();
 
   useEffect(() => {
-    if (!isOpen) return;
-    map.invalidateSize();
-    const raf = window.requestAnimationFrame(() => map.invalidateSize());
-    const timer = window.setTimeout(() => map.invalidateSize(), 120);
+    const ensureVisible = () => map.invalidateSize(false);
+    let ticks = 0;
+    ensureVisible();
+    const raf = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(ensureVisible);
+    });
+    const timer1 = window.setTimeout(ensureVisible, 120);
+    const timer2 = window.setTimeout(ensureVisible, 320);
+    const interval = window.setInterval(() => {
+      ensureVisible();
+      ticks += 1;
+      if (ticks >= 12) window.clearInterval(interval);
+    }, 140);
+    const onResize = () => ensureVisible();
+    window.addEventListener('resize', onResize);
+    document.addEventListener('visibilitychange', onResize);
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(() => ensureVisible());
+      observer.observe(map.getContainer());
+    }
     return () => {
       window.cancelAnimationFrame(raf);
-      window.clearTimeout(timer);
+      window.clearTimeout(timer1);
+      window.clearTimeout(timer2);
+      window.clearInterval(interval);
+      window.removeEventListener('resize', onResize);
+      document.removeEventListener('visibilitychange', onResize);
+      observer?.disconnect();
     };
   }, [isOpen, map]);
 
   useEffect(() => {
-    map.setView(center);
+    map.setView(center, map.getZoom(), { animate: false });
   }, [center, map]);
 
   return null;
@@ -59,6 +82,7 @@ export function MapPickerCanvas({
   longitude,
   isOpen = false,
   readOnly = false,
+  heightClass = 'h-80',
   onPick,
 }: MapPickerCanvasProps) {
   const center = useMemo<[number, number]>(() => {
@@ -68,7 +92,7 @@ export function MapPickerCanvas({
   const [fallbackTile, setFallbackTile] = useState(false);
 
   return (
-    <div className="h-80 overflow-hidden rounded-xl border border-cyan-400/40">
+    <div className={`${heightClass} overflow-hidden rounded-xl border border-cyan-400/40`}>
       <MapContainer
         center={center}
         zoom={12}

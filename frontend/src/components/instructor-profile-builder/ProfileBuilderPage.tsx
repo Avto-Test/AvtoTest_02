@@ -40,13 +40,13 @@ export function ProfileBuilderPage() {
   }
 
   return (
-    <section className="container-app flex flex-col gap-2 py-3 lg:h-[calc(100dvh-76px)] lg:overflow-hidden">
+    <section className="container-app flex min-h-[calc(100dvh-72px)] flex-col gap-3 py-3">
       <Card className="shrink-0 border-cyan-400/20 bg-gradient-to-r from-slate-900/95 to-slate-950">
-        <CardHeader className="gap-2 py-3">
+        <CardHeader className="gap-2 py-2.5">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
               <CardTitle className="text-lg text-white">Instruktor profil builder</CardTitle>
-              <CardDescription className="text-sm text-slate-300">
+              <CardDescription className="text-[13px] text-slate-300">
                 Chapda tahrirlang, o'ngda public profilning real preview ko'rinishini kuzating.
               </CardDescription>
             </div>
@@ -118,7 +118,7 @@ export function ProfileBuilderPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:h-0 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] lg:overflow-hidden">
+      <div className="grid gap-4 lg:h-[calc(100dvh-176px)] lg:min-h-0 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
         <div
           className={`${builder.panelMode === 'preview' ? 'hidden md:block' : ''} lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pr-1`}
         >

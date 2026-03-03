@@ -123,6 +123,25 @@ export function useProfileBuilder() {
   const autosaveTimerRef = useRef<number | null>(null);
   const inFlightSaveRef = useRef(false);
   const retryFileStoreRef = useRef<Record<string, File>>({});
+  const tempObjectUrlsRef = useRef<Record<string, string>>({});
+
+  const revokeTempObjectUrl = useCallback((mediaId: string) => {
+    const url = tempObjectUrlsRef.current[mediaId];
+    if (!url) return;
+    try {
+      URL.revokeObjectURL(url);
+    } catch {
+      // Ignore browser-specific revoke failures.
+    }
+    delete tempObjectUrlsRef.current[mediaId];
+  }, []);
+
+  const revokeAllTempObjectUrls = useCallback(() => {
+    const ids = Object.keys(tempObjectUrlsRef.current);
+    for (const mediaId of ids) {
+      revokeTempObjectUrl(mediaId);
+    }
+  }, [revokeTempObjectUrl]);
 
   const watchedProfile = useWatch({ control: form.control });
   const normalizedSnapshot = useMemo(
@@ -152,6 +171,7 @@ export function useProfileBuilder() {
 
   const resetFormFromRemote = useCallback(
     (nextProfile: InstructorProfileBuilderFormData, nextVersion: number, nextSavedAt: string | null) => {
+      revokeAllTempObjectUrls();
       initializedRef.current = false;
       form.reset(nextProfile);
       setVersion(nextVersion);
@@ -162,7 +182,7 @@ export function useProfileBuilder() {
         initializedRef.current = true;
       }, 0);
     },
-    [form]
+    [form, revokeAllTempObjectUrls]
   );
 
   const loadInitial = useCallback(async () => {
@@ -251,6 +271,15 @@ export function useProfileBuilder() {
       }
     };
   }, [doAutosave, unsavedChanges, profile]);
+
+  useEffect(() => {
+    return () => {
+      if (autosaveTimerRef.current) {
+        window.clearTimeout(autosaveTimerRef.current);
+      }
+      revokeAllTempObjectUrls();
+    };
+  }, [revokeAllTempObjectUrls]);
 
   const saveNow = useCallback(async () => {
     await doAutosave(true);
@@ -360,7 +389,17 @@ export function useProfileBuilder() {
 
   const removeMedia = useCallback(
     (mediaId: string) => {
-      const next = normalizeMediaOrder(form.getValues('media').filter((item) => item.id !== mediaId));
+      const current = form.getValues('media');
+      const removed = current.find((item) => item.id === mediaId);
+      const next = normalizeMediaOrder(current.filter((item) => item.id !== mediaId));
+      revokeTempObjectUrl(mediaId);
+      if (removed?.url?.startsWith('blob:')) {
+        try {
+          URL.revokeObjectURL(removed.url);
+        } catch {
+          // Ignore browser-specific revoke failures.
+        }
+      }
       delete retryFileStoreRef.current[mediaId];
       setUploadProgress((prev) => {
         const cloned = { ...prev };
@@ -374,7 +413,7 @@ export function useProfileBuilder() {
       });
       form.setValue('media', next, { shouldDirty: true, shouldValidate: true });
     },
-    [form]
+    [form, revokeTempObjectUrl]
   );
 
   const updateMediaCaption = useCallback(
@@ -405,6 +444,7 @@ export function useProfileBuilder() {
       const tempId = `media-${Date.now()}-${Math.random().toString(16).slice(2)}`;
       retryFileStoreRef.current[tempId] = file;
       const tempUrl = URL.createObjectURL(file);
+      tempObjectUrlsRef.current[tempId] = tempUrl;
 
       const draftItem: BuilderMediaItem = {
         id: tempId,
@@ -425,20 +465,29 @@ export function useProfileBuilder() {
         const uploaded = await uploadProfileBuilderMedia(file, (percent) => {
           setUploadProgress((prev) => ({ ...prev, [tempId]: percent }));
         });
+        const uploadedId = uploaded.filename || tempId;
+        revokeTempObjectUrl(tempId);
+        delete retryFileStoreRef.current[tempId];
 
         const next = form.getValues('media').map((item) => (
           item.id === tempId
-            ? { ...item, id: uploaded.filename || tempId, url: uploaded.url, status: 'uploaded' as const }
+            ? { ...item, id: uploadedId, url: uploaded.url, status: 'uploaded' as const }
             : item
         ));
         form.setValue('media', normalizeMediaOrder(next), {
           shouldDirty: true,
           shouldValidate: true,
         });
-        setUploadProgress((prev) => ({ ...prev, [uploaded.filename || tempId]: 100 }));
+        setUploadProgress((prev) => {
+          const cloned = { ...prev };
+          delete cloned[tempId];
+          cloned[uploadedId] = 100;
+          return cloned;
+        });
         setUploadErrorByMediaId((prev) => {
           const cloned = { ...prev };
           delete cloned[tempId];
+          delete cloned[uploadedId];
           return cloned;
         });
       } catch {
@@ -455,7 +504,7 @@ export function useProfileBuilder() {
         }));
       }
     },
-    [form]
+    [form, revokeTempObjectUrl]
   );
 
   const uploadFiles = useCallback(
