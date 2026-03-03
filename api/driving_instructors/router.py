@@ -357,10 +357,7 @@ async def my_instructor_summary(
     instructor = await _get_my_instructor(current_user, db)
     app_result = await db.execute(
         select(DrivingInstructorApplication)
-        .where(
-            (DrivingInstructorApplication.user_id == current_user.id)
-            | (DrivingInstructorApplication.phone == current_user.email)
-        )
+        .where(DrivingInstructorApplication.user_id == current_user.id)
         .order_by(DrivingInstructorApplication.created_at.desc())
     )
     latest_application = app_result.scalars().first()
@@ -945,10 +942,53 @@ async def submit_instructor_application(
     if len(payload.extra_image_urls) < 1:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Kamida 1 ta qoshimcha rasm kerak")
 
+    active_application_statuses = {"new", "pending", "reviewing", "approved"}
+    status_labels = {
+        "new": "kutilmoqda",
+        "pending": "kutilmoqda",
+        "reviewing": "korib chiqilmoqda",
+        "approved": "tasdiqlangan",
+        "rejected": "rad etilgan",
+    }
+
+    if optional_user is not None:
+        existing_profile_result = await db.execute(
+            select(DrivingInstructor.id).where(DrivingInstructor.user_id == optional_user.id)
+        )
+        if existing_profile_result.scalar_one_or_none() is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Sizda allaqachon instruktor profili mavjud.",
+            )
+
+    normalized_phone = payload.phone.strip()
+    if optional_user is not None:
+        duplicate_stmt = (
+            select(DrivingInstructorApplication)
+            .where(DrivingInstructorApplication.user_id == optional_user.id)
+            .order_by(DrivingInstructorApplication.created_at.desc())
+        )
+    else:
+        duplicate_stmt = (
+            select(DrivingInstructorApplication)
+            .where(DrivingInstructorApplication.phone == normalized_phone)
+            .order_by(DrivingInstructorApplication.created_at.desc())
+        )
+    duplicate_result = await db.execute(duplicate_stmt)
+    latest_application = duplicate_result.scalars().first()
+    if latest_application is not None:
+        latest_status = (latest_application.status or "").strip().lower()
+        if latest_status in active_application_statuses:
+            status_text = status_labels.get(latest_status, latest_status)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Sizda allaqachon ariza mavjud. Holat: {status_text}.",
+            )
+
     row = DrivingInstructorApplication(
         user_id=optional_user.id if optional_user else None,
         full_name=payload.full_name.strip(),
-        phone=payload.phone.strip(),
+        phone=normalized_phone,
         city=payload.city.strip(),
         region=payload.region.strip() if payload.region else None,
         gender=(payload.gender or "").strip().lower() or None,

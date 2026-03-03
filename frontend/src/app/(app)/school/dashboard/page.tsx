@@ -138,21 +138,22 @@ export default function SchoolDashboardPage() {
       };
     }
 
-    if (application?.status === 'approved') {
+    const applicationStatus = (application?.status || '').toLowerCase();
+    if (applicationStatus === 'approved') {
       return {
         tone: 'active',
         label: 'Tasdiqlandi',
         hint: "Ariza tasdiqlangan. Profil biriktirilishi uchun sahifani yangilang.",
       };
     }
-    if (application?.status === 'rejected') {
+    if (applicationStatus === 'rejected') {
       return {
         tone: 'blocked',
         label: 'Rad etildi',
         hint: application.note || "Ariza qayta to'ldirilishi kerak.",
       };
     }
-    if (application?.status === 'pending') {
+    if (['pending', 'new', 'reviewing'].includes(applicationStatus)) {
       return {
         tone: 'pending',
         label: 'Tekshiruvda',
@@ -493,4 +494,3 @@ export default function SchoolDashboardPage() {
     </section>
   );
 }
-

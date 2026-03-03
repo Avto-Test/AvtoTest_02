@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import axios from 'axios';
 import { BarChart3, CheckCircle2, Rocket, Shield, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { submitPartnerApplication } from '@/lib/drivingSchools';
@@ -59,7 +60,18 @@ export default function DrivingSchoolPartnerPage() {
                 email: '',
                 note: '',
             });
-        } catch {
+        } catch (error) {
+            if (axios.isAxiosError(error)) {
+                const detail = (error.response?.data as { detail?: string } | undefined)?.detail;
+                if (error.response?.status === 409 && detail) {
+                    toast.error(detail);
+                    return;
+                }
+                if (detail) {
+                    toast.error(detail);
+                    return;
+                }
+            }
             toast.error("Ariza yuborishda xatolik bo'ldi.");
         } finally {
             setIsSubmitting(false);

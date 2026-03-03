@@ -3,6 +3,7 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import axios from 'axios';
 import { BadgePercent, Clock3, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -158,7 +159,18 @@ export default function DrivingInstructorApplyPage() {
       await submitDrivingInstructorApplication(parsed.data);
       toast.success('Arizangiz qabul qilindi. Admin tasdiqidan song katalogga chiqadi.');
       setForm(initialState);
-    } catch {
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const detail = (error.response?.data as { detail?: string } | undefined)?.detail;
+        if (error.response?.status === 409 && detail) {
+          toast.error(detail);
+          return;
+        }
+        if (detail) {
+          toast.error(detail);
+          return;
+        }
+      }
       toast.error('Ariza yuborishda xatolik yuz berdi.');
     } finally {
       setIsSubmitting(false);
