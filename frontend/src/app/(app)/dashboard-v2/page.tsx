@@ -23,6 +23,7 @@ import { ZoneRevenueTriggersV2 } from "@/components/dashboard/zones/ZoneRevenueT
 import { Skeleton } from "@/components/ui/skeleton";
 import { BadgeV2, ButtonV2, CardV2, SectionWrapperV2 } from "@/components/ui-v2";
 import type { UserAttemptSummary } from "@/schemas/analytics.schema";
+import { useI18n } from "@/components/i18n-provider";
 
 interface TopicRecommendationPayload {
   topic: string;
@@ -69,6 +70,7 @@ interface DashboardApiResponse {
 
 export default function DashboardV2Page() {
   const { user, fetchUser } = useAuth();
+  const { t, locale } = useI18n();
   const searchParams = useSearchParams();
   const [overview, setOverview] = useState<DashboardApiResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -226,6 +228,128 @@ export default function DashboardV2Page() {
       ? "Monitoring Drift"
       : "Drift Detected";
 
+  const copy = useMemo(() => {
+    switch (locale) {
+      case "ru":
+        return {
+          workspace: "Рабочая панель",
+          title: "Умная аналитика",
+          subtitle: `Анализ вашей динамики, ${displayName}`,
+          planPremium: "Премиум",
+          planFree: "Бесплатный",
+          live: "Живая аналитика",
+          history: "История",
+          settings: "Настройки",
+          startSmart: "Запустить умный тест",
+          startSmartHint: "AI подбирает следующую тему по вашим слабым местам.",
+          modelHint: "Модель v",
+          startTitle: "Начните первую попытку",
+          startDesc: "Завершите первый тест и откройте персональную аналитику.",
+          firstTest: "Начать первый тест",
+          premium: "Премиум",
+          premiumTitle: "Продвинутая аналитика",
+          premiumDesc: "Уверенность, повторение, стабильность памяти и очереди review.",
+          rec: "Рекомендация",
+          recTitle: "Следующий лучший шаг",
+          recDesc: "Тема с наибольшим влиянием на ваш прогресс.",
+          lessons: "Уроки",
+          lessonsTitle: "Диагностические уроки",
+          lessonsDesc: "Уроки по темам, где у вас больше всего ошибок.",
+          system: "Система",
+          systemTitle: "Состояние модели",
+          systemDesc: "Drift, версия модели и latency.",
+          intelligence: "Интеллект",
+          intelligenceTitle: "Прогноз сдачи",
+          intelligenceDesc: "Снимок вероятности, готовности и устойчивости.",
+          activity: "Активность",
+          activityTitle: "Последние попытки",
+          activityDesc: "Недавние результаты и динамика.",
+          viewAll: "Показать всё",
+          congrats: "Поздравляем!",
+          premiumGift: "Вы получили Premium в подарок.",
+          premiumPaid: "Premium успешно активирован.",
+        };
+      case "en":
+        return {
+          workspace: "Workspace",
+          title: "Smart Dashboard",
+          subtitle: `Analyzing your performance path, ${displayName}`,
+          planPremium: "Premium Plan",
+          planFree: "Free Plan",
+          live: "Live Analytics",
+          history: "History",
+          settings: "Settings",
+          startSmart: "Start Smart Practice",
+          startSmartHint: "AI targets your weakest areas with adaptive selection.",
+          modelHint: "Model v",
+          startTitle: "Start your first attempt",
+          startDesc: "Complete your first test to unlock personalized analytics.",
+          firstTest: "Take First Test",
+          premium: "Premium",
+          premiumTitle: "Advanced Intelligence",
+          premiumDesc: "Confidence, retention, memory stability, and review queue.",
+          rec: "Recommendation",
+          recTitle: "Highest-impact next topic",
+          recDesc: "The next topic that boosts your score fastest.",
+          lessons: "Lessons",
+          lessonsTitle: "Diagnostic lessons",
+          lessonsDesc: "Lessons mapped to your frequent mistakes.",
+          system: "System",
+          systemTitle: "Model status",
+          systemDesc: "Drift, model version, and live latency.",
+          intelligence: "Intelligence",
+          intelligenceTitle: "Pass outlook",
+          intelligenceDesc: "Snapshot of pass probability and readiness.",
+          activity: "Activity",
+          activityTitle: "Recent attempts",
+          activityDesc: "Latest results and trend.",
+          viewAll: "View all",
+          congrats: "Congratulations!",
+          premiumGift: "You received Premium as a gift.",
+          premiumPaid: "Premium plan activated successfully.",
+        };
+      default:
+        return {
+          workspace: "Ish maydoni",
+          title: "Aqlli boshqaruv paneli",
+          subtitle: `Natijalaringiz tahlil qilinmoqda, ${displayName}`,
+          planPremium: "Premium tarif",
+          planFree: "Bepul tarif",
+          live: "Jonli analitika",
+          history: "Tarix",
+          settings: "Sozlamalar",
+          startSmart: "Aqlli testni boshlash",
+          startSmartHint: "AI sizning eng zaif mavzularingizni avtomatik tanlaydi.",
+          modelHint: "Model v",
+          startTitle: "Birinchi urinishni boshlang",
+          startDesc: "Shaxsiy tahlil va tavsiyalar uchun birinchi testni tugating.",
+          firstTest: "Birinchi testni boshlash",
+          premium: "Premium",
+          premiumTitle: "Kengaytirilgan tahlil",
+          premiumDesc: "Ishonch, xotira barqarorligi va qayta ko‘rish navbati bir joyda.",
+          rec: "Tavsiya",
+          recTitle: "Eng samarali keyingi qadam",
+          recDesc: "Natijani tez oshiradigan navbatdagi mavzu.",
+          lessons: "Darslar",
+          lessonsTitle: "Diagnostik darslar",
+          lessonsDesc: "Ko‘p xato qilinayotgan mavzular bo‘yicha darslar.",
+          system: "Tizim",
+          systemTitle: "Model holati",
+          systemDesc: "Drift, model versiyasi va jonli latency.",
+          intelligence: "Intellekt",
+          intelligenceTitle: "O‘tish prognozi",
+          intelligenceDesc: "O‘tish ehtimoli, tayyorgarlik va barqarorlik ko‘rinishi.",
+          activity: "Faollik",
+          activityTitle: "So‘nggi urinishlar",
+          activityDesc: "Yaqindagi natijalar va trend.",
+          viewAll: "Barchasini ko‘rish",
+          congrats: "Tabriklaymiz!",
+          premiumGift: "Siz premiumni sovg‘a sifatida oldingiz.",
+          premiumPaid: "Premium tarif muvaffaqiyatli yoqildi.",
+        };
+    }
+  }, [locale, displayName]);
+
   if (isLoading && !dashboardData) {
     return (
       <div className="v2-page mx-auto max-w-7xl space-y-8 px-4 pb-10 md:px-0">
@@ -249,53 +373,60 @@ export default function DashboardV2Page() {
 
   return (
     <>
-    <div className="v2-page mx-auto max-w-7xl space-y-8 px-4 pb-12 md:px-0">
-      <CardV2 className="p-6 md:p-8">
+    <div className="v2-page relative mx-auto max-w-7xl space-y-7 overflow-hidden px-4 pb-12 md:px-0">
+      <div className="pointer-events-none absolute -top-24 -left-20 h-72 w-72 rounded-full bg-cyan-500/10 blur-3xl" />
+      <div className="pointer-events-none absolute top-40 -right-24 h-80 w-80 rounded-full bg-indigo-500/10 blur-3xl" />
+
+      <CardV2 className="relative overflow-hidden border-[var(--v2-border-strong)] bg-gradient-to-br from-[var(--v2-surface)] via-[var(--v2-surface)] to-[var(--v2-surface-subtle)] p-6 md:p-8">
+        <div className="pointer-events-none absolute -top-10 right-0 h-36 w-36 rounded-full bg-cyan-400/10 blur-2xl" />
         <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="space-y-4">
             <p className="text-xs font-medium uppercase tracking-[0.12em] text-[var(--v2-text-tertiary)]">
-              Premium Workspace
+              {copy.workspace}
             </p>
             <h1 className="text-3xl font-semibold tracking-tight text-[var(--v2-text-primary)]">
-              Dashboard v2
+              {copy.title}
             </h1>
             <p className="text-sm text-[var(--v2-text-secondary)]">
-              Analyzing your performance path, {displayName}
+              {copy.subtitle}
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <BadgeV2 variant={isPremium ? "info" : "neutral"}>
-                {isPremium ? "Premium Plan" : "Free Plan"}
+                {isPremium ? copy.planPremium : copy.planFree}
               </BadgeV2>
               {dashboardData && <BadgeV2 variant={driftVariant}>{driftLabel}</BadgeV2>}
               <BadgeV2 variant="neutral" className="gap-1">
                 <Activity className="h-3 w-3" />
-                Live Analytics
+                {copy.live}
+              </BadgeV2>
+              <BadgeV2 variant="neutral" className="gap-1">
+                {copy.modelHint}{dashboardData?.model_version || "—"}
               </BadgeV2>
             </div>
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <ButtonV2 variant="outline" className="flex-1 sm:flex-none" asChild>
-              <Link href="/dashboard/history">History</Link>
+              <Link href="/dashboard/history">{copy.history}</Link>
             </ButtonV2>
             <ButtonV2 variant="secondary" className="flex-1 sm:flex-none" asChild>
-              <Link href="/dashboard/settings">Settings</Link>
+              <Link href="/dashboard/settings">{copy.settings}</Link>
             </ButtonV2>
             <div className="flex flex-1 flex-col gap-1 sm:flex-none">
               <ButtonV2 className="flex-1 sm:flex-none" asChild>
                 <Link href={`/tests?mode=adaptive&pressure=${pressureEnabled}`}>
                   <Sparkles className="h-4 w-4" />
-                  Start Smart Practice
+                  {copy.startSmart}
                 </Link>
               </ButtonV2>
               <p className="text-xs text-[var(--v2-text-tertiary)]">
-                AI-driven targeted reinforcement based on your weakest areas.
+                {copy.startSmartHint}
               </p>
               {dashboardData?.model_version &&
               typeof dashboardData.total_attempts === "number" &&
               dashboardData.total_attempts > 0 ? (
                 <p className="text-xs text-[var(--v2-text-tertiary)]">
-                  Powered by Model v{dashboardData.model_version} &bull; Adapts after each completed test.
+                  {copy.modelHint}{dashboardData.model_version} &bull; {t("dashboard.start_desc")}
                 </p>
               ) : null}
             </div>
@@ -304,52 +435,53 @@ export default function DashboardV2Page() {
       </CardV2>
 
       {!dashboardData || dashboardData.total_attempts === 0 ? (
-        <div className="space-y-8">
-          <CardV2 className="p-10">
+        <div className="space-y-7">
+          <CardV2 className="p-8 md:p-10">
             <div className="mx-auto max-w-md space-y-4 text-center">
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-[var(--v2-border)] bg-[var(--v2-surface-subtle)]">
                 <TrendingUp className="h-6 w-6 text-[var(--v2-text-secondary)]" />
               </div>
-              <h2 className="text-xl font-semibold text-[var(--v2-text-primary)]">Start your journey</h2>
+              <h2 className="text-xl font-semibold text-[var(--v2-text-primary)]">{copy.startTitle}</h2>
               <p className="text-sm text-[var(--v2-text-tertiary)]">
-                Complete your first test to unlock analytics and recommendations.
+                {copy.startDesc}
               </p>
               <div className="pt-2">
                 <ButtonV2 asChild size="lg">
-                  <Link href="/tests">Take First Test</Link>
+                  <Link href="/tests">{copy.firstTest}</Link>
                 </ButtonV2>
               </div>
             </div>
           </CardV2>
 
-          {/* Keep premium teaser visible before first completed attempt */}
-          <SectionWrapperV2
-            label="Premium"
-            title="Advanced Intelligence"
-            description="Core premium signals for confidence, retention, and review planning."
-            contentClassName="p-6"
-          >
-            <ZonePremiumV2 overview={premiumOverview} user={user} />
-          </SectionWrapperV2>
+          <div className="grid gap-7 xl:grid-cols-2">
+            <SectionWrapperV2
+              label={copy.premium}
+              title={copy.premiumTitle}
+              description={copy.premiumDesc}
+              contentClassName="p-5 md:p-6"
+            >
+              <ZonePremiumV2 overview={premiumOverview} user={user} />
+            </SectionWrapperV2>
+
+            <SectionWrapperV2
+              label={copy.rec}
+              title={copy.recTitle}
+              description={copy.recDesc}
+              contentClassName="p-5 md:p-6"
+            >
+              <RecommendationCard
+                recommendation={recommendation}
+                isPremium={isPremium}
+                onUpgrade={createCheckoutSession}
+              />
+            </SectionWrapperV2>
+          </div>
 
           <SectionWrapperV2
-            label="Recommendation"
-            title="Recommendation"
-            description="Your next highest-impact topic to focus on."
-            contentClassName="p-6"
-          >
-            <RecommendationCard
-              recommendation={recommendation}
-              isPremium={isPremium}
-              onUpgrade={createCheckoutSession}
-            />
-          </SectionWrapperV2>
-
-          <SectionWrapperV2
-            label="Lessons"
-            title="Diagnostic Lessons"
-            description="Targeted lessons mapped from your weak and repeated-error categories."
-            contentClassName="p-6"
+            label={copy.lessons}
+            title={copy.lessonsTitle}
+            description={copy.lessonsDesc}
+            contentClassName="p-5 md:p-6"
           >
             <LessonRecommendationsCard
               lessons={lessonRecommendations}
@@ -358,11 +490,11 @@ export default function DashboardV2Page() {
           </SectionWrapperV2>
         </div>
       ) : (
-        <div className="space-y-8">
+        <div className="space-y-7">
           <SectionWrapperV2
-            label="System"
-            title="System Status"
-            description="Model health, drift monitor, and live inference latency."
+            label={copy.system}
+            title={copy.systemTitle}
+            description={copy.systemDesc}
           >
             <SystemStatusBar
               driftStatus={dashboardData.drift_status}
@@ -372,7 +504,7 @@ export default function DashboardV2Page() {
             />
           </SectionWrapperV2>
 
-          <SectionWrapperV2 label="Intelligence" title="Pass Outlook" description="Model-driven readiness snapshot." contentClassName="p-6">
+          <SectionWrapperV2 label={copy.intelligence} title={copy.intelligenceTitle} description={copy.intelligenceDesc} contentClassName="p-5 md:p-6">
             <ZonePrimaryAIV2 overview={dashboardData} user={user} />
           </SectionWrapperV2>
 
@@ -389,49 +521,51 @@ export default function DashboardV2Page() {
           <ZonePerformanceV2 overview={dashboardData} />
 
           <SectionWrapperV2
-            label="Premium"
-            title="Advanced Intelligence"
-            description="Core premium signals for confidence, retention, and review planning."
-            contentClassName="p-6"
+            label={copy.premium}
+            title={copy.premiumTitle}
+            description={copy.premiumDesc}
+            contentClassName="p-5 md:p-6"
           >
             <ZonePremiumV2 overview={premiumOverview} user={user} />
           </SectionWrapperV2>
 
-          <SectionWrapperV2
-            label="Recommendation"
-            title="Recommendation"
-            description="Your next highest-impact topic to focus on."
-            contentClassName="p-6"
-          >
-            <RecommendationCard
-              recommendation={recommendation}
-              isPremium={isPremium}
-              onUpgrade={createCheckoutSession}
-            />
-          </SectionWrapperV2>
+          <div className="grid gap-7 xl:grid-cols-2">
+            <SectionWrapperV2
+              label={copy.rec}
+              title={copy.recTitle}
+              description={copy.recDesc}
+              contentClassName="p-5 md:p-6"
+            >
+              <RecommendationCard
+                recommendation={recommendation}
+                isPremium={isPremium}
+                onUpgrade={createCheckoutSession}
+              />
+            </SectionWrapperV2>
+
+            <SectionWrapperV2
+              label={copy.lessons}
+              title={copy.lessonsTitle}
+              description={copy.lessonsDesc}
+              contentClassName="p-5 md:p-6"
+            >
+              <LessonRecommendationsCard
+                lessons={lessonRecommendations}
+                isPremium={isPremium}
+              />
+            </SectionWrapperV2>
+          </div>
 
           <SectionWrapperV2
-            label="Lessons"
-            title="Diagnostic Lessons"
-            description="Targeted lessons mapped from your weak and repeated-error categories."
-            contentClassName="p-6"
-          >
-            <LessonRecommendationsCard
-              lessons={lessonRecommendations}
-              isPremium={isPremium}
-            />
-          </SectionWrapperV2>
-
-          <SectionWrapperV2
-            label="Activity"
-            title="Recent Activity"
-            description="Latest attempts and recent outcomes."
+            label={copy.activity}
+            title={copy.activityTitle}
+            description={copy.activityDesc}
             actions={
               <ButtonV2 variant="ghost" className="flex-1 sm:flex-none" asChild>
-                <Link href="/dashboard/history">View all history</Link>
+                <Link href="/dashboard/history">{copy.viewAll}</Link>
               </ButtonV2>
             }
-            contentClassName="p-6"
+            contentClassName="p-5 md:p-6"
           >
             <RecentAttempts attempts={dashboardData?.last_attempts || []} />
           </SectionWrapperV2>
@@ -457,11 +591,11 @@ export default function DashboardV2Page() {
           ))}
         </div>
         <CardV2 className="relative mx-4 w-full max-w-lg p-8 text-center">
-          <h3 className="text-2xl font-semibold text-[var(--v2-text-primary)]">Congratulations!</h3>
+          <h3 className="text-2xl font-semibold text-[var(--v2-text-primary)]">{copy.congrats}</h3>
           <p className="mt-3 text-[var(--v2-text-secondary)]">
             {showCelebration === "gift"
-              ? "You received Premium as a gift."
-              : "Premium plan activated successfully."}
+              ? copy.premiumGift
+              : copy.premiumPaid}
           </p>
         </CardV2>
         <style jsx>{`
