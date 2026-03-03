@@ -1,0 +1,65 @@
+:root {
+  /* Canvas and surfaces */
+  --v2-canvas: #f5f6f8;
+  --v2-surface: #ffffff;
+  --v2-surface-subtle: #fafbfc;
+
+  /* Neutral text and borders */
+  --v2-text-primary: #0f172a;
+  --v2-text-secondary: #344054;
+  --v2-text-tertiary: #667085;
+  --v2-border: #e4e7ec;
+  --v2-border-strong: #d0d5dd;
+
+  /* Accent and semantic colors */
+  --v2-accent: #111827;
+  --v2-accent-foreground: #ffffff;
+  --v2-soft: #f2f4f7;
+  --v2-soft-foreground: #1d2939;
+  --v2-success: #067647;
+  --v2-success-bg: #ecfdf3;
+  --v2-warning: #b54708;
+  --v2-warning-bg: #fffaeb;
+  --v2-danger: #b42318;
+  --v2-danger-bg: #fef3f2;
+  --v2-info: #175cd3;
+  --v2-info-bg: #eff8ff;
+
+  /* Elevation */
+  --v2-shadow-soft: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.1);
+  --v2-shadow-lift: 0 10px 20px -12px rgba(16, 24, 40, 0.22), 0 6px 12px -8px rgba(16, 24, 40, 0.16);
+  --v2-ring: rgba(17, 24, 39, 0.2);
+}
+
+.dark {
+  --v2-canvas: #0f1218;
+  --v2-surface: #141923;
+  --v2-surface-subtle: #1a2130;
+  --v2-text-primary: #e4e7ec;
+  --v2-text-secondary: #c7cdd7;
+  --v2-text-tertiary: #98a2b3;
+  --v2-border: #293245;
+  --v2-border-strong: #3a465d;
+  --v2-accent: #f8fafc;
+  --v2-accent-foreground: #111827;
+  --v2-soft: #1f2937;
+  --v2-soft-foreground: #e4e7ec;
+  --v2-success: #47cd89;
+  --v2-success-bg: #0f2c1f;
+  --v2-warning: #ffb66f;
+  --v2-warning-bg: #34210d;
+  --v2-danger: #ff8a80;
+  --v2-danger-bg: #391716;
+  --v2-info: #8eb4ff;
+  --v2-info-bg: #162640;
+  --v2-shadow-soft: 0 1px 3px rgba(2, 6, 23, 0.45), 0 8px 20px -12px rgba(2, 6, 23, 0.55);
+  --v2-shadow-lift: 0 12px 32px -16px rgba(2, 6, 23, 0.7), 0 4px 10px -8px rgba(2, 6, 23, 0.75);
+  --v2-ring: rgba(248, 250, 252, 0.25);
+}
+
+@layer utilities {
+  .v2-page {
+    background-color: var(--v2-canvas);
+    color: var(--v2-text-primary);
+  }
+}
