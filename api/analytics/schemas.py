@@ -103,6 +103,37 @@ class TopicRetention(BaseModel):
     retention: float # 0.0-1.0
 
 
+class TrendPoint(BaseModel):
+    label: str
+    value: float
+
+
+class ActivityPoint(BaseModel):
+    label: str
+    tests_count: int
+
+
+class TestBankMastery(BaseModel):
+    total_questions: int = 0
+    seen_questions: int = 0
+    correct_questions: int = 0
+    mastered_questions: int = 0
+    needs_review_questions: int = 0
+
+
+class PassProbabilityFactor(BaseModel):
+    key: str
+    label: str
+    weight: float = Field(ge=0, le=100)
+    score: float = Field(ge=0, le=100)
+    weighted_score: float = Field(ge=0, le=100)
+
+
+class PassProbabilityBreakdown(BaseModel):
+    explanation: str
+    factors: list[PassProbabilityFactor]
+
+
 class DueTopic(BaseModel):
     topic: str
     next_review_at: str
@@ -141,6 +172,10 @@ class DashboardResponse(BaseModel):
     knowledge_mastery: list[KnowledgeMastery] = []
     retention_vector: list[TopicRetention] = []
     lesson_recommendations: list[LessonRecommendation] = []
+    progress_trend: list[TrendPoint] = []
+    test_activity: list[ActivityPoint] = []
+    question_bank_mastery: TestBankMastery = Field(default_factory=TestBankMastery)
+    pass_probability_breakdown: PassProbabilityBreakdown | None = None
 
 
 # ========== Admin Analytics ==========

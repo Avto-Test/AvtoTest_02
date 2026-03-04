@@ -15,6 +15,7 @@ from models.user import User
 from models.user_adaptive_profile import UserAdaptiveProfile
 from models.user_notification import UserNotification
 from models.user_training_history import UserTrainingHistory
+from models.user_question_history import UserQuestionHistory
 from models.inference_snapshot import InferenceSnapshot
 from models.user_skill import UserSkill
 from models.verification_token import VerificationToken
@@ -54,6 +55,7 @@ __all__ = [
     "Payment",
     "Subscription",
     "UserTrainingHistory",
+    "UserQuestionHistory",
     "UserSkill",
     "InferenceSnapshot",
     "PromoCode",

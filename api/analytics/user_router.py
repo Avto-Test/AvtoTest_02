@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import desc, func, select, case, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from math import exp, sqrt
 
 from api.analytics.schemas import (
@@ -25,6 +25,11 @@ from api.analytics.schemas import (
     KnowledgeMastery,
     IntelligenceSnapshot,
     LessonRecommendation,
+    TestBankMastery,
+    PassProbabilityBreakdown,
+    PassProbabilityFactor,
+    TrendPoint,
+    ActivityPoint,
 )
 from api.auth.router import get_current_user
 from database.session import get_db
@@ -38,6 +43,7 @@ from services.learning.taxonomy import (
     normalize_learning_key,
     question_learning_key,
 )
+from analytics.pass_probability import calculate_pass_probability_from_signals
 
 # Phase 12B Imports
 from ml.features import get_user_feature_vector
@@ -216,14 +222,33 @@ async def get_dashboard(
     Get consolidated dashboard analytics in a single request.
     Includes overview, training level, recommendation, and topic breakdown.
     """
+    from collections import defaultdict
     from models.attempt_answer import AttemptAnswer
     from models.question import Question
     from sqlalchemy import case
 
-    # 1. Fetch Overview Metrics & Recent Scores
-    # We need all attempts for general stats
+    def _attempt_pct(row) -> float:
+        total = row.question_count if getattr(row, "question_count", None) else 20
+        return (row.score / max(1, total)) * 100
+
+    def _canonical_category(raw: str) -> str:
+        text_value = raw.lower()
+        if any(k in text_value for k in ["belgi", "sign"]):
+            return "Yo'l belgilari"
+        if any(k in text_value for k in ["chorraha", "intersection"]):
+            return "Chorrahalar"
+        if any(k in text_value for k in ["chiziq", "line", "marking"]):
+            return "Yo'l chiziqlari"
+        if any(k in text_value for k in ["madaniyat", "culture", "etika", "xulq"]):
+            return "Haydovchi madaniyati"
+        if any(k in text_value for k in ["qoida", "harakat", "rule", "traffic"]):
+            return "Yo'l harakati qoidalari"
+        return "Yo'l harakati qoidalari"
+
+    # 1) General attempts and score trend
     stmt_general = (
         select(
+            Attempt.id,
             Attempt.score,
             Attempt.question_count,
             Attempt.finished_at,
@@ -233,72 +258,49 @@ async def get_dashboard(
         )
         .where(
             Attempt.user_id == current_user.id,
-            Attempt.finished_at.is_not(None)
+            Attempt.finished_at.is_not(None),
         )
         .order_by(Attempt.finished_at.desc())
     )
     res_general = await db.execute(stmt_general)
     rows_general = res_general.all()
-    
+
     total_attempts = len(rows_general)
-
-    def attempt_pct(row) -> float:
-        total = row.question_count if getattr(row, "question_count", None) else 20
-        return (row.score / max(1, total)) * 100
-
-    score_pcts = [attempt_pct(r) for r in rows_general]
-
-    avg_score = sum(score_pcts) / total_attempts if total_attempts > 0 else 0.0
+    score_pcts = [_attempt_pct(row) for row in rows_general]
+    avg_score = sum(score_pcts) / total_attempts if total_attempts else 0.0
     best_score = max(score_pcts) if score_pcts else 0.0
-    recent_scores = score_pcts[:5][::-1] # Last 5 chronological
-    
-    # 2. Improvement Delta (All attempts)
+    recent_scores = [round(v, 1) for v in score_pcts[:10][::-1]]
+
     improvement_delta = 0.0
     improvement_direction = "stable"
-    
     if len(score_pcts) >= 2:
-        last_score = score_pcts[0]
-        prev_score = score_pcts[1]
-        
-        current_pct = last_score
-        prev_pct = prev_score
-        
-        diff = current_pct - prev_pct
+        diff = score_pcts[0] - score_pcts[1]
         improvement_delta = round(abs(diff), 1)
-        
-        if abs(diff) < 2.0:
+        if abs(diff) < 2:
             improvement_direction = "stable"
         elif diff > 0:
             improvement_direction = "up"
         else:
             improvement_direction = "down"
 
-    # 3. Training Level (Last 3 ADAPTIVE attempts)
-    adaptive_rows = [r for r in rows_general if r.mode == "adaptive"][:3]
+    adaptive_rows = [row for row in rows_general if row.mode == "adaptive"][:3]
     current_training_level = "beginner"
-    
-    if len(adaptive_rows) >= 2:
-        # Normalize scores to % before averaging
-        adaptive_pcts = [attempt_pct(row) for row in adaptive_rows]
-        avg_adaptive = sum(adaptive_pcts) / len(adaptive_pcts)
-        
+    avg_adaptive = 0.0
+    if adaptive_rows:
+        adaptive_scores = [_attempt_pct(row) for row in adaptive_rows]
+        avg_adaptive = sum(adaptive_scores) / len(adaptive_scores)
         if avg_adaptive >= 85:
             current_training_level = "advanced"
         elif avg_adaptive >= 60:
             current_training_level = "intermediate"
-        else:
-            current_training_level = "beginner"
-    else:
-        current_training_level = "beginner"
 
-    # 4. Topic Breakdown & Recommendation
-    # Topic/category are normalized through one shared taxonomy rule.
+    # 2) Topic stats
     stmt_topics = (
         select(
             Question.topic.label("topic"),
             Question.category.label("category"),
             func.count(AttemptAnswer.id).label("total"),
-            func.sum(case((AttemptAnswer.is_correct == True, 1), else_=0)).label("correct")
+            func.sum(case((AttemptAnswer.is_correct == True, 1), else_=0)).label("correct"),
         )
         .join(Attempt, AttemptAnswer.attempt_id == Attempt.id)
         .join(Question, AttemptAnswer.question_id == Question.id)
@@ -308,10 +310,12 @@ async def get_dashboard(
     res_topics = await db.execute(stmt_topics)
     rows_topics = res_topics.all()
 
+    # Detailed map for recommendation engine
     aggregated_topics: dict[str, dict[str, float | str]] = {}
+    topic_stats_for_focus: list[tuple[str, int, int]] = []
     for row in rows_topics:
         topic_key = question_learning_key(row.topic, row.category)
-        display_name = (row.topic or row.category or "General").strip() or "General"
+        display_name = (row.topic or row.category or "Umumiy").strip() or "Umumiy"
         item = aggregated_topics.setdefault(
             topic_key,
             {"label": display_name, "total": 0.0, "correct": 0.0},
@@ -319,62 +323,74 @@ async def get_dashboard(
         item["total"] = float(item["total"]) + float(row.total or 0)
         item["correct"] = float(item["correct"]) + float(row.correct or 0)
 
-    topic_breakdown: list[TopicAccuracy] = []
-    weakest_topic = None
-    prob_min_acc = 101.0
-    topic_stats_for_focus: list[tuple[str, int, int]] = []
+    # Canonical category breakdown for user dashboard
+    canonical_categories = [
+        "Yo'l belgilari",
+        "Yo'l harakati qoidalari",
+        "Chorrahalar",
+        "Yo'l chiziqlari",
+        "Haydovchi madaniyati",
+    ]
+    category_accumulator: dict[str, dict[str, float]] = {
+        cat: {"total": 0.0, "correct": 0.0} for cat in canonical_categories
+    }
 
     for topic_key, item in aggregated_topics.items():
         total = int(item["total"])
         correct = int(item["correct"])
         label = str(item["label"])
-        acc = (correct / total * 100) if total > 0 else 0.0
-        topic_breakdown.append(TopicAccuracy(topic=label, accuracy=round(acc, 1)))
         topic_stats_for_focus.append((topic_key, total, correct))
 
-        # Identify weakest for recommendation (min 5 answers)
-        if total >= 5 and acc < prob_min_acc:
-            prob_min_acc = acc
-            weakest_topic = label
+        canonical_name = _canonical_category(label)
+        category_accumulator[canonical_name]["total"] += total
+        category_accumulator[canonical_name]["correct"] += correct
+
+    topic_breakdown: list[TopicAccuracy] = []
+    weakest_topic = None
+    weakest_acc = 101.0
+    covered_accuracies: list[float] = []
+
+    for category_name in canonical_categories:
+        totals = category_accumulator[category_name]["total"]
+        corrects = category_accumulator[category_name]["correct"]
+        accuracy = (corrects / totals * 100) if totals > 0 else 0.0
+        accuracy = round(accuracy, 1)
+        topic_breakdown.append(TopicAccuracy(topic=category_name, accuracy=accuracy))
+        if totals > 0:
+            covered_accuracies.append(accuracy)
+            if accuracy < weakest_acc:
+                weakest_acc = accuracy
+                weakest_topic = category_name
 
     recommendation = Recommendation()
-    if weakest_topic:
+    if weakest_topic is not None:
         recommendation = Recommendation(
             topic=weakest_topic,
-            accuracy=round(prob_min_acc, 1),
-            action_label=f"Practice {weakest_topic}"
+            accuracy=round(weakest_acc, 1),
+            action_label=f"{weakest_topic} bo'yicha mashqni kuchaytiring",
         )
 
-    # Calculate Skill Vectors for Dashboard
+    # 3) Skills / retention
     now_utc = datetime.now(timezone.utc)
-    stmt_skills = (
-        select(UserSkill)
-        .where(UserSkill.user_id == current_user.id)
-    )
+    stmt_skills = select(UserSkill).where(UserSkill.user_id == current_user.id)
     res_skills = await db.execute(stmt_skills)
     user_skills = res_skills.scalars().all()
-    
+
     total_due = sum(1 for s in user_skills if s.next_review_at and s.next_review_at <= now_utc)
-    
     skill_vector = [TopicSkill(topic=s.topic, skill=round(s.skill_score * 100, 1)) for s in user_skills]
     knowledge_mastery = [KnowledgeMastery(topic=s.topic, probability=round(s.bkt_knowledge_prob * 100, 1)) for s in user_skills]
     retention_vector = [TopicRetention(topic=s.topic, retention=round(float(s.retention_score), 2)) for s in user_skills]
 
-    # 4b. Premium lesson recommendations from diagnostics.
+    # 4) Lesson recommendations
     focus_topics = _compute_focus_topics(topic_stats_for_focus, user_skills)
     focus_topic_scores = {topic: score for topic, score in focus_topics}
-    focus_topic_labels = {
-        key: str(data["label"]) for key, data in aggregated_topics.items()
-    }
+    focus_topic_labels = {key: str(data["label"]) for key, data in aggregated_topics.items()}
 
     lesson_recommendations: list[LessonRecommendation] = []
     if (current_user.is_premium or current_user.is_admin) and focus_topic_scores:
         lesson_result = await db.execute(
             select(Lesson)
-            .where(
-                Lesson.is_active == True,
-                Lesson.is_premium == True,
-            )
+            .where(Lesson.is_active == True, Lesson.is_premium == True)
             .order_by(Lesson.sort_order.asc(), Lesson.created_at.desc())
         )
         lessons = list(lesson_result.scalars().all())
@@ -397,7 +413,6 @@ async def get_dashboard(
             ),
             reverse=True,
         )
-
         lesson_recommendations = [
             LessonRecommendation(
                 lesson_id=lesson.id,
@@ -406,183 +421,230 @@ async def get_dashboard(
                 content_url=lesson.content_url,
                 topic=lesson.topic,
                 section=lesson.section,
-                reason=f"High mistake rate in {reason_topic}",
+                reason=f"{reason_topic} mavzusida xatolar ko'p",
                 match_score=round(score, 2),
             )
             for score, lesson, reason_topic in scored_lessons[:6]
         ]
 
-    # 5. Calculate Readiness Score (Predictive Engine)
-    # Formula: (0.5 * avg_last_5) + (0.3 * consistency) + (0.2 * adaptation)
-    
-    # Component 1: Recent Performance (50%)
-    avg_recent_pct = 0.0
-    recent_rows = rows_general[:5]
-    if recent_rows:
-        avg_recent_pct = sum(attempt_pct(row) for row in recent_rows) / len(recent_rows)
+    # 5) Test bank mastery
+    total_questions = await db.scalar(select(func.count(Question.id))) or 0
+    bank_stmt = (
+        select(
+            AttemptAnswer.question_id,
+            AttemptAnswer.is_correct,
+            AttemptAnswer.attempt_id,
+        )
+        .join(Attempt, AttemptAnswer.attempt_id == Attempt.id)
+        .where(
+            Attempt.user_id == current_user.id,
+            Attempt.finished_at.is_not(None),
+        )
+    )
+    bank_res = await db.execute(bank_stmt)
+    bank_rows = bank_res.all()
 
-    # Component 2: Topic Consistency (30%)
-    topic_consistency_score = 0.0
-    if topic_breakdown:
-        accuracies = [t.accuracy for t in topic_breakdown]
-        if len(accuracies) > 1:
-            mean_acc = sum(accuracies) / len(accuracies)
-            variance = sum((x - mean_acc) ** 2 for x in accuracies) / len(accuracies)
-            std_dev = variance ** 0.5
-            # Inverted scale: lower deviation -> higher score
-            topic_consistency_score = max(0.0, 100.0 - std_dev)
-        else:
-            # Single topic or data -> High consistency
-            topic_consistency_score = 100.0
+    seen_questions: set = set()
+    correct_questions: set = set()
+    correct_sessions_by_question: dict = defaultdict(set)
 
-    # Component 3: Difficulty Adaptation (20%)
-    difficulty_adaptation_score = 0.0
-    # avg_adaptive (pct) calculated in block #3?
-    # Wait, block #3 variable scope check.
-    # 'avg_adaptive' is defined inside if len(adaptive_scores) >= 2 block in existing code.
-    # I should re-calculate or safely access it.
-    
-    avg_adaptive_check = 0.0
-    if len(adaptive_rows) >= 2:
-        adaptive_pcts = [attempt_pct(row) for row in adaptive_rows]
-        avg_adaptive_check = sum(adaptive_pcts) / len(adaptive_pcts)
-    
-    if avg_adaptive_check >= 75:
-        difficulty_adaptation_score = 100.0
-    else:
-        difficulty_adaptation_score = (avg_adaptive_check / 75) * 100
+    for row in bank_rows:
+        q_id = row.question_id
+        seen_questions.add(q_id)
+        if row.is_correct:
+            correct_questions.add(q_id)
+            correct_sessions_by_question[q_id].add(row.attempt_id)
 
-    # Final Calculation
-    from ml.model_registry import (
-        calculate_readiness_score, 
-        calculate_hybrid_probability,
-        safe_ml_inference, 
-        get_inference_engine
+    mastered_questions = {q_id for q_id, sessions in correct_sessions_by_question.items() if len(sessions) >= 2}
+    needs_review_count = max(0, len(seen_questions) - len(mastered_questions))
+
+    question_bank_mastery = TestBankMastery(
+        total_questions=int(total_questions),
+        seen_questions=len(seen_questions),
+        correct_questions=len(correct_questions),
+        mastered_questions=len(mastered_questions),
+        needs_review_questions=needs_review_count,
     )
 
-    readiness_score = 0.0
-    if total_attempts > 0:
-        readiness_score = calculate_readiness_score(
-            avg_recent_pct,
-            topic_consistency_score,
-            difficulty_adaptation_score
+    # 6) Chart series
+    progress_trend: list[TrendPoint] = []
+    recent_attempts_for_chart = rows_general[:12][::-1]
+    for idx, row in enumerate(recent_attempts_for_chart, start=1):
+        label = row.finished_at.strftime("%d.%m") if row.finished_at else f"Test {idx}"
+        progress_trend.append(TrendPoint(label=label, value=round(_attempt_pct(row), 1)))
+
+    daily_counts: dict = defaultdict(int)
+    for row in rows_general:
+        if row.finished_at:
+            daily_counts[row.finished_at.date()] += 1
+
+    test_activity: list[ActivityPoint] = []
+    today = now_utc.date()
+    for offset in range(13, -1, -1):
+        day = today - timedelta(days=offset)
+        test_activity.append(
+            ActivityPoint(
+                label=day.strftime("%d.%m"),
+                tests_count=int(daily_counts.get(day, 0)),
+            )
         )
 
-    # 6. Pass Probability Prediction Engine
-    # Component A: adaptive_performance_score (last 3 adaptive, fallback to readiness)
-    adaptive_performance_score = readiness_score  # fallback
-    if len(adaptive_rows) >= 2:
-        adaptive_pcts_pp = [attempt_pct(row) for row in adaptive_rows]
-        adaptive_performance_score = sum(adaptive_pcts_pp) / len(adaptive_pcts_pp)
+    # 7) Pass probability factors (logistic model + transparent breakdown)
+    avg_recent_pct = sum(_attempt_pct(row) for row in rows_general[:5]) / max(1, min(len(rows_general), 5))
+    accuracy_score = max(0.0, min(100.0, avg_recent_pct))
+    mastery_score = (question_bank_mastery.mastered_questions / max(1, question_bank_mastery.total_questions)) * 100
+    mastery_coverage = max(0.0, min(1.0, mastery_score / 100.0))
 
-    # Component B: consistency_score (100 - stddev of last 5 scores scaled to 0-100)
-    consistency_score_pp = 0.0
-    last_5_rows = rows_general[:5]
-    if len(last_5_rows) >= 2:
-        pcts_5 = [attempt_pct(row) for row in last_5_rows]
-        mean_5 = sum(pcts_5) / len(pcts_5)
-        var_5 = sum((x - mean_5) ** 2 for x in pcts_5) / len(pcts_5)
-        std_5 = var_5 ** 0.5
-        consistency_score_pp = max(0.0, min(100.0, 100.0 - std_5))
-    elif len(last_5_rows) == 1:
-        consistency_score_pp = 100.0  # single score = perfectly consistent
+    category_balance_score = 0.0
+    if len(covered_accuracies) >= 2:
+        mean_acc = sum(covered_accuracies) / len(covered_accuracies)
+        variance = sum((value - mean_acc) ** 2 for value in covered_accuracies) / len(covered_accuracies)
+        category_balance_score = max(0.0, min(100.0, 100.0 - sqrt(variance)))
+    elif len(covered_accuracies) == 1:
+        category_balance_score = covered_accuracies[0]
 
-    # Cognitive Stability calculation
-    cognitive_stability = "Stable"
-    if len(score_pcts) >= 5:
-        mean_all = sum(score_pcts[:10]) / len(score_pcts[:10])
-        var_all = sum((x - mean_all) ** 2 for x in score_pcts[:10]) / len(score_pcts[:10])
-        std_all = var_all ** 0.5
-        if std_all < 1.5: cognitive_stability = "Very High"
-        elif std_all < 3.0: cognitive_stability = "High"
-        elif std_all < 5.0: cognitive_stability = "Moderate"
-        else: cognitive_stability = "Variable"
-
-    avg_rt_latest = rows_general[0].avg_response_time if rows_general else 0.0
-    adaptive_intelligence_strength = difficulty_adaptation_score
-
-    # Component C: training_level_weight
-    _training_level_weights = {"beginner": 50.0, "intermediate": 75.0, "advanced": 100.0}
-    training_level_weight = _training_level_weights.get(current_training_level, 50.0)
-
-    # Component D: pressure_resilience (from most recent attempt's timing data)
+    last_row = rows_general[0] if rows_general else None
     pressure_resilience = 1.0
-    if rows_general:
-        last_row = rows_general[0]
-        _avg_rt = last_row.avg_response_time
-        _rt_var = last_row.response_time_variance
-        if _avg_rt and _rt_var and _avg_rt > 0:
-            _norm_var = _rt_var / (_avg_rt ** 2)
-            pressure_resilience = max(0.0, min(1.0, 1.0 - _norm_var))
+    if last_row and last_row.avg_response_time and last_row.response_time_variance and last_row.avg_response_time > 0:
+        norm_var = last_row.response_time_variance / (last_row.avg_response_time ** 2)
+        pressure_resilience = max(0.0, min(1.0, 1.0 - norm_var))
 
-    # FINAL PROBABILITY CALCULATION (Hybrid)
-    engine = get_inference_engine()
-    ml_prob_val = await safe_ml_inference(db, current_user.id)
-    
-    hybrid_res = calculate_hybrid_probability(
-        readiness_score,
-        adaptive_performance_score,
-        consistency_score_pp,
-        training_level_weight,
-        pressure_resilience,
-        ml_prob_val,
-        engine.auc_score,
-        engine.drift_status
+    retention_percent_values = []
+    for point in retention_vector:
+        value = point.retention
+        retention_percent_values.append(value * 100 if value <= 1 else value)
+    retention_avg = sum(retention_percent_values) / len(retention_percent_values) if retention_percent_values else 50.0
+    knowledge_stability_score = max(0.0, min(100.0, pressure_resilience * 55 + retention_avg * 0.45))
+
+    trend_score = 50.0
+    learning_trend = 0.0
+    if len(score_pcts) >= 6:
+        latest_avg = sum(score_pcts[:3]) / 3
+        previous_avg = sum(score_pcts[3:6]) / 3
+        trend_score = max(0.0, min(100.0, 50 + (latest_avg - previous_avg) * 2.2))
+        learning_trend = max(-1.0, min(1.0, (latest_avg - previous_avg) / 50.0))
+    elif len(score_pcts) >= 2:
+        trend_score = max(0.0, min(100.0, 50 + (score_pcts[0] - score_pcts[1]) * 2.5))
+        learning_trend = max(-1.0, min(1.0, (score_pcts[0] - score_pcts[1]) / 50.0))
+    elif len(score_pcts) == 1:
+        trend_score = score_pcts[0]
+
+    hard_stmt = (
+        select(
+            func.count(AttemptAnswer.id).label("total"),
+            func.sum(case((AttemptAnswer.is_correct == True, 1), else_=0)).label("correct"),
+        )
+        .join(Attempt, AttemptAnswer.attempt_id == Attempt.id)
+        .join(Question, AttemptAnswer.question_id == Question.id)
+        .where(
+            Attempt.user_id == current_user.id,
+            Attempt.finished_at.is_not(None),
+            ((Question.difficulty_percent.is_not(None)) & (Question.difficulty_percent <= 33))
+            | ((Question.difficulty_percent.is_(None)) & (Question.difficulty == "hard")),
+        )
+    )
+    hard_row = (await db.execute(hard_stmt)).one()
+    hard_total = int(hard_row.total or 0)
+    hard_correct = int(hard_row.correct or 0)
+    difficulty_performance = max(0.0, min(1.0, (hard_correct / hard_total) if hard_total else 0.0))
+
+    weak_topics_count = sum(1 for value in covered_accuracies if value < 60.0)
+    weak_topic_ratio = max(0.0, min(1.0, weak_topics_count / max(1, len(canonical_categories))))
+
+    pass_probability_norm = calculate_pass_probability_from_signals(
+        recent_accuracy=max(0.0, min(1.0, accuracy_score / 100.0)),
+        difficulty_performance=difficulty_performance,
+        mastery_coverage=mastery_coverage,
+        weak_topic_ratio=weak_topic_ratio,
+        learning_trend=learning_trend,
+    )
+    pass_probability = round(pass_probability_norm * 100.0, 1) if total_attempts > 0 else 0.0
+
+    factor_specs = [
+        ("recent_accuracy", "So'nggi aniqlik", 35.0, accuracy_score),
+        ("hard_accuracy", "Qiyin savollar natijasi", 25.0, difficulty_performance * 100.0),
+        ("mastery_coverage", "O'zlashtirish qamrovi", 20.0, mastery_score),
+        ("weak_topic_ratio", "Zaif mavzular ulushi", 15.0, (1.0 - weak_topic_ratio) * 100.0),
+        ("learning_trend", "Rivojlanish trendi", 5.0, (learning_trend + 1.0) * 50.0),
+    ]
+
+    factor_models: list[PassProbabilityFactor] = []
+    weighted_total = 0.0
+    for key, label, weight, score in factor_specs:
+        weighted = weight * score / 100
+        weighted_total += weighted
+        factor_models.append(
+            PassProbabilityFactor(
+                key=key,
+                label=label,
+                weight=round(weight, 1),
+                score=round(max(0.0, min(100.0, score)), 1),
+                weighted_score=round(weighted, 1),
+            )
+        )
+
+    # keep weighted transparency score for card explanations (0..100).
+    weighted_total = round(max(0.0, min(100.0, weighted_total)), 1)
+    readiness_score = round((accuracy_score * 0.5 + category_balance_score * 0.3 + trend_score * 0.2), 1)
+    adaptive_intelligence_strength = round((mastery_score * 0.4 + knowledge_stability_score * 0.6), 1)
+
+    if pass_probability >= 90:
+        pass_prediction_label = "Imtihonga tayyor"
+    elif pass_probability >= 75:
+        pass_prediction_label = "Yaxshi daraja"
+    elif pass_probability >= 55:
+        pass_prediction_label = "Qo'shimcha mashq kerak"
+    else:
+        pass_prediction_label = "Xavf yuqori"
+
+    if knowledge_stability_score >= 85:
+        cognitive_stability = "Yuqori"
+    elif knowledge_stability_score >= 65:
+        cognitive_stability = "O'rtacha"
+    else:
+        cognitive_stability = "Past"
+
+    pass_probability_breakdown = PassProbabilityBreakdown(
+        explanation="O‘tish ehtimoli sizning test natijalaringiz, savollarni o‘zlashtirish darajasi va so‘nggi rivojlanish trendi asosida hisoblanadi.",
+        factors=factor_models,
     )
 
-    pass_probability = hybrid_res["pass_probability"]
-    rule_prob = hybrid_res["rule_prob"]
-    ml_prob = hybrid_res["ml_prob"]
-    confidence_score = hybrid_res["confidence_score"]
-    ml_status = engine.status if ml_prob_val is not None else "insufficient_data"
-    if engine.drift_status == "severe":
-        ml_status = "fallback"
-    
-    model_version = engine.version
-
-    # Re-evaluate interpretation label
-    if pass_probability >= 95:
-        pass_prediction_label = "Exam Ready"
-    elif pass_probability >= 85:
-        pass_prediction_label = "Very Likely to Pass"
-    elif pass_probability >= 70:
-        pass_prediction_label = "Likely to Pass"
-    elif pass_probability >= 50:
-        pass_prediction_label = "Needs Improvement"
-    else:
-        pass_prediction_label = "High Risk of Failing"
+    confidence_score = min(0.98, 0.35 + min(total_attempts, 20) / 40 + mastery_score / 250)
 
     return DashboardResponse(
         overview=AnalyticsOverview(
             total_attempts=total_attempts,
             average_score=round(float(avg_score), 2),
-            best_score=float(best_score),
+            best_score=float(round(best_score, 1)),
             improvement_delta=improvement_delta,
             improvement_direction=improvement_direction,
             current_training_level=current_training_level,
-            readiness_score=round(readiness_score, 1),
+            readiness_score=readiness_score,
             pass_probability=pass_probability,
             pass_prediction_label=pass_prediction_label,
             adaptive_intelligence_strength=adaptive_intelligence_strength,
             total_due=total_due,
-            avg_response_time=avg_rt_latest,
+            avg_response_time=last_row.avg_response_time if last_row else 0.0,
             cognitive_stability=cognitive_stability,
             pressure_resilience=round(pressure_resilience * 100, 1),
-            # Model fields
-            pass_probability_ml=round(ml_prob, 1) if ml_prob is not None else None,
-            pass_probability_rule=round(rule_prob, 1),
+            pass_probability_ml=None,
+            pass_probability_rule=weighted_total,
             pass_probability_final=pass_probability,
             confidence_score=round(confidence_score, 2),
-            model_version=model_version,
-            ml_status=ml_status
+            model_version="v2-transparent",
+            ml_status="rule_only",
         ),
         recommendation=recommendation,
-        recent_scores=recent_scores,
+        recent_scores=[int(round(v)) for v in recent_scores],
         topic_breakdown=topic_breakdown,
         skill_vector=skill_vector,
         knowledge_mastery=knowledge_mastery,
         retention_vector=retention_vector,
         lesson_recommendations=lesson_recommendations,
+        progress_trend=progress_trend,
+        test_activity=test_activity,
+        question_bank_mastery=question_bank_mastery,
+        pass_probability_breakdown=pass_probability_breakdown,
     )
 
 
