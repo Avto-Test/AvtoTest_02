@@ -68,7 +68,7 @@ function PremiumRecommendationCardV2Component({ recommendation, lessons, isPremi
           {topLesson ? (
             <p className="text-sm text-slate-200">
               Dars tavsiyasi: <span className="font-semibold text-white">{topLesson.title}</span>
-              {topLesson.topic ? <span className="text-cyan-200"> • {topLesson.topic}</span> : null}
+              {topLesson.topic ? <span className="text-cyan-200"> - {topLesson.topic}</span> : null}
             </p>
           ) : null}
         </div>
@@ -103,4 +103,3 @@ function PremiumRecommendationCardV2Component({ recommendation, lessons, isPremi
 }
 
 export default memo(PremiumRecommendationCardV2Component);
-

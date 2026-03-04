@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import api from "@/lib/axios";
+import { useAuth } from "@/store/useAuth";
 
 type RawOverview = {
   pass_probability_final?: number | null;
@@ -74,6 +74,11 @@ type RawDashboardResponse = {
 
 type RawFunnelResponse = {
   pass_probability?: number | null;
+};
+
+type RawSummaryResponse = {
+  total_attempts?: number | null;
+  average_score?: number | null;
 };
 
 export type ScoreTrendPoint = {
@@ -158,6 +163,12 @@ function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
 
+function normalizePercent(raw: number): number {
+  if (!Number.isFinite(raw)) return 0;
+  if (raw <= 1) return clampPercent(raw * 100);
+  return clampPercent(raw);
+}
+
 function normalizePassProbability(raw: number): number {
   if (!Number.isFinite(raw)) return 0;
   if (raw <= 1) return clampPercent(raw * 100);
@@ -178,7 +189,11 @@ function normalizeCategoryLabel(raw: string): string {
   return value;
 }
 
-function normalizeDashboardPayload(payload: RawDashboardResponse, funnel?: RawFunnelResponse | null): DashboardAnalyticsViewModel {
+function normalizeDashboardPayload(
+  payload: RawDashboardResponse,
+  funnel?: RawFunnelResponse | null,
+  summary?: RawSummaryResponse | null
+): DashboardAnalyticsViewModel {
   const overview = payload.overview ?? {};
   const fallbackPass = normalizePassProbability(toNumber(funnel?.pass_probability, 0));
   const dashboardPass = normalizePassProbability(
@@ -190,12 +205,12 @@ function normalizeDashboardPayload(payload: RawDashboardResponse, funnel?: RawFu
     recentScoresRaw.length > 0
       ? recentScoresRaw.map((value, index) => ({
           testIndex: index + 1,
-          score: clampPercent(toNumber(value, 0)),
+          score: normalizePercent(toNumber(value, 0)),
         }))
       : (payload.progress_trend ?? [])
           .map((point, index) => ({
             testIndex: index + 1,
-            score: clampPercent(toNumber(point?.value, 0)),
+            score: normalizePercent(toNumber(point?.value, 0)),
           }))
           .filter((point) => Number.isFinite(point.score));
 
@@ -208,7 +223,7 @@ function normalizeDashboardPayload(payload: RawDashboardResponse, funnel?: RawFu
   const categoryPerformance: CategoryPoint[] = categoriesRaw
     .map((category) => ({
       category: normalizeCategoryLabel(String(category.category ?? category.topic ?? "")),
-      accuracy: clampPercent(toNumber(category.accuracy, 0)),
+      accuracy: normalizePercent(toNumber(category.accuracy, 0)),
     }))
     .filter((item) => item.category.length > 0);
 
@@ -216,7 +231,7 @@ function normalizeDashboardPayload(payload: RawDashboardResponse, funnel?: RawFu
   const difficultyProgression: DifficultyPoint[] = difficultyRaw
     .map((item, index) => ({
       testIndex: Math.max(1, Math.round(toNumber(item.test_index, index + 1))),
-      averageDifficulty: clampPercent(toNumber(item.average_difficulty ?? item.difficulty ?? item.value, 0)),
+      averageDifficulty: normalizePercent(toNumber(item.average_difficulty ?? item.difficulty ?? item.value, 0)),
     }))
     .filter((item) => Number.isFinite(item.averageDifficulty));
 
@@ -224,7 +239,7 @@ function normalizeDashboardPayload(payload: RawDashboardResponse, funnel?: RawFu
   const weakTopicsFromApi: WeakTopicPoint[] = weakRaw
     .map((item) => ({
       category: normalizeCategoryLabel(String(item.category ?? item.topic ?? "")),
-      accuracy: clampPercent(toNumber(item.accuracy, 0)),
+      accuracy: normalizePercent(toNumber(item.accuracy, 0)),
     }))
     .filter((item) => item.category.length > 0);
 
@@ -275,15 +290,31 @@ function normalizeDashboardPayload(payload: RawDashboardResponse, funnel?: RawFu
       .filter((item) => item.label.length > 0),
   };
 
+  const derivedAttemptsFromTrend = scoreTrend.length;
+  const totalAttempts = Math.max(
+    0,
+    Math.round(
+      toNumber(
+        summary?.total_attempts ??
+          overview.total_attempts ??
+          (derivedAttemptsFromTrend > 0 ? derivedAttemptsFromTrend : 0),
+        0
+      )
+    )
+  );
+
+  const avgScore = normalizePercent(toNumber(summary?.average_score ?? overview.average_score, 0));
+  const bestScore = normalizePercent(toNumber(overview.best_score, 0));
+
   return {
     passProbability: dashboardPass,
-    readinessScore: clampPercent(toNumber(overview.readiness_score, 0)),
-    bestScore: clampPercent(toNumber(overview.best_score, 0)),
+    readinessScore: normalizePercent(toNumber(overview.readiness_score, 0)),
+    bestScore,
     trainingLevel: String(overview.training_level ?? overview.current_training_level ?? "beginner"),
     cognitiveStability: String(overview.cognitive_stability ?? "n/a"),
-    averageScore: clampPercent(toNumber(overview.average_score, 0)),
+    averageScore: avgScore,
     improvementDelta: toNumber(overview.improvement_delta, 0),
-    totalAttempts: Math.max(0, Math.round(toNumber(overview.total_attempts, 0))),
+    totalAttempts,
     scoreTrend,
     categoryPerformance,
     difficultyProgression,
@@ -296,6 +327,7 @@ function normalizeDashboardPayload(payload: RawDashboardResponse, funnel?: RawFu
 }
 
 export function useDashboardAnalytics(): UseDashboardAnalyticsResult {
+  const token = useAuth((state) => state.token);
   const [data, setData] = useState<DashboardAnalyticsViewModel | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -304,18 +336,50 @@ export function useDashboardAnalytics(): UseDashboardAnalyticsResult {
     setLoading(true);
     setError(null);
     try {
-      const [dashboardResult, funnelResult] = await Promise.allSettled([
-        api.get<RawDashboardResponse>("/analytics/me/dashboard"),
+      const headers: HeadersInit = {
+        "Content-Type": "application/json",
+      };
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      const [dashboardResult, summaryResult, funnelResult] = await Promise.allSettled([
+        fetch("/api/analytics/dashboard", {
+          method: "GET",
+          credentials: "include",
+          headers,
+          cache: "no-store",
+        }),
+        fetch("/api/analytics/summary", {
+          method: "GET",
+          credentials: "include",
+          headers,
+          cache: "no-store",
+        }),
         fetch("/api/analytics/funnel", {
           method: "GET",
           credentials: "include",
-          headers: { "Content-Type": "application/json" },
+          headers,
           cache: "no-store",
         }),
       ]);
 
       if (dashboardResult.status !== "fulfilled") {
         throw dashboardResult.reason;
+      }
+      if (!dashboardResult.value.ok) {
+        throw new Error(`Dashboard API failed: ${dashboardResult.value.status}`);
+      }
+
+      const dashboardPayload = (await dashboardResult.value.json()) as RawDashboardResponse;
+
+      let summaryPayload: RawSummaryResponse | null = null;
+      if (summaryResult.status === "fulfilled" && summaryResult.value.ok) {
+        try {
+          summaryPayload = (await summaryResult.value.json()) as RawSummaryResponse;
+        } catch {
+          summaryPayload = null;
+        }
       }
 
       let funnelPayload: RawFunnelResponse | null = null;
@@ -327,7 +391,7 @@ export function useDashboardAnalytics(): UseDashboardAnalyticsResult {
         }
       }
 
-      const normalized = normalizeDashboardPayload(dashboardResult.value.data, funnelPayload);
+      const normalized = normalizeDashboardPayload(dashboardPayload, funnelPayload, summaryPayload);
       setData(normalized);
     } catch (err) {
       console.error("Dashboard analytics yuklanmadi", err);
@@ -336,7 +400,7 @@ export function useDashboardAnalytics(): UseDashboardAnalyticsResult {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     void fetchData();

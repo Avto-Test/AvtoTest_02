@@ -9,14 +9,26 @@ type Props = {
 };
 
 function ScoreTrendChartComponent({ data }: Props) {
+  if (!data.length) {
+    return (
+      <section className="h-full rounded-3xl border border-[#1F2A44] bg-[#0B1324] p-6">
+        <h3 className="text-lg font-semibold text-white">Rivojlanish trendi</h3>
+        <p className="mt-2 text-sm text-slate-300">Bir nechta test yechgandan keyin rivojlanish dinamikasi shu yerda chiqadi.</p>
+      </section>
+    );
+  }
+
+  const lastIndex = data.length - 1;
+
   return (
-    <div className="h-[330px] w-full rounded-3xl border border-[#1F2A44] bg-gradient-to-b from-[#111a2f] to-[#0b1324] p-5 shadow-[0_10px_28px_rgba(0,0,0,0.2)]">
+    <div className="min-w-0 rounded-3xl border border-[#1F2A44] bg-gradient-to-b from-[#111a2f] to-[#0b1324] p-5 shadow-[0_10px_28px_rgba(0,0,0,0.2)]">
       <div className="mb-3">
         <h3 className="text-lg font-semibold text-white">Rivojlanish trendi</h3>
         <p className="text-sm text-slate-300">So'nggi testlar natijasidagi o'zgarish</p>
       </div>
-      <ResponsiveContainer width="100%" height="84%">
-        <LineChart data={data}>
+      <div className="h-[250px] min-w-0">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data}>
           <defs>
             <linearGradient id="scoreTrendLine" x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" stopColor="#22d3ee" />
@@ -47,13 +59,28 @@ function ScoreTrendChartComponent({ data }: Props) {
             dataKey="score"
             stroke="url(#scoreTrendLine)"
             strokeWidth={3}
-            dot={{ r: 4, fill: "#22d3ee", stroke: "#0B1324", strokeWidth: 2 }}
+            dot={(dotProps) => {
+              const { cx, cy, index } = dotProps;
+              if (typeof cx !== "number" || typeof cy !== "number") return null;
+              const isLast = index === lastIndex;
+              return (
+                <circle
+                  cx={cx}
+                  cy={cy}
+                  r={isLast ? 6 : 4}
+                  fill={isLast ? "#00E5A8" : "#22d3ee"}
+                  stroke="#0B1324"
+                  strokeWidth={2}
+                />
+              );
+            }}
             activeDot={{ r: 6, fill: "#00E5A8", stroke: "#0B1324", strokeWidth: 2 }}
             isAnimationActive
             animationDuration={650}
           />
-        </LineChart>
-      </ResponsiveContainer>
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
