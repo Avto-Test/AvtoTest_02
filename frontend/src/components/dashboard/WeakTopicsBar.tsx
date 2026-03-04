@@ -12,22 +12,29 @@ function WeakTopicsBarComponent({ data }: Props) {
   const sorted = useMemo(() => [...data].sort((a, b) => a.accuracy - b.accuracy), [data]);
 
   return (
-    <div className="h-[320px] w-full rounded-2xl border border-[#1F2A44] bg-[#0B1324] p-4">
+    <div className="h-[330px] w-full rounded-3xl border border-[#1F2A44] bg-gradient-to-b from-[#111a2f] to-[#0b1324] p-5 shadow-[0_10px_28px_rgba(0,0,0,0.2)]">
       <div className="mb-3">
-        <h3 className="text-base font-semibold text-white">Zaif mavzular</h3>
-        <p className="text-sm text-slate-400">Past foizdagi yo'nalishlar birinchi o'rinda ko'rsatiladi</p>
+        <h3 className="text-lg font-semibold text-white">Zaif mavzular</h3>
+        <p className="text-sm text-slate-300">Eng ko'p xato qilinayotgan mavzular</p>
       </div>
       <ResponsiveContainer width="100%" height="84%">
-        <BarChart data={sorted}>
+        <BarChart data={sorted} layout="vertical" margin={{ left: 18, right: 8, top: 8, bottom: 8 }}>
           <defs>
-            <linearGradient id="weakBar" x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id="weakBar" x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" stopColor="#F59E0B" />
               <stop offset="100%" stopColor="#F97316" />
             </linearGradient>
           </defs>
-          <CartesianGrid stroke="#1F2A44" strokeDasharray="3 3" />
-          <XAxis dataKey="category" stroke="#94a3b8" tick={{ fill: "#94a3b8", fontSize: 11 }} interval={0} angle={-10} textAnchor="end" height={54} />
-          <YAxis domain={[0, 100]} stroke="#94a3b8" tick={{ fill: "#94a3b8", fontSize: 12 }} />
+          <CartesianGrid stroke="#22324e" strokeDasharray="3 3" opacity={0.35} horizontal={false} />
+          <XAxis type="number" domain={[0, 100]} stroke="#94a3b8" tick={{ fill: "#94a3b8", fontSize: 12 }} />
+          <YAxis
+            type="category"
+            dataKey="category"
+            stroke="#94a3b8"
+            tick={{ fill: "#cbd5e1", fontSize: 11 }}
+            width={130}
+            interval={0}
+          />
           <Tooltip
             contentStyle={{
               background: "#0B1324",
@@ -37,7 +44,7 @@ function WeakTopicsBarComponent({ data }: Props) {
             }}
             formatter={(value) => [`${Number(value).toFixed(1)}%`, "Aniqlik"]}
           />
-          <Bar dataKey="accuracy" fill="url(#weakBar)" radius={[8, 8, 0, 0]} isAnimationActive animationDuration={650} />
+          <Bar dataKey="accuracy" fill="url(#weakBar)" radius={[0, 8, 8, 0]} isAnimationActive animationDuration={650} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -45,4 +52,3 @@ function WeakTopicsBarComponent({ data }: Props) {
 }
 
 export default memo(WeakTopicsBarComponent);
-

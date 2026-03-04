@@ -7,6 +7,7 @@ type RawOverview = {
   pass_probability_final?: number | null;
   pass_probability?: number | null;
   readiness_score?: number | null;
+  best_score?: number | null;
   training_level?: string | null;
   current_training_level?: string | null;
   cognitive_stability?: string | null;
@@ -30,6 +31,39 @@ type RawDifficultyPoint = {
 
 type RawDashboardResponse = {
   overview?: RawOverview | null;
+  recommendation?: {
+    topic?: string | null;
+    accuracy?: number | null;
+    action_label?: string | null;
+  } | null;
+  lesson_recommendations?:
+    | Array<{
+        lesson_id?: string | null;
+        title?: string | null;
+        reason?: string | null;
+        topic?: string | null;
+        content_type?: string | null;
+      }>
+    | null;
+  question_bank_mastery?: {
+    total_questions?: number | null;
+    seen_questions?: number | null;
+    correct_questions?: number | null;
+    mastered_questions?: number | null;
+    needs_review_questions?: number | null;
+  } | null;
+  pass_probability_breakdown?: {
+    explanation?: string | null;
+    factors?:
+      | Array<{
+          key?: string | null;
+          label?: string | null;
+          weight?: number | null;
+          score?: number | null;
+          weighted_score?: number | null;
+        }>
+      | null;
+  } | null;
   category_performance?: RawCategory[] | null;
   topic_breakdown?: RawCategory[] | null;
   recent_scores?: Array<number | null> | null;
@@ -65,6 +99,7 @@ export type WeakTopicPoint = {
 export type DashboardAnalyticsViewModel = {
   passProbability: number;
   readinessScore: number;
+  bestScore: number;
   trainingLevel: string;
   cognitiveStability: string;
   averageScore: number;
@@ -74,6 +109,35 @@ export type DashboardAnalyticsViewModel = {
   categoryPerformance: CategoryPoint[];
   difficultyProgression: DifficultyPoint[];
   weakTopics: WeakTopicPoint[];
+  recommendation: {
+    topic: string | null;
+    accuracy: number | null;
+    actionLabel: string | null;
+  };
+  lessonRecommendations: Array<{
+    lessonId: string;
+    title: string;
+    reason: string;
+    topic: string | null;
+    contentType: string | null;
+  }>;
+  questionBankMastery: {
+    totalQuestions: number;
+    seenQuestions: number;
+    correctQuestions: number;
+    masteredQuestions: number;
+    needsReviewQuestions: number;
+  };
+  passBreakdown: {
+    explanation: string;
+    factors: Array<{
+      key: string;
+      label: string;
+      weight: number;
+      score: number;
+      weightedScore: number;
+    }>;
+  };
 };
 
 type UseDashboardAnalyticsResult = {
@@ -169,9 +233,52 @@ function normalizeDashboardPayload(payload: RawDashboardResponse, funnel?: RawFu
       ? weakTopicsFromApi.sort((a, b) => a.accuracy - b.accuracy)
       : [...categoryPerformance].sort((a, b) => a.accuracy - b.accuracy).slice(0, 5);
 
+  const recommendation = {
+    topic: payload.recommendation?.topic ? String(payload.recommendation.topic) : null,
+    accuracy:
+      payload.recommendation?.accuracy === null || payload.recommendation?.accuracy === undefined
+        ? null
+        : clampPercent(toNumber(payload.recommendation?.accuracy, 0)),
+    actionLabel: payload.recommendation?.action_label ? String(payload.recommendation.action_label) : null,
+  };
+
+  const lessonRecommendations = (payload.lesson_recommendations ?? [])
+    .map((item) => ({
+      lessonId: String(item?.lesson_id ?? ""),
+      title: String(item?.title ?? "").trim(),
+      reason: String(item?.reason ?? "").trim(),
+      topic: item?.topic ? String(item.topic) : null,
+      contentType: item?.content_type ? String(item.content_type) : null,
+    }))
+    .filter((item) => item.lessonId.length > 0 && item.title.length > 0);
+
+  const questionBankMastery = {
+    totalQuestions: Math.max(0, Math.round(toNumber(payload.question_bank_mastery?.total_questions, 0))),
+    seenQuestions: Math.max(0, Math.round(toNumber(payload.question_bank_mastery?.seen_questions, 0))),
+    correctQuestions: Math.max(0, Math.round(toNumber(payload.question_bank_mastery?.correct_questions, 0))),
+    masteredQuestions: Math.max(0, Math.round(toNumber(payload.question_bank_mastery?.mastered_questions, 0))),
+    needsReviewQuestions: Math.max(0, Math.round(toNumber(payload.question_bank_mastery?.needs_review_questions, 0))),
+  };
+
+  const passBreakdown = {
+    explanation:
+      String(payload.pass_probability_breakdown?.explanation ?? "").trim() ||
+      "O'tish ehtimoli natijalar va o'zlashtirish ko'rsatkichlari asosida hisoblanadi.",
+    factors: (payload.pass_probability_breakdown?.factors ?? [])
+      .map((item) => ({
+        key: String(item?.key ?? "").trim() || "factor",
+        label: String(item?.label ?? "").trim() || "Omil",
+        weight: clampPercent(toNumber(item?.weight, 0)),
+        score: clampPercent(toNumber(item?.score, 0)),
+        weightedScore: clampPercent(toNumber(item?.weighted_score, 0)),
+      }))
+      .filter((item) => item.label.length > 0),
+  };
+
   return {
     passProbability: dashboardPass,
     readinessScore: clampPercent(toNumber(overview.readiness_score, 0)),
+    bestScore: clampPercent(toNumber(overview.best_score, 0)),
     trainingLevel: String(overview.training_level ?? overview.current_training_level ?? "beginner"),
     cognitiveStability: String(overview.cognitive_stability ?? "n/a"),
     averageScore: clampPercent(toNumber(overview.average_score, 0)),
@@ -181,6 +288,10 @@ function normalizeDashboardPayload(payload: RawDashboardResponse, funnel?: RawFu
     categoryPerformance,
     difficultyProgression,
     weakTopics,
+    recommendation,
+    lessonRecommendations,
+    questionBankMastery,
+    passBreakdown,
   };
 }
 
@@ -241,4 +352,3 @@ export function useDashboardAnalytics(): UseDashboardAnalyticsResult {
     refetch: fetchData,
   };
 }
-
