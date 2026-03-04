@@ -11,6 +11,7 @@ interface FunnelResponse {
   upgrade_success: number;
   ctr: number;
   conversion_rate: number;
+  pass_probability: number;
 }
 
 interface FunnelLeak {
@@ -83,6 +84,7 @@ const EMPTY_RESPONSE: FunnelResponse = {
   upgrade_success: 0,
   ctr: 0,
   conversion_rate: 0,
+  pass_probability: 0,
 };
 
 const globalForPool = globalThis as typeof globalThis & {
@@ -234,7 +236,41 @@ function toFunnelResponse(counts: Record<TrackedEventName, number>): FunnelRespo
     upgrade_success: upgradeSuccess,
     ctr: safeRate(upgradeClick, premiumBlockView),
     conversion_rate: safeRate(upgradeSuccess, premiumBlockView),
+    pass_probability: 0,
   };
+}
+
+async function resolvePassProbability(token: string): Promise<number> {
+  try {
+    const apiBaseUrl = getApiBaseUrl();
+    const response = await fetch(`${apiBaseUrl}/analytics/me/dashboard`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return 0;
+    }
+    const payload = (await response.json()) as {
+      overview?: {
+        pass_probability_final?: unknown;
+        pass_probability?: unknown;
+      };
+    };
+    const rawValue = payload.overview?.pass_probability_final ?? payload.overview?.pass_probability;
+    const numeric = typeof rawValue === "number" ? rawValue : Number(rawValue);
+    if (!Number.isFinite(numeric)) {
+      return 0;
+    }
+    // backend dashboard keeps this value in 0..100; funnel exposes normalized 0..1
+    const normalized = numeric > 1 ? numeric / 100 : numeric;
+    return Number(Math.max(0, Math.min(1, normalized)).toFixed(4));
+  } catch {
+    return 0;
+  }
 }
 
 function safeDelta(current: number, previous: number): number {
@@ -602,6 +638,7 @@ export async function GET(request: NextRequest) {
 
     const currentCounts = await queryEventCounts(pool, from, to);
     const response: FunnelApiResponse = toFunnelResponse(currentCounts);
+    response.pass_probability = await resolvePassProbability(token);
     response.leak = getFunnelLeak(response);
     response.recommendation = getFunnelRecommendation(response.leak);
 
