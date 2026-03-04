@@ -16,11 +16,7 @@ const ScoreTrendChart = dynamic(() => import("@/components/dashboard/ScoreTrendC
   ssr: false,
   loading: () => <ChartSkeleton />,
 });
-const CategoryRadarChart = dynamic(() => import("@/components/dashboard/CategoryRadarChart"), {
-  ssr: false,
-  loading: () => <ChartSkeleton />,
-});
-const DifficultyProgressionChart = dynamic(() => import("@/components/dashboard/DifficultyProgressionChart"), {
+const CategoryPetalChart = dynamic(() => import("@/components/dashboard/CategoryPetalChart"), {
   ssr: false,
   loading: () => <ChartSkeleton />,
 });
@@ -29,10 +25,6 @@ const WeakTopicsBar = dynamic(() => import("@/components/dashboard/WeakTopicsBar
   loading: () => <ChartSkeleton />,
 });
 const QuestionBankMasteryCard = dynamic(() => import("@/components/dashboard/QuestionBankMasteryCard"), {
-  ssr: false,
-  loading: () => <ChartSkeleton />,
-});
-const PassBreakdownBars = dynamic(() => import("@/components/dashboard/PassBreakdownBars"), {
   ssr: false,
   loading: () => <ChartSkeleton />,
 });
@@ -52,7 +44,7 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto w-full max-w-[1600px] space-y-6 px-4 py-6 md:px-6 xl:px-8">
+      <div className="mx-auto w-full max-w-[1600px] space-y-5 px-4 py-6 md:px-6 xl:px-8">
         <Skeleton className="h-56 rounded-3xl" />
         <div className="grid gap-6 xl:grid-cols-2">
           <ChartSkeleton />
@@ -87,11 +79,11 @@ export default function DashboardPage() {
     data.improvementDelta > 0 ? `+${data.improvementDelta.toFixed(1)}%` : `${data.improvementDelta.toFixed(1)}%`;
 
   return (
-    <div className="mx-auto w-full max-w-[1600px] space-y-6 px-4 py-6 md:px-6 xl:px-8">
+    <div className="mx-auto w-full max-w-[1600px] space-y-5 px-4 py-6 md:px-6 xl:px-8">
       <section className="relative overflow-hidden rounded-3xl border border-[#1F2A44] bg-[radial-gradient(120%_160%_at_8%_0%,rgba(14,116,144,0.25)_0%,rgba(11,19,36,0.92)_56%,#0B1324_100%)] p-6">
         <div className="pointer-events-none absolute -left-20 -top-20 h-80 w-80 rounded-full bg-cyan-400/10 blur-3xl" />
         <div className="pointer-events-none absolute -right-16 -bottom-20 h-72 w-72 rounded-full bg-emerald-400/10 blur-3xl" />
-        <div className="relative grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(330px,420px)]">
+        <div className="relative grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(340px,420px)]">
           <div>
             <p className="text-sm text-cyan-200">Assalomu alaykum, {displayName}</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">Imtihonga tayyorgarlik holati</h1>
@@ -99,7 +91,7 @@ export default function DashboardPage() {
               O'tish ehtimoli sizning test natijalaringiz, savollarni o'zlashtirish va rivojlanish trendi asosida hisoblanadi.
             </p>
 
-            <div className="mt-5 flex flex-wrap items-center gap-3">
+            <div className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
               <span className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 shadow-[inset_0_0_0_1px_rgba(34,211,238,0.08)]">
                 O'rtacha natija: <strong>{Math.round(data.averageScore)}%</strong>
               </span>
@@ -112,6 +104,9 @@ export default function DashboardPage() {
               </span>
               <span className="rounded-xl border border-slate-400/30 bg-slate-500/10 px-3 py-1.5 text-xs text-slate-200">
                 Testlar soni: <strong>{data.totalAttempts}</strong>
+              </span>
+              <span className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-3 py-1.5 text-xs text-sky-100">
+                Ko'rilgan savollar: <strong>{data.questionBankMastery.seenQuestions}</strong>
               </span>
             </div>
 
@@ -130,7 +125,9 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <PassProbabilityGauge passProbability={data.passProbability} />
+          <div className="flex items-stretch">
+            <PassProbabilityGauge passProbability={data.passProbability} />
+          </div>
         </div>
       </section>
 
@@ -140,20 +137,13 @@ export default function DashboardPage() {
         </section>
       )}
 
-      <section className="grid gap-6 xl:grid-cols-2">
+      <section className="grid gap-6 xl:grid-cols-2 [&>*]:min-w-0">
         <ScoreTrendChart data={data.scoreTrend} />
-        <CategoryRadarChart data={data.categoryPerformance} />
+        <CategoryPetalChart data={data.categoryPerformance} />
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-2">
-        {data.weakTopics.length > 0 ? (
-          <WeakTopicsBar data={data.weakTopics} />
-        ) : (
-          <section className="rounded-3xl border border-[#1F2A44] bg-[#0B1324] p-6">
-            <h3 className="text-lg font-semibold text-white">Zaif mavzular</h3>
-            <p className="mt-2 text-sm text-slate-300">Qaysi mavzularni yaxshiroq o'rganish kerakligi shu yerda ko'rinadi.</p>
-          </section>
-        )}
+      <section className="grid gap-6 xl:grid-cols-2 [&>*]:min-w-0">
+        <WeakTopicsBar data={data.weakTopics} />
         <QuestionBankMasteryCard
           totalQuestions={data.questionBankMastery.totalQuestions}
           seenQuestions={data.questionBankMastery.seenQuestions}
@@ -161,20 +151,6 @@ export default function DashboardPage() {
           masteredQuestions={data.questionBankMastery.masteredQuestions}
           needsReviewQuestions={data.questionBankMastery.needsReviewQuestions}
         />
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-2">
-        {data.difficultyProgression.length > 0 ? (
-          <DifficultyProgressionChart data={data.difficultyProgression} />
-        ) : (
-          <section className="rounded-3xl border border-[#1F2A44] bg-[#0B1324] p-6">
-            <h3 className="text-lg font-semibold text-white">Qiyinlik dinamikasi</h3>
-            <p className="mt-2 text-sm text-slate-300">
-              Qiyinlik bo'yicha yetarli tarix to'planmagan. Bir nechta adaptive testni yakunlang.
-            </p>
-          </section>
-        )}
-        <PassBreakdownBars explanation={data.passBreakdown.explanation} factors={data.passBreakdown.factors} />
       </section>
 
       <section>

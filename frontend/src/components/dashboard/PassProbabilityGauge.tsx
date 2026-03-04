@@ -1,7 +1,6 @@
 "use client";
 
 import { memo, useMemo } from "react";
-import { PolarAngleAxis, RadialBar, RadialBarChart, ResponsiveContainer } from "recharts";
 
 type Props = {
   passProbability: number;
@@ -11,56 +10,65 @@ function clamp(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
 
+function readiness(value: number) {
+  if (value < 50) {
+    return {
+      label: "Boshlovchi",
+      tone: "border-amber-300/35 bg-amber-500/15 text-amber-200",
+      text: "Yaxshi boshlanish. Davom eting.",
+      ring: "#F59E0B",
+    };
+  }
+  if (value < 75) {
+    return {
+      label: "O'rtacha tayyorgarlik",
+      tone: "border-cyan-300/35 bg-cyan-500/15 text-cyan-200",
+      text: "Barqaror rivojlanish kuzatilmoqda.",
+      ring: "#22D3EE",
+    };
+  }
+  if (value < 90) {
+    return {
+      label: "Yuqori tayyorgarlik",
+      tone: "border-indigo-300/35 bg-indigo-500/15 text-indigo-200",
+      text: "Siz imtihonga yaqinlashyapsiz.",
+      ring: "#818CF8",
+    };
+  }
+  return {
+    label: "Imtihonga tayyor",
+    tone: "border-emerald-300/35 bg-emerald-500/15 text-emerald-200",
+    text: "Siz deyarli tayyorsiz.",
+    ring: "#10B981",
+  };
+}
+
 function PassProbabilityGaugeComponent({ passProbability }: Props) {
   const value = clamp(passProbability);
-
-  const color = useMemo(() => {
-    if (value >= 70) return "#00E5A8";
-    if (value >= 40) return "#FBBF24";
-    return "#F87171";
-  }, [value]);
-
-  const data = useMemo(() => [{ name: "pass", value }], [value]);
-  const statusLabel = useMemo(() => {
-    if (value >= 85) return "Tayyor";
-    if (value >= 60) return "Yaxshi";
-    return "Yaxshilash kerak";
-  }, [value]);
+  const info = useMemo(() => readiness(value), [value]);
+  const ringProgress = `${(value / 100) * 360}deg`;
 
   return (
-    <div className="relative h-[320px] w-full rounded-3xl border border-[#1F2A44] bg-gradient-to-b from-[#111a2f] to-[#0b1324] p-4 shadow-[0_10px_28px_rgba(0,0,0,0.25)]">
-      <div className="h-full w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <RadialBarChart data={data} innerRadius="68%" outerRadius="96%" startAngle={90} endAngle={-270}>
-            <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
-            <RadialBar
-              dataKey="value"
-              cornerRadius={18}
-              fill={color}
-              background={{ fill: "#1F2A44" }}
-              isAnimationActive
-              animationDuration={700}
-            />
-          </RadialBarChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-5xl font-bold tracking-tight text-white">{Math.round(value)}%</span>
-        <span className="mt-1 text-sm text-slate-300">Imtihondan o'tish ehtimoli</span>
-        <span
-          className="mt-3 inline-flex rounded-full border px-3 py-1 text-xs font-semibold"
+    <section className="rounded-3xl border border-[#1F2A44] bg-gradient-to-b from-[#121c30] to-[#0b1324] p-5 shadow-[0_10px_30px_rgba(0,0,0,0.28)]">
+      <div className="mx-auto flex max-w-[320px] flex-col items-center">
+        <div
+          className="relative h-56 w-56 rounded-full p-[14px]"
           style={{
-            borderColor: `${color}66`,
-            backgroundColor: `${color}1A`,
-            color,
+            background: `conic-gradient(${info.ring} ${ringProgress}, rgba(51,65,85,0.35) ${ringProgress}, rgba(51,65,85,0.35) 360deg)`,
+            transition: "background 450ms ease",
           }}
         >
-          {statusLabel}
-        </span>
+          <div className="relative flex h-full w-full flex-col items-center justify-center rounded-full border border-[#253451] bg-[#0b1324] text-center">
+            <p className="text-[44px] font-bold leading-none tracking-tight text-white">{Math.round(value)}%</p>
+            <p className="mt-1 text-xs text-slate-300">Imtihondan o'tish ehtimoli</p>
+            <span className={`mt-3 rounded-full border px-3 py-1 text-[11px] font-semibold ${info.tone}`}>{info.label}</span>
+          </div>
+        </div>
+        <p className="mt-3 text-center text-sm text-slate-300">{info.text}</p>
       </div>
-    </div>
+    </section>
   );
 }
 
 export default memo(PassProbabilityGaugeComponent);
+
