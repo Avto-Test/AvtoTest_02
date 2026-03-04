@@ -10,10 +10,10 @@ type Props = {
 
 function DifficultyProgressionChartComponent({ data }: Props) {
   return (
-    <div className="h-[320px] w-full rounded-2xl border border-[#1F2A44] bg-[#0B1324] p-4">
+    <div className="h-[330px] w-full rounded-3xl border border-[#1F2A44] bg-gradient-to-b from-[#111a2f] to-[#0b1324] p-5 shadow-[0_10px_28px_rgba(0,0,0,0.2)]">
       <div className="mb-3">
-        <h3 className="text-base font-semibold text-white">Qiyinlik dinamikasi</h3>
-        <p className="text-sm text-slate-400">Testlar bo'yicha tanlangan savollar qiyinligi</p>
+        <h3 className="text-lg font-semibold text-white">Qiyinlik dinamikasi</h3>
+        <p className="text-sm text-slate-300">Testlar davomida savollar murakkabligi qanday o'zgaryapti</p>
       </div>
       <ResponsiveContainer width="100%" height="84%">
         <LineChart data={data}>
@@ -23,7 +23,7 @@ function DifficultyProgressionChartComponent({ data }: Props) {
               <stop offset="100%" stopColor="#22d3ee" />
             </linearGradient>
           </defs>
-          <CartesianGrid stroke="#1F2A44" strokeDasharray="4 4" />
+          <CartesianGrid stroke="#22324e" strokeDasharray="4 4" opacity={0.35} />
           <XAxis dataKey="testIndex" stroke="#94a3b8" tick={{ fill: "#94a3b8", fontSize: 12 }} />
           <YAxis domain={[0, 100]} stroke="#94a3b8" tick={{ fill: "#94a3b8", fontSize: 12 }} />
           <Tooltip
