@@ -102,6 +102,30 @@ def _normalize_plan_code(value: str | None) -> str:
     return normalized or DEFAULT_PLAN_CODE
 
 
+def _resolve_plan_pricing(plan: SubscriptionPlan | None) -> tuple[int, str]:
+    """
+    Normalize checkout pricing to UZS.
+
+    Legacy plans with USD currency are converted to UZS using configured FX rate.
+    Internal amount storage is cents-like (100 = 1 unit).
+    """
+    if plan is None:
+        return max(int(settings.PREMIUM_PRICE_UZS), 0), "UZS"
+
+    base_amount_cents = max(int(plan.price_cents or 0), 0)
+    currency = (plan.currency or "UZS").strip().upper()
+
+    if currency == "UZS":
+        return base_amount_cents, "UZS"
+
+    if currency == "USD":
+        fx_rate = max(int(settings.USD_TO_UZS_RATE), 1)
+        return base_amount_cents * fx_rate, "UZS"
+
+    # Unknown currency: keep value but expose as UZS to keep checkout/provider consistent.
+    return base_amount_cents, "UZS"
+
+
 def _calculate_discounted_amount(amount_cents: int, promo: PromoCode | None) -> int:
     if promo is None:
         return amount_cents
@@ -148,6 +172,7 @@ async def _resolve_checkout_plan(
 async def _resolve_checkout_promo(
     promo_code: str | None,
     selected_plan: SubscriptionPlan | None,
+    current_user_id: UUID | None,
     db: AsyncSession,
 ) -> PromoCode | None:
     if promo_code is None:
@@ -182,6 +207,19 @@ async def _resolve_checkout_promo(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Promo code is not applicable to the selected plan.",
+            )
+
+    if current_user_id is not None:
+        redemption_result = await db.execute(
+            select(PromoRedemption.id).where(
+                PromoRedemption.promo_code_id == promo.id,
+                PromoRedemption.user_id == current_user_id,
+            )
+        )
+        if redemption_result.scalar_one_or_none() is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Promo code already used by this user.",
             )
 
     return promo
@@ -252,7 +290,12 @@ def _amount_matches_reference(
 ) -> bool:
     if event_amount is None or reference_amount is None:
         return True
-    return int(event_amount) == int(reference_amount)
+    event_value = int(event_amount)
+    reference_value = int(reference_amount)
+    if event_value == reference_value:
+        return True
+    # Safety tolerance for provider amount scale mismatch (UZS vs cents).
+    return event_value * 100 == reference_value or event_value == reference_value * 100
 
 
 async def _has_settled_success_for_transaction(
@@ -411,23 +454,19 @@ async def _create_session(
     selected_plan = await _resolve_checkout_plan(request_payload=request_payload, db=db)
     plan_code = selected_plan.code if selected_plan is not None else DEFAULT_PLAN_CODE
     duration_days = selected_plan.duration_days if selected_plan is not None else DEFAULT_PLAN_DURATION_DAYS
-    currency = selected_plan.currency if selected_plan is not None else "USD"
-    base_amount_cents = (
-        selected_plan.price_cents
-        if selected_plan is not None
-        else settings.PREMIUM_PRICE_USD * 100
-    )
+    base_amount_cents, currency = _resolve_plan_pricing(selected_plan)
 
     promo = await _resolve_checkout_promo(
         promo_code=request_payload.promo_code,
         selected_plan=selected_plan,
+        current_user_id=current_user.id,
         db=db,
     )
     final_amount_cents = _calculate_discounted_amount(base_amount_cents, promo)
     if final_amount_cents <= 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Final price must be greater than 0 cents.",
+            detail="Yakuniy summa 0 dan katta bo'lishi kerak.",
         )
 
     idempotency_key = str(uuid.uuid4())
@@ -467,7 +506,7 @@ async def _create_session(
         logger.error("TSPay create-session failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Payment provider unavailable.",
+            detail="To'lov provayderi vaqtincha ishlamayapti.",
         ) from exc
 
     db.add(
@@ -513,13 +552,30 @@ async def _create_session(
 @router.get("/api/payments/plans", response_model=list[PublicSubscriptionPlanResponse])
 async def list_checkout_plans(
     db: AsyncSession = Depends(get_db),
-) -> list[SubscriptionPlan]:
+) -> list[PublicSubscriptionPlanResponse]:
     result = await db.execute(
         select(SubscriptionPlan)
         .where(SubscriptionPlan.is_active == True)  # noqa: E712
         .order_by(SubscriptionPlan.sort_order.asc(), SubscriptionPlan.created_at.asc())
     )
-    return list(result.scalars().all())
+    plans = list(result.scalars().all())
+    normalized: list[PublicSubscriptionPlanResponse] = []
+    for plan in plans:
+        base_amount_cents, currency = _resolve_plan_pricing(plan)
+        normalized.append(
+            PublicSubscriptionPlanResponse(
+                id=plan.id,
+                code=plan.code,
+                name=plan.name,
+                description=plan.description,
+                price_cents=base_amount_cents,
+                currency=currency,
+                duration_days=plan.duration_days,
+                is_active=plan.is_active,
+                sort_order=plan.sort_order,
+            )
+        )
+    return normalized
 
 
 @router.post("/api/payments/create-session", response_model=CreateSessionResponse)
@@ -581,7 +637,7 @@ async def get_transaction_status(
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Payment provider unavailable.",
+            detail="To'lov provayderi vaqtincha ishlamayapti.",
         ) from exc
 
     return TransactionStatusResponse(
@@ -611,10 +667,11 @@ async def create_checkout_quote(
             detail="Selected plan not found or inactive.",
         )
 
-    base_amount_cents = selected_plan.price_cents
+    base_amount_cents, currency = _resolve_plan_pricing(selected_plan)
     promo = await _resolve_checkout_promo(
         promo_code=payload.promo_code,
         selected_plan=selected_plan,
+        current_user_id=current_user.id,
         db=db,
     )
     final_amount_cents = _calculate_discounted_amount(base_amount_cents, promo)
@@ -633,7 +690,7 @@ async def create_checkout_quote(
         plan_id=selected_plan.id,
         plan_name=selected_plan.name,
         duration_days=selected_plan.duration_days,
-        currency=selected_plan.currency,
+        currency=currency,
         base_amount_cents=base_amount_cents,
         final_amount_cents=final_amount_cents,
         promo=promo_payload,
@@ -662,6 +719,7 @@ async def redeem_full_discount_promo(
     promo = await _resolve_checkout_promo(
         promo_code=payload.promo_code,
         selected_plan=selected_plan,
+        current_user_id=current_user.id,
         db=db,
     )
     if promo is None:
@@ -670,7 +728,7 @@ async def redeem_full_discount_promo(
             detail="Promo code not found.",
         )
 
-    base_amount_cents = selected_plan.price_cents
+    base_amount_cents, currency = _resolve_plan_pricing(selected_plan)
     final_amount_cents = _calculate_discounted_amount(base_amount_cents, promo)
     if final_amount_cents > 0:
         raise HTTPException(
@@ -688,7 +746,7 @@ async def redeem_full_discount_promo(
         event_type="promo.redeem",
         status="succeeded",
         amount_cents=0,
-        currency=selected_plan.currency,
+        currency=currency,
         idempotency_key=str(uuid.uuid4()),
         processed_at=now,
         raw_payload={
@@ -734,7 +792,7 @@ async def redeem_full_discount_promo(
                 "provider_event_id": payment.provider_event_id,
                 "event_type": "promo.redeem",
                 "amount_cents": 0,
-                "currency": selected_plan.currency,
+                "currency": currency,
                 "plan": selected_plan.code,
                 "plan_id": str(selected_plan.id),
                 "promo_code": promo.code,

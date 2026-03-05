@@ -54,7 +54,7 @@ export default function AdminPlansPage() {
     const columns: Column<AdminSubscriptionPlan>[] = [
         {
             key: 'name',
-            header: 'Plan',
+            header: 'Tarif',
             render: (plan) => (
                 <div className="space-y-1">
                     <div className="font-semibold text-foreground">{plan.name}</div>
@@ -64,45 +64,45 @@ export default function AdminPlansPage() {
         },
         {
             key: 'price',
-            header: 'Price',
+            header: 'Narx',
             render: (plan) => (
                 <div className="text-sm text-foreground">
-                    {(plan.price_cents / 100).toFixed(2)} {plan.currency}
+                    {Math.round(plan.price_cents / 100).toLocaleString('uz-UZ')} so&apos;m
                 </div>
             ),
         },
         {
             key: 'duration_days',
-            header: 'Duration',
+            header: 'Muddat',
             render: (plan) => (
                 <div className="text-sm text-muted-foreground">
-                    {plan.duration_days} days
+                    {plan.duration_days} kun
                 </div>
             ),
         },
         {
             key: 'status',
-            header: 'Status',
+            header: 'Holat',
             render: (plan) => (
                 <div className={plan.is_active ? 'text-success' : 'text-muted-foreground'}>
-                    {plan.is_active ? 'Active' : 'Inactive'}
+                    {plan.is_active ? 'Faol' : 'Nofaol'}
                 </div>
             ),
         },
         {
             key: 'actions',
-            header: 'Actions',
+            header: 'Amallar',
             render: (plan) => (
                 <div className="flex flex-wrap gap-2">
                     <Button variant="outline" size="sm" asChild>
-                        <Link href={`/admin/plans/${plan.id}/edit`}>Edit</Link>
+                        <Link href={`/admin/plans/${plan.id}/edit`}>Tahrirlash</Link>
                     </Button>
                     <Button
                         variant="destructive"
                         size="sm"
                         onClick={() => setDeleteTarget(plan)}
                     >
-                        Delete
+                        O&apos;chirish
                     </Button>
                 </div>
             ),
@@ -111,7 +111,7 @@ export default function AdminPlansPage() {
 
     return (
         <AdminLayout
-            title="Premium Plans"
+            title="Premium tariflar"
             description="Tariflar, narxlar va muddatlarni boshqarish"
         >
             <div className="space-y-4">
@@ -146,7 +146,7 @@ export default function AdminPlansPage() {
                 onOpenChange={(open) => !open && setDeleteTarget(null)}
                 title="Tarifni o'chirish"
                 description="Tarif butunlay o'chiriladi. Davom etasizmi?"
-                confirmText="Delete"
+                confirmText="O'chirish"
                 variant="destructive"
                 isLoading={isDeleting}
                 onConfirm={handleDelete}
@@ -154,4 +154,3 @@ export default function AdminPlansPage() {
         </AdminLayout>
     );
 }
-

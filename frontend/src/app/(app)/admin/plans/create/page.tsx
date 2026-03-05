@@ -33,8 +33,8 @@ export default function CreatePlanPage() {
             code: '',
             name: '',
             description: '',
-            price_cents: 1000,
-            currency: 'USD',
+            price_cents: 10000,
+            currency: 'UZS',
             duration_days: 30,
             is_active: true,
             sort_order: 10,
@@ -49,7 +49,8 @@ export default function CreatePlanPage() {
                 ...data,
                 code: data.code.trim().toLowerCase(),
                 name: data.name.trim(),
-                currency: data.currency.trim().toUpperCase(),
+                price_cents: Math.max(1, Math.round(data.price_cents * 100)),
+                currency: 'UZS',
             });
             toast.success('Tarif yaratildi');
             router.push('/admin/plans');
@@ -75,19 +76,19 @@ export default function CreatePlanPage() {
 
                         <div className="grid gap-4 sm:grid-cols-2">
                             <div className="space-y-2">
-                                <Label htmlFor="code">Code *</Label>
+                                <Label htmlFor="code">Kod *</Label>
                                 <Input id="code" placeholder="premium_monthly" {...register('code')} />
                                 {errors.code && <p className="text-sm text-destructive">{errors.code.message}</p>}
                             </div>
                             <div className="space-y-2">
-                                <Label htmlFor="name">Name *</Label>
-                                <Input id="name" placeholder="Premium Monthly" {...register('name')} />
+                                <Label htmlFor="name">Nomi *</Label>
+                                <Input id="name" placeholder="Premium oylik" {...register('name')} />
                                 {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
                             </div>
                         </div>
 
                         <div className="space-y-2">
-                            <Label htmlFor="description">Description</Label>
+                            <Label htmlFor="description">Tavsif</Label>
                             <textarea
                                 id="description"
                                 className="flex min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
@@ -97,11 +98,12 @@ export default function CreatePlanPage() {
 
                         <div className="grid gap-4 sm:grid-cols-2">
                             <div className="space-y-2">
-                                <Label htmlFor="price_cents">Price (cents) *</Label>
+                                <Label htmlFor="price_cents">Narx (so&apos;m) *</Label>
                                 <Input
                                     id="price_cents"
                                     type="number"
                                     min={1}
+                                    step={1}
                                     {...register('price_cents', { valueAsNumber: true })}
                                 />
                                 {errors.price_cents && (
@@ -109,17 +111,14 @@ export default function CreatePlanPage() {
                                 )}
                             </div>
                             <div className="space-y-2">
-                                <Label htmlFor="currency">Currency *</Label>
-                                <Input id="currency" placeholder="USD" {...register('currency')} />
-                                {errors.currency && (
-                                    <p className="text-sm text-destructive">{errors.currency.message}</p>
-                                )}
+                                <Label htmlFor="currency">Valyuta *</Label>
+                                <Input id="currency" value="UZS" disabled readOnly />
                             </div>
                         </div>
 
                         <div className="grid gap-4 sm:grid-cols-2">
                             <div className="space-y-2">
-                                <Label htmlFor="duration_days">Duration (days) *</Label>
+                                <Label htmlFor="duration_days">Davomiyligi (kun) *</Label>
                                 <Input
                                     id="duration_days"
                                     type="number"
@@ -131,7 +130,7 @@ export default function CreatePlanPage() {
                                 )}
                             </div>
                             <div className="space-y-2">
-                                <Label htmlFor="sort_order">Sort order</Label>
+                                <Label htmlFor="sort_order">Saralash tartibi</Label>
                                 <Input
                                     id="sort_order"
                                     type="number"
@@ -148,7 +147,7 @@ export default function CreatePlanPage() {
                                 {...register('is_active')}
                             />
                             <Label htmlFor="is_active" className="font-normal">
-                                Active
+                                Faol
                             </Label>
                         </div>
 
@@ -156,12 +155,12 @@ export default function CreatePlanPage() {
                             <LoadingButton
                                 type="submit"
                                 isLoading={isSubmitting}
-                                loadingText="Creating..."
+                                loadingText="Yaratilmoqda..."
                             >
-                                Create plan
+                                Tarif yaratish
                             </LoadingButton>
                             <Button type="button" variant="outline" asChild>
-                                <Link href="/admin/plans">Cancel</Link>
+                                <Link href="/admin/plans">Bekor qilish</Link>
                             </Button>
                         </div>
                     </form>
@@ -170,4 +169,3 @@ export default function CreatePlanPage() {
         </AdminLayout>
     );
 }
-

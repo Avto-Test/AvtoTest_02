@@ -1022,7 +1022,7 @@ async def create_subscription_plan(
         name=payload.name.strip(),
         description=payload.description,
         price_cents=payload.price_cents,
-        currency=payload.currency.strip().upper(),
+        currency="UZS",
         duration_days=payload.duration_days,
         is_active=payload.is_active,
         sort_order=payload.sort_order,
@@ -1074,8 +1074,8 @@ async def update_subscription_plan(
         plan.description = payload.description
     if "price_cents" in fields_set and payload.price_cents is not None:
         plan.price_cents = payload.price_cents
-    if "currency" in fields_set and payload.currency is not None:
-        plan.currency = payload.currency.strip().upper()
+    # Currency is fixed to UZS for all plans.
+    plan.currency = "UZS"
     if "duration_days" in fields_set and payload.duration_days is not None:
         plan.duration_days = payload.duration_days
     if "is_active" in fields_set and payload.is_active is not None:
