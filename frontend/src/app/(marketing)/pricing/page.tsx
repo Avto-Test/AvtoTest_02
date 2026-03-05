@@ -12,6 +12,18 @@ import {
     PREMIUM_PLAN_FEATURES,
 } from '@/schemas/payment.schema';
 
+function formatPlanAmount(amountCents: number, currency: string): string {
+    const normalizedCurrency = (currency || "UZS").toUpperCase();
+    const amount = amountCents / 100;
+    if (normalizedCurrency === "UZS") {
+        return `${Math.round(amount).toLocaleString("uz-UZ")} so'm`;
+    }
+    return new Intl.NumberFormat("uz-UZ", {
+        style: "currency",
+        currency: normalizedCurrency,
+    }).format(amount);
+}
+
 export default function PricingPage() {
     const router = useRouter();
     const { user, isAuthenticated, isLoading } = useAuthStore();
@@ -90,6 +102,7 @@ export default function PricingPage() {
                         <PricingCard
                             planName="Bepul"
                             price={0}
+                            formattedPrice="Bepul"
                             features={FREE_PLAN_FEATURES}
                             ctaText={freeCta.text}
                             ctaVariant="outline"
@@ -102,9 +115,9 @@ export default function PricingPage() {
                             <PricingCard
                                 key={plan?.id ?? 'premium-fallback'}
                                 planName={plan?.name ?? 'Premium'}
-                                price={plan ? Number((plan.price_cents / 100).toFixed(2)) : 9.99}
-                                currency={plan ? `${plan.currency} ` : '$'}
-                                interval={plan ? `/${plan.duration_days}d` : '/month'}
+                                price={plan ? Number((plan.price_cents / 100).toFixed(2)) : 100000}
+                                formattedPrice={plan ? formatPlanAmount(plan.price_cents, plan.currency) : "100 000 so'm"}
+                                interval={plan ? `/${plan.duration_days} kun` : '/30 kun'}
                                 features={PREMIUM_PLAN_FEATURES}
                                 isPopular={index === 0}
                                 ctaText={premiumCta.text}
@@ -134,7 +147,7 @@ export default function PricingPage() {
                                     d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
                                 />
                             </svg>
-                            <span>Stripe orqali xavfsiz tolov</span>
+                            <span>TsPay orqali xavfsiz tolov</span>
                         </div>
                         <div className="flex items-center gap-2">
                             <svg

@@ -64,6 +64,14 @@ function LoginPageContent() {
                     message = response.data.detail;
                 }
             }
+            if (message.toLowerCase().includes("not verified")) {
+                if (typeof window !== "undefined") {
+                    sessionStorage.setItem("verify_email", data.email);
+                }
+                toast.error("Email tasdiqlanmagan. Kodni kiriting.");
+                router.push("/verify");
+                return;
+            }
             toast.error(message);
         } finally {
             setIsLoading(false);

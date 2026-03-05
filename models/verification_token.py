@@ -32,6 +32,11 @@ class VerificationToken(Base):
         String(6),
         nullable=False,
     )
+    token_type: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="email_verification",
+    )
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

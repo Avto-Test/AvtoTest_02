@@ -69,6 +69,9 @@ function RegisterPageContent() {
                 return;
             }
 
+            if (typeof window !== "undefined") {
+                sessionStorage.setItem("verify_email", data.email);
+            }
             setIsSuccess(true);
             toast.success(response.data.message || "Akkount yaratildi. Emailingizni tekshiring.");
         } catch (error: unknown) {
@@ -106,6 +109,15 @@ function RegisterPageContent() {
                     asChild
                     variant="outline"
                     className="h-11 w-full rounded-xl border-border font-semibold text-foreground hover:bg-muted"
+                >
+                    <Link href="/verify" className="flex items-center justify-center gap-2">
+                        Emailni tasdiqlashga o'tish
+                    </Link>
+                </Button>
+                <Button
+                    asChild
+                    variant="ghost"
+                    className="h-10 w-full rounded-xl font-medium text-muted-foreground hover:text-foreground"
                 >
                     <Link href="/login" className="flex items-center justify-center gap-2">
                         <ChevronLeft className="h-4 w-4" />

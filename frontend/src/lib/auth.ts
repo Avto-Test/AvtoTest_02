@@ -21,6 +21,20 @@ export interface VerifyEmailRequest {
     code: string;
 }
 
+export interface ResendVerificationRequest {
+    email: string;
+}
+
+export interface ForgotPasswordRequest {
+    email: string;
+}
+
+export interface ResetPasswordRequest {
+    email: string;
+    code: string;
+    new_password: string;
+}
+
 // Response types
 export interface TokenResponse {
     access_token: string;
@@ -51,12 +65,33 @@ export async function login(data: LoginRequest): Promise<TokenResponse> {
 }
 
 export async function register(data: RegisterRequest): Promise<MessageResponse> {
-    const response = await api.post<MessageResponse>('/auth/register', data);
+    const response = await api.post<MessageResponse>('/auth/register', data, {
+        timeout: 20000,
+    });
     return response.data;
 }
 
 export async function verifyEmail(data: VerifyEmailRequest): Promise<TokenResponse> {
     const response = await api.post<TokenResponse>('/auth/verify', data);
+    return response.data;
+}
+
+export async function resendVerification(data: ResendVerificationRequest): Promise<MessageResponse> {
+    const response = await api.post<MessageResponse>('/auth/resend-verification', data, {
+        timeout: 20000,
+    });
+    return response.data;
+}
+
+export async function forgotPassword(data: ForgotPasswordRequest): Promise<MessageResponse> {
+    const response = await api.post<MessageResponse>('/auth/forgot-password', data, {
+        timeout: 20000,
+    });
+    return response.data;
+}
+
+export async function resetPassword(data: ResetPasswordRequest): Promise<MessageResponse> {
+    const response = await api.post<MessageResponse>('/auth/reset-password', data);
     return response.data;
 }
 

@@ -79,24 +79,24 @@ export interface PlanFeature {
 
 // Free plan features
 export const FREE_PLAN_FEATURES: PlanFeature[] = [
-    { text: '3 test attempts per day', included: true },
-    { text: 'Basic score tracking', included: true },
-    { text: 'Access to all tests', included: true },
-    { text: 'Unlimited attempts', included: false },
-    { text: 'Detailed analytics dashboard', included: false },
-    { text: 'Priority support', included: false },
+    { text: "Kuniga 3 ta test urinish", included: true },
+    { text: "Asosiy natija kuzatuvi", included: true },
+    { text: "Barcha testlarga kirish", included: true },
+    { text: "Cheksiz urinishlar", included: false },
+    { text: "Kengaytirilgan analitika", included: false },
+    { text: "Ustuvor yordam", included: false },
 ];
 
 // Premium plan features
 export const PREMIUM_PLAN_FEATURES: PlanFeature[] = [
-    { text: 'Unlimited test attempts', included: true },
-    { text: 'Advanced score tracking', included: true },
-    { text: 'Access to all tests', included: true },
-    { text: 'Detailed analytics dashboard', included: true },
-    { text: 'Priority support', included: true },
-    { text: 'Premium badge on profile', included: true },
+    { text: "Cheksiz test urinishlari", included: true },
+    { text: "Kuchli natija tahlili", included: true },
+    { text: "Barcha testlarga kirish", included: true },
+    { text: "To'liq analitika paneli", included: true },
+    { text: "Ustuvor qo'llab-quvvatlash", included: true },
+    { text: "Profil uchun premium belgi", included: true },
 ];
 
 // Pricing configuration
-export const PREMIUM_PRICE = 9.99;
-export const PREMIUM_CURRENCY = 'USD';
+export const PREMIUM_PRICE = 100000;
+export const PREMIUM_CURRENCY = "UZS";
