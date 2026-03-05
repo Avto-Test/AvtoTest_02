@@ -445,6 +445,12 @@ async def _create_session(
     db: AsyncSession,
     request_payload: CreateSessionRequest,
 ) -> CreateSessionResponse:
+    if not (PAYMENT_PROVIDER.access_token or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="To'lov tizimi hozircha sozlanmagan. Iltimos, keyinroq qayta urinib ko'ring.",
+        )
+
     if current_user.is_premium:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -504,6 +510,12 @@ async def _create_session(
         session = await PAYMENT_PROVIDER.create_checkout_session(payload)
     except PaymentProviderError as exc:
         logger.error("TSPay create-session failed: %s", exc)
+        message = str(exc).lower()
+        if "not configured" in message or "access token" in message:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="To'lov tizimi hozircha sozlanmagan. Iltimos, keyinroq qayta urinib ko'ring.",
+            ) from exc
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="To'lov provayderi vaqtincha ishlamayapti.",

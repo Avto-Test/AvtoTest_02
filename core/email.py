@@ -22,6 +22,18 @@ def _build_message(subject: str, to_email: str, text: str) -> EmailMessage:
 
 
 def _send_message(msg: EmailMessage) -> bool:
+    if not settings.EMAIL_HOST:
+        logger.error("EMAIL_HOST is not configured.")
+        return False
+
+    if not settings.EMAIL_FROM and not settings.EMAIL_USERNAME:
+        logger.error("EMAIL_FROM/EMAIL_USERNAME is not configured.")
+        return False
+
+    if "gmail.com" in settings.EMAIL_HOST and (not settings.EMAIL_USERNAME or not settings.EMAIL_PASSWORD):
+        logger.error("Gmail SMTP requires EMAIL_USERNAME and EMAIL_PASSWORD.")
+        return False
+
     timeout_seconds = max(float(settings.EMAIL_TIMEOUT_SECONDS or 0), 3.0)
     try:
         if settings.EMAIL_PORT == 465:
@@ -39,7 +51,9 @@ def _send_message(msg: EmailMessage) -> bool:
                 settings.EMAIL_PORT,
                 timeout=timeout_seconds,
             ) as server:
+                server.ehlo()
                 server.starttls()
+                server.ehlo()
                 if settings.EMAIL_USERNAME and settings.EMAIL_PASSWORD:
                     server.login(settings.EMAIL_USERNAME, settings.EMAIL_PASSWORD)
                 server.send_message(msg)
