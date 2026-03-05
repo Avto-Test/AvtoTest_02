@@ -3,10 +3,11 @@ AUTOTEST Auth Router
 Authentication endpoints for register, login, and verification
 """
 
-import random
 import logging
 import asyncio
+import random
 from datetime import datetime, timedelta, timezone
+from typing import Any, Callable
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -58,6 +59,27 @@ PENDING_REGISTRATION_EXPIRE_MINUTES = 15
 def generate_verification_code() -> str:
     """Generate a 6-digit verification code."""
     return str(random.randint(100000, 999999))
+
+
+async def _send_email_with_timeout(
+    sender: Callable[..., bool],
+    *args: Any,
+) -> bool:
+    """
+    Run blocking SMTP sender in thread with hard timeout to avoid API hangs.
+    """
+    timeout_seconds = max(float(settings.EMAIL_TIMEOUT_SECONDS or 0), 3.0) + 2.0
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(sender, *args),
+            timeout=timeout_seconds,
+        )
+    except asyncio.TimeoutError:
+        logger.error("Email send timed out using sender=%s", getattr(sender, "__name__", "unknown"))
+        return False
+    except Exception as exc:
+        logger.error("Email send failed using sender=%s: %s", getattr(sender, "__name__", "unknown"), exc)
+        return False
 
 
 async def _invalidate_tokens(
@@ -147,7 +169,7 @@ async def get_current_user(
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
+        detail="Autentifikatsiya ma'lumotlari tasdiqlanmadi",
         headers={"WWW-Authenticate": "Bearer"},
     )
     
@@ -175,7 +197,7 @@ async def get_current_user(
         if not user.is_active:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="User is inactive",
+                detail="Foydalanuvchi faol emas",
             )
 
         await enforce_subscription_status(user=user, db=db)
@@ -225,7 +247,7 @@ async def register(
         if existing_user.is_verified:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already registered",
+                detail="Bu email allaqachon ro'yxatdan o'tgan",
             )
         # Legacy fallback: keep old unverified user flow without breaking existing records.
         hashed_password = await get_password_hash_async(user_data.password)
@@ -237,16 +259,16 @@ async def register(
             token_type=TOKEN_TYPE_EMAIL_VERIFICATION,
             expires_minutes=VERIFICATION_CODE_EXPIRE_MINUTES,
         )
-        email_sent = await asyncio.to_thread(send_verification_email, normalized_email, code)
+        email_sent = await _send_email_with_timeout(send_verification_email, normalized_email, code)
         if not email_sent:
             logger.error("Failed to send verification email during registration for %s", normalized_email)
             await db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to send verification email. Please check your email address or try again later.",
+                detail="Tasdiqlash emaili yuborilmadi. SMTP sozlamalarini tekshirib, qayta urinib ko'ring.",
             )
         await db.commit()
-        return MessageResponse(message="Verification code sent to email")
+        return MessageResponse(message="Tasdiqlash kodi emailingizga yuborildi")
 
     hashed_password = await get_password_hash_async(user_data.password)
 
@@ -257,17 +279,17 @@ async def register(
             hashed_password=hashed_password,
         )
 
-        email_sent = await asyncio.to_thread(send_verification_email, normalized_email, code)
+        email_sent = await _send_email_with_timeout(send_verification_email, normalized_email, code)
         if not email_sent:
             logger.error("Failed to send verification email during registration for %s", normalized_email)
             await db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to send verification email. Please check your email address or try again later.",
+                detail="Tasdiqlash emaili yuborilmadi. SMTP sozlamalarini tekshirib, qayta urinib ko'ring.",
             )
 
         await db.commit()
-        return MessageResponse(message="Verification code sent to email")
+        return MessageResponse(message="Tasdiqlash kodi emailingizga yuborildi")
 
     new_user = User(
         email=normalized_email,
@@ -277,7 +299,7 @@ async def register(
     )
     db.add(new_user)
     await db.commit()
-    return MessageResponse(message="Registration successful")
+    return MessageResponse(message="Ro'yxatdan o'tish muvaffaqiyatli yakunlandi")
 
 
 @router.post("/login", response_model=Token)
@@ -314,46 +336,29 @@ async def login(
         if pending is not None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Email not verified",
+                detail="Email tasdiqlanmagan",
             )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
+            detail="Email yoki parol noto'g'ri",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
     if not await verify_password_async(user_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
+            detail="Email yoki parol noto'g'ri",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Legacy safety: some existing production users may remain unverified/disabled
-    # due to incomplete migrations from earlier auth flows.
-    # Keep strict verification for new flows, but auto-recover historical active users.
-    if settings.ENABLE_EMAIL_VERIFICATION and not user.is_verified and user.is_active:
+    # Legacy safety: historical accounts created before strict verification rollout
+    # should remain accessible. New flow stores unverified users in PendingRegistration
+    # and does not create User rows until code confirmation.
+    if (not user.is_verified) or (not user.is_active):
         user.is_verified = True
-        await db.commit()
-        await db.refresh(user)
-
-    # Legacy safety: if user is already verified but inactive, recover account.
-    if user.is_verified and not user.is_active:
         user.is_active = True
         await db.commit()
         await db.refresh(user)
-
-    if settings.ENABLE_EMAIL_VERIFICATION and not user.is_verified:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Email not verified",
-        )
-
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User is inactive",
-        )
     
     # Generate access token
     access_token = create_access_token(user_id=user.id)
@@ -393,7 +398,7 @@ async def verify_email(
         if pending.code != normalized_code or pending.code_expires_at <= now:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid or expired verification code",
+                detail="Tasdiqlash kodi noto'g'ri yoki muddati tugagan",
             )
 
         user_result = await db.execute(select(User).where(User.email == normalized_email))
@@ -403,7 +408,7 @@ async def verify_email(
             await db.commit()
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already verified",
+                detail="Email allaqachon tasdiqlangan",
             )
 
         if user is None:
@@ -433,13 +438,13 @@ async def verify_email(
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid email or code",
+            detail="Email yoki kod noto'g'ri",
         )
 
     if user.is_verified:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already verified",
+            detail="Email allaqachon tasdiqlangan",
         )
 
     token_result = await db.execute(
@@ -456,7 +461,7 @@ async def verify_email(
     if token is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired verification code",
+            detail="Tasdiqlash kodi noto'g'ri yoki muddati tugagan",
         )
 
     await db.delete(token)
@@ -489,22 +494,22 @@ async def resend_verification(
         )
         pending.updated_at = datetime.now(timezone.utc)
 
-        if not await asyncio.to_thread(send_verification_email, normalized_email, pending.code):
+        if not await _send_email_with_timeout(send_verification_email, normalized_email, pending.code):
             await db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to send verification email",
+                detail="Tasdiqlash kodi yuborilmadi. SMTP sozlamalarini tekshiring.",
             )
         await db.commit()
-        return MessageResponse(message="Verification code sent to email")
+        return MessageResponse(message="Tasdiqlash kodi emailingizga yuborildi")
 
     result = await db.execute(select(User).where(User.email == normalized_email))
     user = result.scalar_one_or_none()
     if user is None:
         # Prevent account enumeration
-        return MessageResponse(message="If account exists, verification code has been sent")
+        return MessageResponse(message="Agar hisob mavjud bo'lsa, tasdiqlash kodi yuborildi")
     if user.is_verified:
-        return MessageResponse(message="Email already verified")
+        return MessageResponse(message="Email allaqachon tasdiqlangan")
 
     code = await _create_token(
         db=db,
@@ -513,15 +518,15 @@ async def resend_verification(
         expires_minutes=VERIFICATION_CODE_EXPIRE_MINUTES,
     )
 
-    if not await asyncio.to_thread(send_verification_email, normalized_email, code):
+    if not await _send_email_with_timeout(send_verification_email, normalized_email, code):
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to send verification email",
+            detail="Tasdiqlash kodi yuborilmadi. SMTP sozlamalarini tekshiring.",
         )
 
     await db.commit()
-    return MessageResponse(message="Verification code sent to email")
+    return MessageResponse(message="Tasdiqlash kodi emailingizga yuborildi")
 
 
 @router.post("/forgot-password", response_model=MessageResponse)
@@ -533,7 +538,7 @@ async def forgot_password(
     result = await db.execute(select(User).where(User.email == normalized_email))
     user = result.scalar_one_or_none()
     if user is None:
-        return MessageResponse(message="If account exists, reset code has been sent")
+        return MessageResponse(message="Agar hisob mavjud bo'lsa, tiklash kodi yuborildi")
 
     code = await _create_token(
         db=db,
@@ -542,15 +547,15 @@ async def forgot_password(
         expires_minutes=PASSWORD_RESET_CODE_EXPIRE_MINUTES,
     )
 
-    if not await asyncio.to_thread(send_password_reset_email, normalized_email, code):
+    if not await _send_email_with_timeout(send_password_reset_email, normalized_email, code):
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to send reset email",
+            detail="Tiklash kodi emailga yuborilmadi. SMTP sozlamalarini tekshiring.",
         )
 
     await db.commit()
-    return MessageResponse(message="If account exists, reset code has been sent")
+    return MessageResponse(message="Agar hisob mavjud bo'lsa, tiklash kodi yuborildi")
 
 
 @router.post("/reset-password", response_model=MessageResponse)
@@ -562,7 +567,7 @@ async def reset_password(
     result = await db.execute(select(User).where(User.email == normalized_email))
     user = result.scalar_one_or_none()
     if user is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid email or code")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email yoki kod noto'g'ri")
 
     token_result = await db.execute(
         select(VerificationToken).where(
@@ -577,7 +582,7 @@ async def reset_password(
     if reset_token is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired reset code",
+            detail="Tiklash kodi noto'g'ri yoki muddati tugagan",
         )
 
     user.hashed_password = await get_password_hash_async(payload.new_password)
@@ -585,4 +590,4 @@ async def reset_password(
     await db.delete(reset_token)
     await db.commit()
 
-    return MessageResponse(message="Password reset successful")
+    return MessageResponse(message="Parol muvaffaqiyatli yangilandi")

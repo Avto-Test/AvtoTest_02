@@ -14,7 +14,7 @@ if (!API_URL && process.env.NODE_ENV === "development") {
 
 const api: AxiosInstance = axios.create({
     baseURL: API_URL || "http://localhost:8000",
-    timeout: 10000,
+    timeout: 20000,
     withCredentials: true,
     headers: {
         "Content-Type": "application/json",
