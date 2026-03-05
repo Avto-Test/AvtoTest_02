@@ -171,6 +171,14 @@ export default function AppNavbar() {
                                 {t("nav.premium")}
                             </span>
                         )}
+                        {user.is_admin ? (
+                            <Link
+                                href="/admin"
+                                className="ml-2 inline-flex shrink-0 items-center rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:brightness-110"
+                            >
+                                {t("nav.admin", "Admin")}
+                            </Link>
+                        ) : null}
                     </div>
 
                     <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -392,6 +400,15 @@ export default function AppNavbar() {
                                     </span>
                                 </div>
                             )}
+                            {user.is_admin ? (
+                                <Link
+                                    href="/admin"
+                                    onClick={() => setMobileNavOpen(false)}
+                                    className="block rounded-md px-3 py-2 text-sm font-semibold text-primary hover:bg-muted"
+                                >
+                                    {t("nav.admin", "Admin")}
+                                </Link>
+                            ) : null}
                             <Link href="/contact" onClick={() => setMobileNavOpen(false)} className="block rounded-md px-3 py-2 text-sm font-medium hover:bg-muted">Aloqa</Link>
                         </div>
                     </div>
