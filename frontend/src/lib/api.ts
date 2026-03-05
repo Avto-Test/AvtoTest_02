@@ -40,6 +40,8 @@ api.interceptors.response.use(
         const status = error.response?.status;
         const errorMessage = getErrorMessage(error);
         const requestUrl = String(error.config?.url ?? "");
+
+        // Auth flow requests handle their own error display (login/register pages).
         const isAuthFlowRequest =
             requestUrl.includes("/auth/login")
             || requestUrl.includes("/auth/register")
@@ -47,6 +49,16 @@ api.interceptors.response.use(
             || requestUrl.includes("/auth/resend-verification")
             || requestUrl.includes("/auth/forgot-password")
             || requestUrl.includes("/auth/reset-password");
+
+        // Payment flow requests handle errors via component state (setError/setPromoError).
+        // Suppress global toast to avoid duplicate error display on upgrade page.
+        const isPaymentFlowRequest =
+            requestUrl.includes("/api/payments/create-session")
+            || requestUrl.includes("/api/payments/quote")
+            || requestUrl.includes("/api/payments/redeem-promo")
+            || requestUrl.includes("/payments/create-session")
+            || requestUrl.includes("/payments/quote")
+            || requestUrl.includes("/payments/redeem-promo");
 
         if (status === 401) {
             // Clear cookie and zustand auth state on auth error
@@ -66,17 +78,33 @@ api.interceptors.response.use(
                 }
             }
         } else if (status === 403) {
-            if (isAuthFlowRequest) {
+            // Auth and payment flow pages handle 403 themselves.
+            if (isAuthFlowRequest || isPaymentFlowRequest) {
                 return Promise.reject(error);
             }
             toast.error('You do not have permission to perform this action.');
+        } else if (status === 409) {
+            // Conflict (e.g. already premium) — let payment/auth pages handle it.
+            if (isPaymentFlowRequest || isAuthFlowRequest) {
+                return Promise.reject(error);
+            }
+            toast.error(errorMessage);
+        } else if (status === 502 || status === 503) {
+            // Provider unavailable — payment page shows its own message.
+            if (isPaymentFlowRequest) {
+                return Promise.reject(error);
+            }
+            toast.error(errorMessage);
         } else if (status === 500) {
             toast.error('Internal Server Error. Please try again later.');
         } else if (!status) {
             // Network error
             toast.error('Network error. Please check your connection.');
         } else {
-            // Other errors (400, 404, etc.) - display specific message if available
+            // Other errors (400, 404, etc.)
+            if (isPaymentFlowRequest || isAuthFlowRequest) {
+                return Promise.reject(error);
+            }
             toast.error(errorMessage);
         }
 
@@ -101,4 +129,3 @@ export function getErrorMessage(error: unknown): string {
     }
     return 'An unexpected error occurred';
 }
-
