@@ -269,176 +269,176 @@ export default function UpgradePage() {
             <div className="min-h-screen bg-background py-16">
                 <div className="container-app max-w-lg">
                     <Card>
-                    <CardHeader className="pb-4 text-center">
-                        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-r from-primary to-brand">
-                            <svg
-                                className="h-8 w-8 text-white"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
-                                />
-                            </svg>
-                        </div>
-                        <CardTitle className="text-2xl">
-                            Premium tarifga otish
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-6">
-                        {isPlansLoading ? (
-                            <div className="rounded-lg bg-muted/50 py-4 text-center text-sm text-muted-foreground">
-                                Tariflar yuklanmoqda...
-                            </div>
-                        ) : plans.length === 0 ? (
-                            <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
-                                Faol tariflar topilmadi. Admin paneldan kamida bitta tarif yarating.
-                            </div>
-                        ) : (
-                            <div className="space-y-3">
-                                <Label htmlFor="plan_id">Tarifni tanlang</Label>
-                                <select
-                                    id="plan_id"
-                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                    value={selectedPlanId}
-                                    onChange={(event) => setSelectedPlanId(event.target.value)}
+                        <CardHeader className="pb-4 text-center">
+                            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-r from-primary to-brand">
+                                <svg
+                                    className="h-8 w-8 text-white"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2}
                                 >
-                                    {plans.map((plan) => (
-                                        <option key={plan.id} value={plan.id}>
-                                            {plan.name} - {formatMoney(plan.price_cents, plan.currency)} / {plan.duration_days} kun
-                                        </option>
-                                    ))}
-                                </select>
-                                {selectedPlan ? (
-                                    <div className="rounded-lg bg-muted/50 px-4 py-4 text-center">
-                                        {hasAppliedPromo ? (
-                                            <div className="space-y-2">
-                                                <div className="text-sm text-muted-foreground line-through">
-                                                    {formatMoney(baseAmountCents, displayCurrency)}
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
+                                    />
+                                </svg>
+                            </div>
+                            <CardTitle className="text-2xl">
+                                Premium tarifga otish
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                            {isPlansLoading ? (
+                                <div className="rounded-lg bg-muted/50 py-4 text-center text-sm text-muted-foreground">
+                                    Tariflar yuklanmoqda...
+                                </div>
+                            ) : plans.length === 0 ? (
+                                <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+                                    Faol tariflar topilmadi. Admin paneldan kamida bitta tarif yarating.
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
+                                    <Label htmlFor="plan_id">Tarifni tanlang</Label>
+                                    <select
+                                        id="plan_id"
+                                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                        value={selectedPlanId}
+                                        onChange={(event) => setSelectedPlanId(event.target.value)}
+                                    >
+                                        {plans.map((plan) => (
+                                            <option key={plan.id} value={plan.id}>
+                                                {plan.name} - {formatMoney(plan.price_cents, plan.currency)} / {plan.duration_days} kun
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {selectedPlan ? (
+                                        <div className="rounded-lg bg-muted/50 px-4 py-4 text-center">
+                                            {hasAppliedPromo ? (
+                                                <div className="space-y-2">
+                                                    <div className="text-sm text-muted-foreground line-through">
+                                                        {formatMoney(baseAmountCents, displayCurrency)}
+                                                    </div>
+                                                    <div className="text-4xl font-bold text-emerald-600">
+                                                        {formatMoney(finalAmountCents, displayCurrency)}
+                                                        <span className="text-base font-normal text-muted-foreground">
+                                                            /{selectedPlan.duration_days} kun
+                                                        </span>
+                                                    </div>
+                                                    <div className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+                                                        Tejadingiz: {formatMoney((baseAmountCents - finalAmountCents), displayCurrency)}
+                                                    </div>
                                                 </div>
-                                                <div className="text-4xl font-bold text-emerald-600">
-                                                    {formatMoney(finalAmountCents, displayCurrency)}
+                                            ) : (
+                                                <div className="text-4xl font-bold">
+                                                    {formatMoney(baseAmountCents, displayCurrency)}
                                                     <span className="text-base font-normal text-muted-foreground">
                                                         /{selectedPlan.duration_days} kun
                                                     </span>
                                                 </div>
-                                                <div className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
-                                                    Tejadingiz: {formatMoney((baseAmountCents - finalAmountCents), displayCurrency)}
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <div className="text-4xl font-bold">
-                                                {formatMoney(baseAmountCents, displayCurrency)}
-                                                <span className="text-base font-normal text-muted-foreground">
-                                                    /{selectedPlan.duration_days} kun
-                                                </span>
-                                            </div>
-                                        )}
-                                    </div>
+                                            )}
+                                        </div>
+                                    ) : null}
+                                </div>
+                            )}
+
+                            <ul className="space-y-3">
+                                <li className="flex items-center gap-3 text-sm">
+                                    <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-success/10">
+                                        <svg className="h-3 w-3 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    </span>
+                                    Cheksiz test urinishlari
+                                </li>
+                                <li className="flex items-center gap-3 text-sm">
+                                    <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-success/10">
+                                        <svg className="h-3 w-3 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    </span>
+                                    Kengaytirilgan analytics paneli
+                                </li>
+                                <li className="flex items-center gap-3 text-sm">
+                                    <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-success/10">
+                                        <svg className="h-3 w-3 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    </span>
+                                    Ustuvor support
+                                </li>
+                            </ul>
+
+                            <div className="space-y-2">
+                                <Label htmlFor="promo_code">Promokod (ixtiyoriy)</Label>
+                                <div className="flex gap-2">
+                                    <Input
+                                        id="promo_code"
+                                        placeholder="MASALAN: SPRING2026"
+                                        value={promoCode}
+                                        className={promoError ? 'border-destructive focus-visible:ring-destructive' : ''}
+                                        onChange={(event) => {
+                                            const next = event.target.value.toUpperCase();
+                                            setPromoCode(next);
+                                            setPromoError(null);
+                                            setPromoSuccess(null);
+                                            if (pricingQuote?.promo && pricingQuote.promo.code !== next.trim()) {
+                                                setPricingQuote(null);
+                                            }
+                                        }}
+                                    />
+                                    <LoadingButton
+                                        type="button"
+                                        variant="secondary"
+                                        isLoading={isApplyingPromo || isRedeemingGift}
+                                        loadingText={isRedeemingGift ? "Sovg'a aktivlanmoqda..." : "Tekshirilmoqda..."}
+                                        onClick={handleApplyPromo}
+                                        disabled={isPlansLoading || plans.length === 0 || isCheckoutLoading || isRedeemingGift}
+                                    >
+                                        Qo&apos;llash
+                                    </LoadingButton>
+                                </div>
+                                {promoError ? (
+                                    <p className="text-sm text-destructive">{promoError}</p>
+                                ) : null}
+                                {!promoError && promoSuccess ? (
+                                    <p className="text-sm text-emerald-600">{promoSuccess}</p>
                                 ) : null}
                             </div>
-                        )}
 
-                        <ul className="space-y-3">
-                            <li className="flex items-center gap-3 text-sm">
-                                <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-success/10">
-                                    <svg className="h-3 w-3 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                    </svg>
-                                </span>
-                                Cheksiz test urinishlari
-                            </li>
-                            <li className="flex items-center gap-3 text-sm">
-                                <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-success/10">
-                                    <svg className="h-3 w-3 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                    </svg>
-                                </span>
-                                Kengaytirilgan analytics paneli
-                            </li>
-                            <li className="flex items-center gap-3 text-sm">
-                                <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-success/10">
-                                    <svg className="h-3 w-3 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                    </svg>
-                                </span>
-                                Ustuvor support
-                            </li>
-                        </ul>
+                            {error && (
+                                <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+                                    {error}
+                                </div>
+                            )}
 
-                        <div className="space-y-2">
-                            <Label htmlFor="promo_code">Promokod (ixtiyoriy)</Label>
-                            <div className="flex gap-2">
-                                <Input
-                                    id="promo_code"
-                                    placeholder="MASALAN: SPRING2026"
-                                    value={promoCode}
-                                    className={promoError ? 'border-destructive focus-visible:ring-destructive' : ''}
-                                    onChange={(event) => {
-                                        const next = event.target.value.toUpperCase();
-                                        setPromoCode(next);
-                                        setPromoError(null);
-                                        setPromoSuccess(null);
-                                        if (pricingQuote?.promo && pricingQuote.promo.code !== next.trim()) {
-                                            setPricingQuote(null);
-                                        }
-                                    }}
-                                />
+                            <div className="flex flex-col gap-3">
                                 <LoadingButton
-                                    type="button"
-                                    variant="secondary"
-                                    isLoading={isApplyingPromo || isRedeemingGift}
-                                    loadingText={isRedeemingGift ? "Sovg'a aktivlanmoqda..." : "Tekshirilmoqda..."}
-                                    onClick={handleApplyPromo}
-                                    disabled={isPlansLoading || plans.length === 0 || isCheckoutLoading || isRedeemingGift}
+                                    size="lg"
+                                    className="w-full bg-gradient-to-r from-primary to-brand hover:opacity-90"
+                                    isLoading={isCheckoutLoading}
+                                    loadingText="Tolov sahifasiga yonaltirilmoqda..."
+                                    onClick={handleProceedToPayment}
+                                    disabled={isPlansLoading || plans.length === 0 || isRedeemingGift || isFullGiftPromoApplied || !!giftRedemption}
                                 >
-                                    Qo&apos;llash
+                                    {isFullGiftPromoApplied || giftRedemption ? "Sovg'a tarif aktivlandi" : "Tolovga otish"}
                                 </LoadingButton>
+                                <Button variant="ghost" asChild>
+                                    <Link href="/pricing">&lt;- Tariflarga qaytish</Link>
+                                </Button>
                             </div>
-                            {promoError ? (
-                                <p className="text-sm text-destructive">{promoError}</p>
-                            ) : null}
-                            {!promoError && promoSuccess ? (
-                                <p className="text-sm text-emerald-600">{promoSuccess}</p>
-                            ) : null}
-                        </div>
 
-                        {error && (
-                            <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
-                                {error}
+                            <div className="border-t border-border pt-4">
+                                <div className="flex items-center justify-center gap-3 text-xs text-muted-foreground">
+                                    <span>Xavfsiz</span>
+                                    <span>|</span>
+                                    <span>TsPay bilan ishlaydi</span>
+                                    <span>|</span>
+                                    <span>Istalgan payt bekor qilish mumkin</span>
+                                </div>
                             </div>
-                        )}
-
-                        <div className="flex flex-col gap-3">
-                            <LoadingButton
-                                size="lg"
-                                className="w-full bg-gradient-to-r from-primary to-brand hover:opacity-90"
-                                isLoading={isCheckoutLoading}
-                                loadingText="Tolov sahifasiga yonaltirilmoqda..."
-                                onClick={handleProceedToPayment}
-                                disabled={isPlansLoading || plans.length === 0 || isRedeemingGift || isFullGiftPromoApplied || !!giftRedemption}
-                            >
-                                {isFullGiftPromoApplied || giftRedemption ? "Sovg'a tarif aktivlandi" : "Tolovga otish"}
-                            </LoadingButton>
-                            <Button variant="ghost" asChild>
-                                <Link href="/pricing">&lt;- Tariflarga qaytish</Link>
-                            </Button>
-                        </div>
-
-                        <div className="border-t border-border pt-4">
-                            <div className="flex items-center justify-center gap-3 text-xs text-muted-foreground">
-                                <span>Xavfsiz</span>
-                                <span>|</span>
-                                <span>TsPay bilan ishlaydi</span>
-                                <span>|</span>
-                                <span>Istalgan payt bekor qilish mumkin</span>
-                            </div>
-                        </div>
-                    </CardContent>
+                        </CardContent>
                     </Card>
                 </div>
             </div>
@@ -480,7 +480,8 @@ export default function UpgradePage() {
                         </CardContent>
                     </Card>
 
-                    <style jsx>{`
+                    <style dangerouslySetInnerHTML={{
+                        __html: `
                         @keyframes gift-confetti-fall {
                             0% {
                                 transform: translate3d(0, 0, 0) rotate(0deg);
@@ -494,7 +495,7 @@ export default function UpgradePage() {
                                 opacity: 0.1;
                             }
                         }
-                    `}</style>
+                    ` }} />
                 </div>
             ) : null}
         </>
