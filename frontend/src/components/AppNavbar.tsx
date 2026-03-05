@@ -28,7 +28,7 @@ import {
 } from "@/lib/notifications";
 
 export default function AppNavbar() {
-    const { user, signOut } = useAuth();
+    const { user, token, signOut } = useAuth();
     const { t } = useI18n();
     const [notifications, setNotifications] = useState<UserNotification[]>([]);
     const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -41,7 +41,7 @@ export default function AppNavbar() {
     const profileRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
-        if (!user) return;
+        if (!user || !token) return;
 
         let isMounted = true;
         const loadNotifications = async () => {
@@ -62,7 +62,7 @@ export default function AppNavbar() {
             isMounted = false;
             window.clearInterval(intervalId);
         };
-    }, [user]);
+    }, [user, token]);
 
     useEffect(() => {
         function onDocumentClick(event: MouseEvent) {
@@ -171,12 +171,6 @@ export default function AppNavbar() {
                                 {t("nav.premium")}
                             </span>
                         )}
-                        <Link
-                            href={panelLink}
-                            className="ml-2 inline-flex shrink-0 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
-                        >
-                            {panelLabel}
-                        </Link>
                     </div>
 
                     <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -387,7 +381,6 @@ export default function AppNavbar() {
                                     {link.label}
                                 </Link>
                             ))}
-                            <Link href={panelLink} onClick={() => setMobileNavOpen(false)} className="block rounded-md px-3 py-2 text-sm font-medium hover:bg-muted">{panelLabel}</Link>
                             {user.plan === "free" ? (
                                 <Link href="/upgrade" onClick={() => setMobileNavOpen(false)} className="block rounded-md px-3 py-2 text-sm font-bold text-[#F59E0B] hover:bg-muted">
                                     Upgrade (Free)

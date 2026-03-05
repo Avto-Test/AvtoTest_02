@@ -71,8 +71,49 @@ def _safe_datetime_from_value(value: Any) -> datetime | None:
     return None
 
 
+def _normalize_currency(value: Any, *, default: str = "UZS") -> str:
+    if isinstance(value, str) and value.strip():
+        return value.strip().upper()
+    return default
+
+
+def _to_provider_amount(amount_cents: int, currency: str | None) -> int:
+    """
+    Convert internal amount representation to TsPay amount.
+
+    Internal system keeps price fields in cents/tiyin-like unit.
+    TsPay expects UZS amount as integer in `amount`.
+    """
+    normalized_currency = _normalize_currency(currency)
+    if normalized_currency == "UZS":
+        return max(int(round(amount_cents / 100)), 0)
+    return max(int(amount_cents), 0)
+
+
+def _from_provider_amount_to_cents(amount: Any, currency: str | None) -> int | None:
+    """
+    Convert TsPay incoming `amount` back to internal cents representation.
+    """
+    parsed_amount = _safe_int(amount)
+    if parsed_amount is None:
+        return None
+    normalized_currency = _normalize_currency(currency)
+    if normalized_currency == "UZS":
+        return int(parsed_amount) * 100
+    return int(parsed_amount)
+
+
 def _build_signature_payload(timestamp: int, payload: bytes) -> bytes:
     return f"{timestamp}.".encode("utf-8") + payload
+
+
+def _pick_first_non_empty_string(*values: Any) -> str | None:
+    for value in values:
+        if isinstance(value, str):
+            normalized = value.strip()
+            if normalized:
+                return normalized
+    return None
 
 
 def _parse_signature_header(signature_header: str | None) -> tuple[int, str]:
@@ -113,8 +154,13 @@ class TSPayProvider(PaymentProvider):
 
     def __init__(self) -> None:
         self.base_url = settings.TSPAY_API_BASE_URL.rstrip("/")
-        self.access_token = (settings.TSPAY_ACCESS_TOKEN or settings.TSPAY_API_KEY).strip()
+        self.access_token = (
+            settings.TSPAY_ACCESS_TOKEN
+            or settings.TSPAY_MERCHANT_KEY
+            or settings.TSPAY_API_KEY
+        ).strip()
         self.merchant_id = settings.TSPAY_MERCHANT_ID
+        self.merchant_email = settings.TSPAY_MERCHANT_EMAIL
         self.webhook_secret = settings.TSPAY_WEBHOOK_SECRET
         self.require_webhook_signature = settings.TSPAY_REQUIRE_WEBHOOK_SIGNATURE
         self.webhook_tolerance_seconds = settings.TSPAY_WEBHOOK_TOLERANCE_SECONDS
@@ -137,7 +183,7 @@ class TSPayProvider(PaymentProvider):
             raise PaymentProviderError("TSPay access token is not configured.")
 
         request_payload: dict[str, Any] = {
-            "amount": payload.amount_cents,
+            "amount": _to_provider_amount(payload.amount_cents, payload.currency),
             "access_token": self.access_token,
         }
         if payload.success_url:
@@ -195,13 +241,26 @@ class TSPayProvider(PaymentProvider):
         session_id = str(session_id_raw).strip()
         if not session_id:
             raise PaymentProviderError("TSPay response contains empty transaction.id.")
-        if not isinstance(checkout_url, str) or not checkout_url.strip():
-            raise PaymentProviderError("TSPay response missing transaction.url.")
+        checkout_url = _pick_first_non_empty_string(
+            checkout_url,
+            transaction.get("checkout_url"),
+            transaction.get("payment_url"),
+            transaction.get("pay_url"),
+            body.get("url"),
+            body.get("checkout_url"),
+            body.get("payment_url"),
+            body.get("pay_url"),
+        )
+        if checkout_url is None and "tspay.uz" in self.base_url:
+            # TsPay docs/examples commonly expose this hosted payment path.
+            checkout_url = f"https://tspay.uz/pay/{session_id}"
+        if checkout_url is None:
+            raise PaymentProviderError("TSPay response missing checkout URL.")
 
         return CreateCheckoutSessionResponse(
             provider=self.provider_name,
             session_id=session_id,
-            checkout_url=checkout_url.strip(),
+            checkout_url=checkout_url,
             raw_response=body if isinstance(body, dict) else {"raw": body},
         )
 
@@ -250,6 +309,11 @@ class TSPayProvider(PaymentProvider):
         if not isinstance(payload_data, dict):
             payload_data = body
 
+        currency_raw = payload_data.get("currency") or body.get("currency")
+        normalized_currency = (
+            _normalize_currency(currency_raw) if currency_raw is not None else None
+        )
+
         return GetTransactionStatusResponse(
             provider=self.provider_name,
             cheque_id=str(payload_data.get("id") or normalized_cheque_id),
@@ -263,7 +327,10 @@ class TSPayProvider(PaymentProvider):
                 if payload_data.get("pay_status") is not None
                 else None
             ),
-            amount=_safe_int(payload_data.get("amount")),
+            amount=_from_provider_amount_to_cents(
+                payload_data.get("amount"),
+                normalized_currency,
+            ),
             raw_response=body,
         )
 
@@ -362,15 +429,15 @@ class TSPayProvider(PaymentProvider):
             else:
                 status = ""
 
-        amount_cents = _safe_int(parsed.get("amount")) or _safe_int(
-            parsed.get("amount_cents")
-        )
-
         currency = parsed.get("currency")
         if currency is not None and isinstance(currency, str):
             currency = currency.upper()
         elif currency is not None:
             currency = str(currency).upper()
+
+        amount_cents = _from_provider_amount_to_cents(parsed.get("amount"), currency)
+        if amount_cents is None:
+            amount_cents = _safe_int(parsed.get("amount_cents"))
 
         if transaction_id is not None:
             metadata.setdefault("transaction_id", transaction_id)

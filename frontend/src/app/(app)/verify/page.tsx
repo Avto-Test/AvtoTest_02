@@ -1,50 +1,50 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { AuthCard } from '@/components/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { verifyEmailSchema, VerifyEmailFormData } from '@/schemas/auth.schema';
-import { verifyEmail } from '@/lib/auth';
+import { resendVerification, verifyEmail } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/api';
-import { useAuthStore } from '@/store/auth';
+import { useAuth } from '@/store/useAuth';
 
 export default function VerifyPage() {
     const router = useRouter();
-    const { setToken, fetchUser } = useAuthStore();
+    const { setToken, fetchUser } = useAuth();
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
+    const [isResending, setIsResending] = useState(false);
     const [email, setEmail] = useState('');
-
-    useEffect(() => {
-        // Get email from sessionStorage
-        if (typeof window !== 'undefined') {
-            const storedEmail = sessionStorage.getItem('verify_email');
-            if (storedEmail) {
-                setEmail(storedEmail);
-            }
-        }
-    }, []);
 
     const {
         register,
         handleSubmit,
         setValue,
+        getValues,
         formState: { errors },
     } = useForm<VerifyEmailFormData>({
         resolver: zodResolver(verifyEmailSchema),
+        defaultValues: { email: '', code: '' },
     });
 
     useEffect(() => {
-        if (email) {
-            setValue('email', email);
+        if (typeof window === 'undefined') {
+            return;
         }
-    }, [email, setValue]);
+        const storedEmail = sessionStorage.getItem('verify_email');
+        if (storedEmail) {
+            setEmail(storedEmail);
+            setValue('email', storedEmail);
+        }
+    }, [setValue]);
 
     const onSubmit = async (data: VerifyEmailFormData) => {
         setError(null);
@@ -54,10 +54,10 @@ export default function VerifyPage() {
             const response = await verifyEmail(data);
             setToken(response.access_token);
             await fetchUser();
-            // Clear session storage
             if (typeof window !== 'undefined') {
                 sessionStorage.removeItem('verify_email');
             }
+            toast.success('Email tasdiqlandi');
             router.push('/dashboard');
         } catch (err) {
             setError(getErrorMessage(err));
@@ -66,30 +66,57 @@ export default function VerifyPage() {
         }
     };
 
+    const handleResend = async () => {
+        const targetEmail = getValues('email') || email;
+        if (!targetEmail) {
+            setError('Avval email manzilini kiriting.');
+            return;
+        }
+
+        setError(null);
+        setIsResending(true);
+
+        try {
+            await resendVerification({ email: targetEmail });
+            toast.success('Tasdiqlash kodi qayta yuborildi');
+        } catch (err) {
+            setError(getErrorMessage(err));
+        } finally {
+            setIsResending(false);
+        }
+    };
+
     return (
         <AuthCard
-            title="Verify your email"
-            subtitle="Enter the 6-digit code sent to your email"
+            title="Emailni tasdiqlash"
+            subtitle="Emailga yuborilgan 6 xonali kodni kiriting"
             footer={
                 <p className="text-sm text-muted-foreground">
-                    Didn&apos;t receive the code?{' '}
-                    <button className="text-primary font-medium hover:underline">
-                        Resend
+                    Kod kelmadimi?{' '}
+                    <button
+                        type="button"
+                        onClick={handleResend}
+                        disabled={isResending}
+                        className="text-primary font-medium hover:underline disabled:opacity-60"
+                    >
+                        {isResending ? 'Yuborilmoqda...' : 'Qayta yuborish'}
                     </button>
                 </p>
             }
         >
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
                 {error && (
-                    <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-sm">
+                    <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
                         {error}
                     </div>
                 )}
 
-                <div className="p-4 rounded-md bg-success/10 border border-success/20 text-sm text-center">
-                    <p className="text-foreground font-medium">Check your email for the verification code</p>
-                    <p className="text-muted-foreground mt-1">
-                        Check your email at <span className="font-medium text-foreground">{email || 'your inbox'}</span>
+                <div className="rounded-md border border-success/20 bg-success/10 p-4 text-center text-sm">
+                    <p className="font-medium text-foreground">Tasdiqlash kodi emailga yuborilgan</p>
+                    <p className="mt-1 text-muted-foreground">
+                        {email
+                            ? <>Kod yuborilgan manzil: <span className="font-medium text-foreground">{email}</span></>
+                            : 'Email manzilingizni kiriting va kodni tasdiqlang.'}
                     </p>
                 </div>
 
@@ -99,7 +126,7 @@ export default function VerifyPage() {
                         id="email"
                         type="email"
                         placeholder="name@example.com"
-                        disabled={isLoading || !!email}
+                        disabled={isLoading}
                         {...register('email')}
                     />
                     {errors.email && (
@@ -108,14 +135,14 @@ export default function VerifyPage() {
                 </div>
 
                 <div className="space-y-2">
-                    <Label htmlFor="code">Verification Code</Label>
+                    <Label htmlFor="code">Tasdiqlash kodi</Label>
                     <Input
                         id="code"
                         type="text"
                         placeholder="123456"
                         maxLength={6}
                         disabled={isLoading}
-                        className="text-center text-2xl tracking-[0.5em] font-mono"
+                        className="text-center font-mono text-2xl tracking-[0.5em]"
                         {...register('code')}
                     />
                     {errors.code && (
@@ -126,32 +153,17 @@ export default function VerifyPage() {
                 <Button type="submit" className="w-full" disabled={isLoading}>
                     {isLoading ? (
                         <span className="flex items-center gap-2">
-                            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                                <circle
-                                    className="opacity-25"
-                                    cx="12"
-                                    cy="12"
-                                    r="10"
-                                    stroke="currentColor"
-                                    strokeWidth="4"
-                                    fill="none"
-                                />
-                                <path
-                                    className="opacity-75"
-                                    fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                                />
-                            </svg>
-                            Verifying...
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Tasdiqlanmoqda...
                         </span>
                     ) : (
-                        'Verify Email'
+                        'Emailni tasdiqlash'
                     )}
                 </Button>
 
                 <div className="text-center">
                     <Link href="/login" className="text-sm text-muted-foreground hover:text-primary">
-                        ← Back to login
+                        ← Kirish sahifasiga qaytish
                     </Link>
                 </div>
             </form>

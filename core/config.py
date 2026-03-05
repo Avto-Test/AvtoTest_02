@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     EMAIL_USERNAME: str = ""
     EMAIL_PASSWORD: str = ""
     EMAIL_FROM: str = ""
+    EMAIL_TIMEOUT_SECONDS: float = 12.0
     # SMTP aliases used by some deployment panels/secrets
     SMTP_HOST: str = ""
     SMTP_PORT: int | None = None

@@ -76,23 +76,33 @@ app = FastAPI(
     redoc_url=None,
 )
 
-# CORS Middleware is moved below to be outermost
+# Rate Limiting Middleware
+app.add_middleware(RateLimitMiddleware)
 
-# CORS Middleware
+# CORS Middleware must be the outermost middleware so even error responses
+# (including rate-limit and unhandled exceptions) include CORS headers.
 origins = settings.ALLOWED_ORIGINS
 if isinstance(origins, str):
-    origins = [o.strip() for o in origins.split(",")]
+    origins = [o.strip() for o in origins.split(",") if o.strip()]
+
+# Hard requirements for frontend hosts (production + local dev).
+# Keep these explicit so dashboard analytics requests always pass CORS checks.
+required_origins = {
+    "http://165.232.160.172:3000",
+    "http://localhost:3000",
+}
+
+origin_set = {origin.strip() for origin in origins if origin and origin.strip()}
+origin_set.update(required_origins)
+allow_origins = sorted(origin_set)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Rate Limiting Middleware
-app.add_middleware(RateLimitMiddleware)
 
 # Exception Handlers
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)

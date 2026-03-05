@@ -17,7 +17,7 @@ export async function middleware(request: NextRequest) {
     const isAdminRoute = pathname.startsWith('/admin');
 
     // Auth routes (should not be accessible if logged in)
-    const authRoutes = ['/login', '/register'];
+    const authRoutes = ['/login', '/register', '/verify', '/forgot-password', '/reset-password'];
     const isAuthRoute = authRoutes.some(route => pathname.startsWith(route));
 
     if (isProtectedRoute && !token) {
@@ -72,5 +72,8 @@ export const config = {
         '/feedback/:path*',
         '/login',
         '/register',
+        '/verify',
+        '/forgot-password',
+        '/reset-password',
     ],
 };

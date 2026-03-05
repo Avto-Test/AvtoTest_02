@@ -39,6 +39,14 @@ api.interceptors.response.use(
     (error: AxiosError) => {
         const status = error.response?.status;
         const errorMessage = getErrorMessage(error);
+        const requestUrl = String(error.config?.url ?? "");
+        const isAuthFlowRequest =
+            requestUrl.includes("/auth/login")
+            || requestUrl.includes("/auth/register")
+            || requestUrl.includes("/auth/verify")
+            || requestUrl.includes("/auth/resend-verification")
+            || requestUrl.includes("/auth/forgot-password")
+            || requestUrl.includes("/auth/reset-password");
 
         if (status === 401) {
             // Clear cookie and zustand auth state on auth error
@@ -58,6 +66,9 @@ api.interceptors.response.use(
                 }
             }
         } else if (status === 403) {
+            if (isAuthFlowRequest) {
+                return Promise.reject(error);
+            }
             toast.error('You do not have permission to perform this action.');
         } else if (status === 500) {
             toast.error('Internal Server Error. Please try again later.');

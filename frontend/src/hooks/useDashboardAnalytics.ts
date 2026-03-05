@@ -328,6 +328,7 @@ function normalizeDashboardPayload(
 
 export function useDashboardAnalytics(): UseDashboardAnalyticsResult {
   const token = useAuth((state) => state.token);
+  const user = useAuth((state) => state.user);
   const [data, setData] = useState<DashboardAnalyticsViewModel | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -342,8 +343,9 @@ export function useDashboardAnalytics(): UseDashboardAnalyticsResult {
       if (token) {
         headers.Authorization = `Bearer ${token}`;
       }
+      const isAdmin = user?.is_admin === true;
 
-      const [dashboardResult, summaryResult, funnelResult] = await Promise.allSettled([
+      const [dashboardResult, summaryResult] = await Promise.allSettled([
         fetch("/api/analytics/dashboard", {
           method: "GET",
           credentials: "include",
@@ -351,12 +353,6 @@ export function useDashboardAnalytics(): UseDashboardAnalyticsResult {
           cache: "no-store",
         }),
         fetch("/api/analytics/summary", {
-          method: "GET",
-          credentials: "include",
-          headers,
-          cache: "no-store",
-        }),
-        fetch("/api/analytics/funnel", {
           method: "GET",
           credentials: "include",
           headers,
@@ -383,9 +379,17 @@ export function useDashboardAnalytics(): UseDashboardAnalyticsResult {
       }
 
       let funnelPayload: RawFunnelResponse | null = null;
-      if (funnelResult.status === "fulfilled" && funnelResult.value.ok) {
+      if (isAdmin) {
         try {
-          funnelPayload = (await funnelResult.value.json()) as RawFunnelResponse;
+          const funnelResponse = await fetch("/api/analytics/funnel", {
+            method: "GET",
+            credentials: "include",
+            headers,
+            cache: "no-store",
+          });
+          if (funnelResponse.ok) {
+            funnelPayload = (await funnelResponse.json()) as RawFunnelResponse;
+          }
         } catch {
           funnelPayload = null;
         }
@@ -400,7 +404,7 @@ export function useDashboardAnalytics(): UseDashboardAnalyticsResult {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, user?.is_admin]);
 
   useEffect(() => {
     void fetchData();

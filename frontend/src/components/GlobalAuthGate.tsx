@@ -9,6 +9,10 @@ export default function GlobalAuthGate({ children }: { children: React.ReactNode
     const router = useRouter();
     const pathname = usePathname();
     const hasFetched = useRef(false);
+    const isPublicAuthRoute =
+        pathname.startsWith("/verify")
+        || pathname.startsWith("/forgot-password")
+        || pathname.startsWith("/reset-password");
 
     const { user, token, loading, hydrated, fetchUser, signOut } = useAuth();
 
@@ -53,11 +57,11 @@ export default function GlobalAuthGate({ children }: { children: React.ReactNode
     // 3. Handle Redirects (Only inside Protected Routes)
     // Note: This Gate is intended to wrap only (app) layouts.
     useEffect(() => {
-        if (hydrated && !token && !loading) {
+        if (hydrated && !token && !loading && !isPublicAuthRoute) {
             const nextParam = encodeURIComponent(pathname);
             router.push(`/login?next=${nextParam}`);
         }
-    }, [hydrated, token, loading, router, pathname]);
+    }, [hydrated, token, loading, router, pathname, isPublicAuthRoute]);
 
     // Block rendering only while hydration/bootstrap auth identity is unresolved.
     // NOTE: do not block whole app for generic loading=true once user is already known.
@@ -68,6 +72,9 @@ export default function GlobalAuthGate({ children }: { children: React.ReactNode
     // If we are hydrated, have no token, and aren't loading, redirections will trigger
     // but we still return null to prevent content flash.
     if (!token) {
+        if (isPublicAuthRoute) {
+            return <>{children}</>;
+        }
         return null;
     }
 

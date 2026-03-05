@@ -26,6 +26,7 @@ from models.subscription_plan import SubscriptionPlan
 from models.violation_log import ViolationLog
 from models.guest_attempt import GuestAttempt
 from models.guest_attempt_answer import GuestAttemptAnswer
+from models.pending_registration import PendingRegistration
 from models.lesson import Lesson
 from models.feedback import Feedback
 from models.driving_school import DrivingSchool
@@ -65,6 +66,7 @@ __all__ = [
     "ViolationLog",
     "GuestAttempt",
     "GuestAttemptAnswer",
+    "PendingRegistration",
     "Lesson",
     "Feedback",
     "UserAdaptiveProfile",

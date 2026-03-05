@@ -37,3 +37,20 @@ class VerifyEmail(BaseModel):
 class MessageResponse(BaseModel):
     """Schema for simple message response."""
     message: str
+
+
+class ResendVerificationRequest(BaseModel):
+    """Schema for resending email verification code."""
+    email: EmailStr
+
+
+class ForgotPasswordRequest(BaseModel):
+    """Schema for requesting password reset code."""
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    """Schema for confirming password reset by code."""
+    email: EmailStr
+    code: str
+    new_password: str

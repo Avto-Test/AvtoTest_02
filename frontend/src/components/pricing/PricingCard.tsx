@@ -10,6 +10,7 @@ import { PlanFeature } from '@/schemas/payment.schema';
 interface PricingCardProps {
     planName: string;
     price: number;
+    formattedPrice?: string;
     currency?: string;
     interval?: string;
     features: PlanFeature[];
@@ -25,6 +26,7 @@ interface PricingCardProps {
 export function PricingCard({
     planName,
     price,
+    formattedPrice,
     currency = '$',
     interval = '/month',
     features,
@@ -61,7 +63,7 @@ export function PricingCard({
                 {/* Price */}
                 <div className="mt-4 flex items-baseline gap-1">
                     <span className="text-4xl font-bold tracking-tight">
-                        {currency}{price}
+                        {formattedPrice ?? `${currency}${price}`}
                     </span>
                     {price > 0 && (
                         <span className="text-muted-foreground text-sm">

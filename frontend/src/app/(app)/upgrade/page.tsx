@@ -67,7 +67,7 @@ export default function UpgradePage() {
 
     const isPremium = user?.plan === 'premium';
     const selectedPlan = plans.find((plan) => plan.id === selectedPlanId) ?? null;
-    const displayCurrency = pricingQuote?.currency ?? selectedPlan?.currency ?? 'USD';
+    const displayCurrency = pricingQuote?.currency ?? selectedPlan?.currency ?? 'UZS';
     const baseAmountCents = pricingQuote?.base_amount_cents ?? selectedPlan?.price_cents ?? 0;
     const finalAmountCents = pricingQuote?.final_amount_cents ?? selectedPlan?.price_cents ?? 0;
     const hasAppliedPromo = Boolean(pricingQuote?.promo);
@@ -91,13 +91,17 @@ export default function UpgradePage() {
         []
     );
 
-    const formatMoney = (amountCents: number, currency: string) =>
-        new Intl.NumberFormat('en-US', {
-            style: 'currency',
-            currency,
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-        }).format(amountCents / 100);
+    const formatMoney = (amountCents: number, currency: string) => {
+        const normalizedCurrency = (currency || "UZS").toUpperCase();
+        const amount = amountCents / 100;
+        if (normalizedCurrency === "UZS") {
+            return `${Math.round(amount).toLocaleString("uz-UZ")} so'm`;
+        }
+        return new Intl.NumberFormat("uz-UZ", {
+            style: "currency",
+            currency: normalizedCurrency,
+        }).format(amount);
+    };
 
     useEffect(() => {
         setPricingQuote(null);
@@ -305,7 +309,7 @@ export default function UpgradePage() {
                                 >
                                     {plans.map((plan) => (
                                         <option key={plan.id} value={plan.id}>
-                                            {plan.name} - {(plan.price_cents / 100).toFixed(2)} {plan.currency} / {plan.duration_days} kun
+                                            {plan.name} - {formatMoney(plan.price_cents, plan.currency)} / {plan.duration_days} kun
                                         </option>
                                     ))}
                                 </select>
