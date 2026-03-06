@@ -13,6 +13,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from api.admin.router import router as admin_router
 from api.analytics.admin_router import router as admin_analytics_router
+from api.analytics.legacy_router import router as legacy_analytics_router
 from api.analytics.user_router import router as user_analytics_router
 from api.attempts.router import router as attempts_router
 from api.auth.router import router as auth_router
@@ -127,6 +128,7 @@ app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(attempts_router)
+app.include_router(legacy_analytics_router)
 app.include_router(user_analytics_router)
 app.include_router(admin_analytics_router)
 app.include_router(payments_router)
