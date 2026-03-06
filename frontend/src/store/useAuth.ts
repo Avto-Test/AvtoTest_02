@@ -56,7 +56,7 @@ export const useAuth = create<AuthState>()(
             hydrated: false,
 
             setToken: (token) => {
-                set({ token });
+                set({ token, user: null });
                 syncAuthCookie(token);
             },
 

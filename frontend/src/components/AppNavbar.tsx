@@ -93,7 +93,7 @@ export default function AppNavbar() {
 
     const panelLink = useMemo(() => {
         if (!user) return "/dashboard";
-        if (user.is_admin) return "/admin";
+        if (user.is_admin === true) return "/admin";
         if (user.has_school_profile) return "/school/dashboard";
         if (user.has_instructor_profile) return "/instructor/dashboard";
         return "/dashboard";
@@ -101,7 +101,7 @@ export default function AppNavbar() {
 
     const panelLabel = useMemo(() => {
         if (!user) return "Panel";
-        if (user.is_admin) return t("nav.admin", "Admin");
+        if (user.is_admin === true) return t("nav.admin", "Admin");
         if (user.has_school_profile) return "Maktab paneli";
         if (user.has_instructor_profile) return "Instruktor paneli";
         return "Panel";
@@ -171,7 +171,7 @@ export default function AppNavbar() {
                                 {t("nav.premium")}
                             </span>
                         )}
-                        {user.is_admin ? (
+                        {user.is_admin === true ? (
                             <Link
                                 href="/admin"
                                 className="ml-2 inline-flex shrink-0 items-center rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:brightness-110"
@@ -400,7 +400,7 @@ export default function AppNavbar() {
                                     </span>
                                 </div>
                             )}
-                            {user.is_admin ? (
+                            {user.is_admin === true ? (
                                 <Link
                                     href="/admin"
                                     onClick={() => setMobileNavOpen(false)}
