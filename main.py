@@ -6,7 +6,7 @@ Main FastAPI Application
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -125,6 +125,28 @@ app.add_exception_handler(Exception, global_exception_handler)
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 # Include routers
+api_router = APIRouter(prefix="/api")
+
+api_router.include_router(auth_router)
+api_router.include_router(admin_router)
+api_router.include_router(attempts_router)
+api_router.include_router(legacy_analytics_router)
+api_router.include_router(user_analytics_router)
+api_router.include_router(admin_analytics_router)
+api_router.include_router(users_router)
+api_router.include_router(tests_router)
+api_router.include_router(violations_router)
+api_router.include_router(lessons_router)
+api_router.include_router(feedback_router)
+api_router.include_router(notifications_router)
+api_router.include_router(driving_schools_router)
+api_router.include_router(admin_driving_schools_router)
+api_router.include_router(driving_instructors_router)
+api_router.include_router(admin_driving_instructors_router)
+
+app.include_router(api_router)
+
+# Legacy (non-/api) routes remain available for backwards compatibility.
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(attempts_router)
