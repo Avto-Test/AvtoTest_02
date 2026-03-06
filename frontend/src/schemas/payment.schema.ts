@@ -61,6 +61,15 @@ export interface CheckoutPlan {
     sort_order: number;
 }
 
+export interface PaymentTransactionStatusResponse {
+    cheque_id: string;
+    transaction_id: string | null;
+    pay_status: string | null;
+    amount: number | null;
+    provider: string;
+    raw: Record<string, unknown> | null;
+}
+
 // Pricing configuration
 export interface PricingPlan {
     id: string;
