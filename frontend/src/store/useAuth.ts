@@ -78,7 +78,7 @@ export const useAuth = create<AuthState>()(
 
                 set({ loading: true });
                 try {
-                    const res = await api.get("/users/me", {
+                    const res = await api.get("/auth/me", {
                         // Treat 401/403 as handled flow instead of rejected promise.
                         validateStatus: (status) => status >= 200 && status < 300 || status === 401 || status === 403,
                     });

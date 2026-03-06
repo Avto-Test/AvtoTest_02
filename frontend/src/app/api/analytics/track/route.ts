@@ -98,7 +98,7 @@ function getAuthToken(request: NextRequest): string | null {
 
 async function resolveUserId(token: string): Promise<string | null> {
   const apiBaseUrl = getApiBaseUrl();
-  const userResponse = await fetch(`${apiBaseUrl}/users/me`, {
+  const userResponse = await fetch(`${apiBaseUrl}/auth/me`, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`,

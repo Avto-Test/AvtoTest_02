@@ -174,7 +174,7 @@ function getAuthToken(request: NextRequest): string | null {
 
 async function resolveUser(token: string): Promise<ResolvedUser | null> {
   const apiBaseUrl = getApiBaseUrl();
-  const userResponse = await fetch(`${apiBaseUrl}/users/me`, {
+  const userResponse = await fetch(`${apiBaseUrl}/auth/me`, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`,

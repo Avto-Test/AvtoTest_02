@@ -96,6 +96,6 @@ export async function resetPassword(data: ResetPasswordRequest): Promise<Message
 }
 
 export async function getMe(): Promise<UserResponse> {
-    const response = await api.get<UserResponse>('/users/me');
+    const response = await api.get<UserResponse>('/auth/me');
     return response.data;
 }
