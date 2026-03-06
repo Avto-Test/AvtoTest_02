@@ -1,12 +1,15 @@
 "use client";
+/* eslint-disable react/no-unescaped-entities */
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useMemo } from "react";
-import { PlayCircle, RefreshCcw, Sparkles, TrendingUp } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { CheckCircle2, PlayCircle, RefreshCcw, Sparkles, TrendingUp, X } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/store/useAuth";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDashboardAnalytics } from "@/hooks/useDashboardAnalytics";
+import { consumePremiumActivationBanner } from "@/lib/payments";
 
 const PassProbabilityGauge = dynamic(() => import("@/components/dashboard/PassProbabilityGauge"), {
   ssr: false,
@@ -35,12 +38,26 @@ const PremiumRecommendationCardV2 = dynamic(() => import("@/components/dashboard
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const searchParams = useSearchParams();
   const { data, loading, error, hasEnoughAttempts, refetch } = useDashboardAnalytics();
+  const [premiumBannerDismissed, setPremiumBannerDismissed] = useState(false);
+  const [storageBannerTriggered] = useState(() => consumePremiumActivationBanner());
 
   const displayName = useMemo(() => {
     return user?.full_name || user?.email?.split("@")[0] || "Foydalanuvchi";
   }, [user?.full_name, user?.email]);
   const isPremium = user?.plan === "premium";
+  const queryTriggered = isPremium && searchParams.get("upgraded") === "true";
+  const showPremiumBanner =
+    isPremium &&
+    !premiumBannerDismissed &&
+    (queryTriggered || storageBannerTriggered);
+
+  useEffect(() => {
+    if (queryTriggered && typeof window !== "undefined") {
+      window.history.replaceState(window.history.state, "", "/dashboard");
+    }
+  }, [queryTriggered]);
 
   if (loading) {
     return (
@@ -131,6 +148,47 @@ export default function DashboardPage() {
         </div>
       </section>
 
+      {showPremiumBanner && isPremium ? (
+        <section className="rounded-2xl border border-emerald-400/25 bg-[linear-gradient(135deg,rgba(6,78,59,0.92)_0%,rgba(6,95,70,0.82)_35%,rgba(8,47,73,0.92)_100%)] p-4 shadow-[0_18px_50px_rgba(4,120,87,0.18)]">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-white/12 text-emerald-100 ring-1 ring-white/10">
+                <CheckCircle2 className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-100/80">
+                  Premium Active
+                </p>
+                <h2 className="mt-1 text-lg font-semibold text-white">
+                  Premium obuna faollashtirildi
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-emerald-50/85">
+                  Premium imkoniyatlari ochildi. Kengaytirilgan tavsiyalar va analitikani shu dashboard ichida ko'rishingiz mumkin.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Link
+                href="#premium-insights"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-white/90"
+              >
+                <Sparkles className="h-4 w-4" />
+                Premium imkoniyatlarini ko'rish
+              </Link>
+              <button
+                type="button"
+                onClick={() => setPremiumBannerDismissed(true)}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/10"
+              >
+                <X className="h-4 w-4" />
+                Yopish
+              </button>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       {!hasEnoughAttempts && (
         <section className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4">
           <p className="text-sm text-amber-100">Analitikani to'liq ko'rish uchun yana bir nechta test yeching.</p>
@@ -153,7 +211,7 @@ export default function DashboardPage() {
         />
       </section>
 
-      <section>
+      <section id="premium-insights">
         <PremiumRecommendationCardV2
           recommendation={data.recommendation}
           lessons={data.lessonRecommendations}
