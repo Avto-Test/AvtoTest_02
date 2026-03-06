@@ -197,9 +197,8 @@ export async function getMyDrivingInstructorReviews(): Promise<DrivingInstructor
 }
 
 export function buildDrivingInstructorReferralUrl(code: string): string {
-  const base =
-    process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") ?? "http://localhost:8000";
-  return `${base}/driving-instructors/ref/${encodeURIComponent(code)}`;
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  return `${origin}/api/driving-instructors/ref/${encodeURIComponent(code)}`;
 }
 
 // Admin API
