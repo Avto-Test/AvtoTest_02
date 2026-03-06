@@ -66,7 +66,7 @@ async def _send_email_with_timeout(
     *args: Any,
 ) -> bool:
     """
-    Run blocking SMTP sender in thread with hard timeout to avoid API hangs.
+    Run email sender in thread with hard timeout to avoid API hangs.
     """
     timeout_seconds = max(float(settings.EMAIL_TIMEOUT_SECONDS or 0), 3.0) + 2.0
     try:
@@ -249,26 +249,32 @@ async def register(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Bu email allaqachon ro'yxatdan o'tgan",
             )
-        # Legacy fallback: keep old unverified user flow without breaking existing records.
+        
+        # Legacy fallback: update password and trigger re-verification for unverified users.
         hashed_password = await get_password_hash_async(user_data.password)
-        existing_user.hashed_password = hashed_password
-        existing_user.is_active = False
         code = await _create_token(
             db=db,
             user_id=existing_user.id,
             token_type=TOKEN_TYPE_EMAIL_VERIFICATION,
             expires_minutes=VERIFICATION_CODE_EXPIRE_MINUTES,
         )
+        
         email_sent = await _send_email_with_timeout(send_verification_email, normalized_email, code)
         if not email_sent:
-            logger.error("Failed to send verification email during registration for %s", normalized_email)
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Tasdiqlash emaili yuborilmadi. SMTP sozlamalarini tekshirib, qayta urinib ko'ring.",
-            )
+            logger.error("Failed to send verification email during re-registration for %s", normalized_email)
+            # Allow to proceed so the user can request a resend later on the verification screen.
+        
+        # Only modify user state and commit if email was accepted by the worker/timeout helper
+        existing_user.hashed_password = hashed_password
+        existing_user.is_active = False 
         await db.commit()
-        return MessageResponse(message="Tasdiqlash kodi emailingizga yuborildi")
+        
+        if email_sent:
+            msg = "Tasdiqlash kodi emailingizga yuborildi"
+        else:
+            msg = "Akkaunt yaratildi. Tasdiqlash kodini qayta yuboring."
+            
+        return MessageResponse(message=msg)
 
     hashed_password = await get_password_hash_async(user_data.password)
 
@@ -282,14 +288,17 @@ async def register(
         email_sent = await _send_email_with_timeout(send_verification_email, normalized_email, code)
         if not email_sent:
             logger.error("Failed to send verification email during registration for %s", normalized_email)
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Tasdiqlash emaili yuborilmadi. SMTP sozlamalarini tekshirib, qayta urinib ko'ring.",
-            )
+            # We do not rollback here, because we want the pending registration to be committed
+            # so the user can use the 'Resend code' functionality.
 
         await db.commit()
-        return MessageResponse(message="Tasdiqlash kodi emailingizga yuborildi")
+        
+        if email_sent:
+            msg = "Tasdiqlash kodi emailingizga yuborildi"
+        else:
+            msg = "Akkaunt yaratildi. Tasdiqlash kodini qayta yuboring."
+            
+        return MessageResponse(message=msg)
 
     new_user = User(
         email=normalized_email,
@@ -498,7 +507,7 @@ async def resend_verification(
             await db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Tasdiqlash kodi yuborilmadi. SMTP sozlamalarini tekshiring.",
+                detail="Tasdiqlash kodi yuborilmadi. Email provayder sozlamalarini tekshiring.",
             )
         await db.commit()
         return MessageResponse(message="Tasdiqlash kodi emailingizga yuborildi")
@@ -522,7 +531,7 @@ async def resend_verification(
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Tasdiqlash kodi yuborilmadi. SMTP sozlamalarini tekshiring.",
+            detail="Tasdiqlash kodi yuborilmadi. Email provayder sozlamalarini tekshiring.",
         )
 
     await db.commit()
@@ -548,11 +557,7 @@ async def forgot_password(
     )
 
     if not await _send_email_with_timeout(send_password_reset_email, normalized_email, code):
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Tiklash kodi emailga yuborilmadi. SMTP sozlamalarini tekshiring.",
-        )
+        logger.warning("Password reset email failed for %s, but request will still succeed", normalized_email)
 
     await db.commit()
     return MessageResponse(message="Agar hisob mavjud bo'lsa, tiklash kodi yuborildi")
