@@ -329,9 +329,18 @@ function normalizeDashboardPayload(
 export function useDashboardAnalytics(): UseDashboardAnalyticsResult {
   const token = useAuth((state) => state.token);
   const user = useAuth((state) => state.user);
+  const signOut = useAuth((state) => state.signOut);
   const [data, setData] = useState<DashboardAnalyticsViewModel | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const redirectToLogin = useCallback(() => {
+    signOut();
+    if (typeof window !== "undefined") {
+      const next = `${window.location.pathname}${window.location.search}`;
+      window.location.replace(`/login?next=${encodeURIComponent(next)}`);
+    }
+  }, [signOut]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -360,6 +369,15 @@ export function useDashboardAnalytics(): UseDashboardAnalyticsResult {
         }),
       ]);
 
+      if (dashboardResult.status === "fulfilled" && dashboardResult.value.status === 401) {
+        redirectToLogin();
+        return;
+      }
+      if (summaryResult.status === "fulfilled" && summaryResult.value.status === 401) {
+        redirectToLogin();
+        return;
+      }
+
       if (dashboardResult.status !== "fulfilled") {
         throw dashboardResult.reason;
       }
@@ -387,6 +405,10 @@ export function useDashboardAnalytics(): UseDashboardAnalyticsResult {
             headers,
             cache: "no-store",
           });
+          if (funnelResponse.status === 401) {
+            redirectToLogin();
+            return;
+          }
           if (funnelResponse.ok) {
             funnelPayload = (await funnelResponse.json()) as RawFunnelResponse;
           }
@@ -404,7 +426,7 @@ export function useDashboardAnalytics(): UseDashboardAnalyticsResult {
     } finally {
       setLoading(false);
     }
-  }, [token, user?.is_admin]);
+  }, [token, user?.is_admin, redirectToLogin]);
 
   useEffect(() => {
     void fetchData();

@@ -16,22 +16,14 @@ export async function getNotifications(unreadOnly = false): Promise<UserNotifica
             unread_only: unreadOnly,
             limit: 20,
         },
-        validateStatus: (status) => (status >= 200 && status < 300) || status === 401,
     });
-    if (response.status === 401) {
-        return [];
-    }
     return response.data;
 }
 
 export async function markNotificationRead(notificationId: string): Promise<void> {
-    await api.post(`/notifications/${notificationId}/read`, undefined, {
-        validateStatus: (status) => (status >= 200 && status < 300) || status === 401,
-    });
+    await api.post(`/notifications/${notificationId}/read`);
 }
 
 export async function markAllNotificationsRead(): Promise<void> {
-    await api.post('/notifications/read-all', undefined, {
-        validateStatus: (status) => (status >= 200 && status < 300) || status === 401,
-    });
+    await api.post('/notifications/read-all');
 }
