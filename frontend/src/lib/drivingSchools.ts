@@ -151,9 +151,8 @@ export async function uploadMyDrivingSchoolMedia(
 }
 
 export function buildReferralUrl(code: string): string {
-  const base =
-    process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") ?? "http://localhost:8000";
-  return `${base}/driving-schools/ref/${encodeURIComponent(code)}`;
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  return `${origin}/api/driving-schools/ref/${encodeURIComponent(code)}`;
 }
 
 // Admin API

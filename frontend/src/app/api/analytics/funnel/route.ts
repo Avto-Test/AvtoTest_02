@@ -154,7 +154,10 @@ function getPool(): Pool {
 }
 
 function getApiBaseUrl(): string {
-  const rawBaseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const rawBaseUrl = process.env.API_URL;
+  if (!rawBaseUrl) {
+    throw new Error("API_URL is not defined");
+  }
   return rawBaseUrl.trim().replace(/\/+$/, "");
 }
 

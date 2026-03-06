@@ -6,14 +6,14 @@ interface CustomAxiosRequestConfig extends InternalAxiosRequestConfig {
     _handled401?: boolean;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "/api";
 
-if (!API_URL && process.env.NODE_ENV === "development") {
-    console.warn("NEXT_PUBLIC_API_URL is not defined in environment variables.");
+if (!process.env.NEXT_PUBLIC_API_BASE && process.env.NODE_ENV === "development") {
+    console.warn("NEXT_PUBLIC_API_BASE is not defined in environment variables. Falling back to /api.");
 }
 
 const api: AxiosInstance = axios.create({
-    baseURL: API_URL || "http://localhost:8000",
+    baseURL: API_BASE,
     timeout: 20000,
     withCredentials: true,
     headers: {
