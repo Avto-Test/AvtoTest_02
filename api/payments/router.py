@@ -40,6 +40,7 @@ from models.subscription import Subscription
 from models.subscription_plan import SubscriptionPlan
 from models.user import User
 from services.payments.tspay import TSPayProvider
+from services.subscriptions.lifecycle import _activate_subscription
 from services.payments.types import (
     CreateCheckoutSessionRequest,
     PaymentProviderError,
@@ -330,57 +331,6 @@ async def _has_settled_success_for_transaction(
     return result.scalar_one_or_none() is not None
 
 
-async def _activate_subscription(
-    user_id: UUID,
-    db: AsyncSession,
-    provider: str,
-    provider_subscription_id: str | None,
-    plan_code: str,
-    duration_days: int,
-) -> Subscription:
-    result = await db.execute(select(Subscription).where(Subscription.user_id == user_id))
-    subscription = result.scalar_one_or_none()
-
-    now = utc_now()
-    safe_duration_days = max(1, duration_days)
-    extension_duration = timedelta(days=safe_duration_days)
-    normalized_plan_code = _normalize_plan_code(plan_code)
-
-    if subscription is None:
-        subscription = Subscription(
-            user_id=user_id,
-            plan=normalized_plan_code,
-            status="active",
-            provider=provider,
-            provider_subscription_id=provider_subscription_id,
-            starts_at=now,
-            expires_at=now + extension_duration,
-            cancel_at_period_end=False,
-        )
-        db.add(subscription)
-        return subscription
-
-    current_end = subscription.expires_at
-    if (
-        subscription.plan != "free"
-        and subscription.status in {"active", "trialing"}
-        and current_end is not None
-        and current_end > now
-    ):
-        next_start = current_end
-    else:
-        next_start = now
-
-    subscription.plan = normalized_plan_code
-    subscription.status = "active"
-    subscription.provider = provider
-    subscription.provider_subscription_id = provider_subscription_id
-    subscription.starts_at = now
-    subscription.expires_at = next_start + extension_duration
-    subscription.canceled_at = None
-    subscription.cancel_at_period_end = False
-    subscription.updated_at = now
-    return subscription
 
 
 async def _emit_upgrade_success_event(
@@ -652,6 +602,80 @@ async def get_transaction_status(
             detail="To'lov provayderi vaqtincha ishlamayapti.",
         ) from exc
 
+    pay_status = (provider_status.pay_status or "").strip().lower()
+    if pay_status in {"success", "paid", "succeeded"} and local_payment is not None:
+        if local_payment.status != "succeeded":
+            now = utc_now()
+            
+            # Provider Value Validation
+            provider_amount = provider_status.amount
+            provider_currency = "UZS"  # TSPay default
+            if provider_amount is not None and provider_amount != local_payment.amount_cents:
+                logger.error(
+                    "CRITICAL: TSPay transaction %s amount mismatch. Expected: %s, Got: %s",
+                    normalized_cheque_id,
+                    local_payment.amount_cents,
+                    provider_amount,
+                )
+                local_payment.status = "suspicious"
+                local_payment.processed_at = now
+                await db.commit()
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="To'lov summasi mos kelmadi.",
+                )
+            
+            plan_info = local_payment.raw_payload.get("plan", {}) if isinstance(local_payment.raw_payload, dict) else {}
+            plan_code = plan_info.get("code", "premium")
+            try:
+                duration_days = int(plan_info.get("duration_days", 30))
+            except (ValueError, TypeError):
+                duration_days = 30
+                
+            provider_sub_id = provider_status.transaction_id or provider_status.cheque_id
+            
+            # Idempotency safety: Ensure we don't activate the same transaction twice
+            result_sub = await db.execute(select(Subscription).where(Subscription.user_id == local_payment.user_id))
+            existing_sub = result_sub.scalar_one_or_none()
+            
+            if not existing_sub or existing_sub.provider_subscription_id != provider_sub_id:
+                await _activate_subscription(
+                    user_id=local_payment.user_id,
+                    db=db,
+                    provider=PAYMENT_PROVIDER.provider_name,
+                    provider_subscription_id=provider_sub_id,
+                    plan_code=plan_code,
+                    duration_days=duration_days,
+                    payment=local_payment,
+                )
+                
+                db.add(
+                    AnalyticsEvent(
+                        user_id=local_payment.user_id,
+                        event_name="upgrade_success",
+                        metadata_json={
+                            "provider": local_payment.provider,
+                            "payment_id": local_payment.provider_payment_id,
+                            "session_id": local_payment.provider_session_id,
+                            "provider_event_id": f"sync_check_{uuid.uuid4()}",
+                            "event_type": "sync_status_check",
+                            "amount_cents": local_payment.amount_cents,
+                            "currency": local_payment.currency,
+                            "plan": plan_code,
+                            "source": "get_transaction_status",
+                        },
+                    )
+                )
+            
+            local_payment.status = "succeeded"
+            local_payment.processed_at = now
+            await db.commit()
+    elif pay_status in {"canceled", "cancelled", "failed", "error"} and local_payment is not None:
+        if local_payment.status not in {"succeeded", "failed", "canceled"}:
+            local_payment.status = "failed"
+            local_payment.processed_at = utc_now()
+            await db.commit()
+
     return TransactionStatusResponse(
         cheque_id=provider_status.cheque_id,
         transaction_id=provider_status.transaction_id,
@@ -883,6 +907,10 @@ async def _process_verified_webhook_event(
         payment.status = "processing"
 
     if reference_payment is not None:
+        if reference_payment.status == "succeeded":
+            logger.warning("Webhook replay ignored for event: %s", event.provider_event_id)
+            return WebhookResponse(status="success", idempotent=True)
+
         if payment.amount_cents is None:
             payment.amount_cents = reference_payment.amount_cents
         if payment.currency is None:
@@ -942,6 +970,7 @@ async def _process_verified_webhook_event(
             provider_subscription_id=event.session_id or event.payment_id,
             plan_code=plan_code,
             duration_days=duration_days,
+            payment=payment,
         )
         await _record_promo_redemption(event=event, payment=payment, user_id=user_id, db=db)
         await _emit_upgrade_success_event(user_id=user_id, db=db, payment=payment, event=event)

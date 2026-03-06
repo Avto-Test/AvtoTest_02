@@ -41,6 +41,9 @@ from sqlalchemy import text
 UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
+import asyncio
+from services.payments.reconciliation import start_reconciliation_loop
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -58,11 +61,20 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[ERROR] Database connection failed: {e}")
         raise
+        
+    reconciliation_task = asyncio.create_task(start_reconciliation_loop())
     
     yield  # Application runs here
     
     # Shutdown: Dispose engine
     print("Shutting down AUTOTEST application...")
+    
+    reconciliation_task.cancel()
+    try:
+        await reconciliation_task
+    except asyncio.CancelledError:
+        pass
+        
     await engine.dispose()
     print("[OK] Database engine disposed")
 
