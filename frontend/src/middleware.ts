@@ -31,7 +31,7 @@ export async function middleware(request: NextRequest) {
 
     if (isAdminRoute && token) {
         try {
-            const response = await fetch(`${getApiBaseUrl(request)}/users/me`, {
+            const response = await fetch(`${getApiBaseUrl(request)}/auth/me`, {
                 method: 'GET',
                 headers: {
                     Authorization: `Bearer ${token}`,
