@@ -45,7 +45,8 @@ class Settings(BaseSettings):
     # SECRET_KEY must be a long random string in production.
     # It is MANDATORY if DEBUG=False.
     SECRET_KEY: str = "" 
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    # Match the frontend's persisted 7-day session until refresh tokens exist.
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
     ALGORITHM: str = "HS256"
     
     # Database
