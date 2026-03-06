@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-function getApiBaseUrl(request: NextRequest): string {
-    const rawBaseUrl = process.env.API_URL || process.env.NEXT_PUBLIC_API_BASE || "/api";
-    return new URL(rawBaseUrl, request.url).toString().replace(/\/+$/, "");
+function getApiBaseUrl(): string {
+    const rawBaseUrl = process.env.API_URL || "http://127.0.0.1:8000";
+    return rawBaseUrl.toString().trim().replace(/\/+$/, "");
 }
 
 interface MeResponse {
@@ -31,10 +31,11 @@ export async function middleware(request: NextRequest) {
 
     if (isAdminRoute && token) {
         try {
-            const response = await fetch(`${getApiBaseUrl(request)}/auth/me`, {
+            const response = await fetch(`${getApiBaseUrl()}/api/auth/me`, {
                 method: 'GET',
                 headers: {
                     Authorization: `Bearer ${token}`,
+                    cookie: request.headers.get("cookie") ?? "",
                 },
                 cache: 'no-store',
             });
