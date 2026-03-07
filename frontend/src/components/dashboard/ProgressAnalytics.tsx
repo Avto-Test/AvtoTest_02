@@ -101,8 +101,8 @@ export function ProgressAnalytics({ overview, topics }: ProgressAnalyticsProps) 
                         <CardDescription>Visualizing your improvement over time.</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className="h-[240px] w-full pt-4">
-                            <ResponsiveContainer width="100%" height="100%">
+                        <div className="h-[240px] min-h-[220px] w-full min-w-0 pt-4">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
                                 <AreaChart data={chartData}>
                                     <defs>
                                         <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">

@@ -2,14 +2,15 @@
 
 import { memo, useMemo, useRef, useState } from "react";
 
-import type { CategoryPoint } from "@/hooks/useDashboardAnalytics";
+import type { CategoryMetric } from "@/analytics/types";
+import { normalizeTopicKey, truncateTopicLabel } from "@/lib/dashboardTopic";
 
 type Props = {
-  data: CategoryPoint[];
+  data: CategoryMetric[];
   trainTopic?: (categoryId: string) => void;
 };
 
-type PlotPoint = CategoryPoint & {
+type PlotPoint = CategoryMetric & {
   shortCategory: string;
   angle: number;
   x: number;
@@ -23,24 +24,31 @@ type TooltipState = {
   y: number;
   category: string;
   score: number;
+  coverage: number | null;
 } | null;
 
 const SIZE = 420;
 const CENTER = SIZE / 2;
 const OUTER_RADIUS = 146;
-const LABEL_RADIUS = 186;
+const LABEL_RADIUS = 188;
 const GRID_LEVELS = [0, 25, 50, 75, 100];
+const MIN_ZERO_RADIUS = 10;
+const MIN_VISIBLE_RADIUS = 14;
 
-function truncateLabel(label: string): string {
-  return label.length <= 18 ? label : `${label.slice(0, 18)}...`;
-}
-
-function toCategoryActionKey(label: string): string {
-  return label
-    .trim()
-    .toLowerCase()
-    .replace(/['`"]/g, "")
-    .replace(/\s+/g, "_");
+function getGridStroke(level: number): string {
+  if (level === 100) {
+    return "rgba(148,163,184,0.28)";
+  }
+  if (level === 75) {
+    return "rgba(148,163,184,0.18)";
+  }
+  if (level === 50) {
+    return "rgba(148,163,184,0.13)";
+  }
+  if (level === 25) {
+    return "rgba(148,163,184,0.09)";
+  }
+  return "rgba(148,163,184,0.06)";
 }
 
 function polarToCartesian(radius: number, angle: number) {
@@ -50,41 +58,47 @@ function polarToCartesian(radius: number, angle: number) {
   };
 }
 
-function scoreToTone(score: number) {
-  const value = Math.max(0, Math.min(100, score));
-
-  if (value < 40) {
-    return {
-      stroke: "#f97316",
-      fillStart: "#fb923c",
-      fillEnd: "#ef4444",
-      point: "#fb923c",
-    };
-  }
-
-  if (value < 70) {
-    return {
-      stroke: "#fbbf24",
-      fillStart: "#fbbf24",
-      fillEnd: "#d97706",
-      point: "#fbbf24",
-    };
-  }
-
-  return {
-    stroke: "#34d399",
-    fillStart: "#34d399",
-    fillEnd: "#22c55e",
-    point: "#34d399",
-  };
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
 }
 
-function buildPolygonPath(points: PlotPoint[]): string {
+function buildCatmullRomClosedPath(points: Array<{ x: number; y: number }>) {
   if (!points.length) {
     return "";
   }
 
-  return points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ") + " Z";
+  if (points.length < 3) {
+    return `${points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ")} Z`;
+  }
+
+  const extended = [points[points.length - 1], ...points, points[0], points[1]];
+  let path = `M ${points[0].x} ${points[0].y}`;
+
+  for (let index = 1; index <= points.length; index += 1) {
+    const p0 = extended[index - 1];
+    const p1 = extended[index];
+    const p2 = extended[index + 1];
+    const p3 = extended[index + 2];
+
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+
+    path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+  }
+
+  return `${path} Z`;
+}
+
+function getPointRadius(categoryCount: number) {
+  if (categoryCount <= 5) {
+    return 6.5;
+  }
+  if (categoryCount <= 8) {
+    return 5.25;
+  }
+  return 4.25;
 }
 
 function CategoryRadarChartComponent({ data, trainTopic }: Props) {
@@ -92,16 +106,28 @@ function CategoryRadarChartComponent({ data, trainTopic }: Props) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [tooltip, setTooltip] = useState<TooltipState>(null);
 
+  const safeData = useMemo(
+    () => data.filter((item) => item.category?.trim().length > 0).slice(0, 12),
+    [data]
+  );
+  const labelFontSize = safeData.length > 10 ? 8 : safeData.length > 8 ? 9 : 11;
+  const pointRadius = getPointRadius(safeData.length);
+
   const points = useMemo(() => {
-    return data.slice(0, 12).map((item, index, array) => {
+    const maxLabelLength = safeData.length > 10 ? 12 : safeData.length > 8 ? 14 : 18;
+    const dynamicLabelRadius = safeData.length > 10 ? LABEL_RADIUS + 18 : safeData.length > 8 ? LABEL_RADIUS + 10 : LABEL_RADIUS;
+
+    return safeData.map((item, index, array) => {
       const angle = (index / Math.max(1, array.length)) * Math.PI * 2 - Math.PI / 2;
-      const radius = (Math.max(0, Math.min(100, item.accuracy)) / 100) * OUTER_RADIUS;
+      const accuracy = Math.max(0, Math.min(100, item.accuracy));
+      const scaledRadius = (accuracy / 100) * OUTER_RADIUS;
+      const radius = accuracy === 0 ? MIN_ZERO_RADIUS : Math.max(scaledRadius, MIN_VISIBLE_RADIUS);
       const point = polarToCartesian(radius, angle);
-      const labelPoint = polarToCartesian(LABEL_RADIUS, angle);
+      const labelPoint = polarToCartesian(dynamicLabelRadius, angle);
 
       return {
         ...item,
-        shortCategory: truncateLabel(item.category),
+        shortCategory: truncateTopicLabel(item.category, maxLabelLength),
         angle,
         x: point.x,
         y: point.y,
@@ -109,12 +135,13 @@ function CategoryRadarChartComponent({ data, trainTopic }: Props) {
         labelY: labelPoint.y,
       } satisfies PlotPoint;
     });
-  }, [data]);
+  }, [safeData]);
 
   const average = useMemo(() => {
     if (!points.length) {
       return 0;
     }
+
     return Math.round(points.reduce((sum, item) => sum + item.accuracy, 0) / points.length);
   }, [points]);
 
@@ -122,12 +149,30 @@ function CategoryRadarChartComponent({ data, trainTopic }: Props) {
     if (!points.length) {
       return null;
     }
+
     return points.reduce((acc, item) => (item.accuracy < acc.accuracy ? item : acc), points[0]);
   }, [points]);
 
-  const polygonPath = useMemo(() => buildPolygonPath(points), [points]);
-  const averageTone = scoreToTone(average);
-  const weakestTone = scoreToTone(weakest?.accuracy ?? average);
+  const polygonPath = useMemo(
+    () => buildCatmullRomClosedPath(points.map((point) => ({ x: point.x, y: point.y }))),
+    [points]
+  );
+
+  const tooltipPosition = useMemo(() => {
+    if (!tooltip) {
+      return null;
+    }
+
+    const containerWidth = containerRef.current?.clientWidth ?? 460;
+    const containerHeight = containerRef.current?.clientHeight ?? 380;
+    const tooltipWidth = 220;
+    const tooltipHeight = tooltip.coverage === null ? 68 : 88;
+
+    return {
+      left: clamp(tooltip.x + 14, 12, Math.max(12, containerWidth - tooltipWidth - 12)),
+      top: clamp(tooltip.y - tooltipHeight - 12, 12, Math.max(12, containerHeight - tooltipHeight - 12)),
+    };
+  }, [tooltip]);
 
   const updateTooltip = (
     event: React.MouseEvent<SVGCircleElement | SVGTextElement>,
@@ -145,6 +190,7 @@ function CategoryRadarChartComponent({ data, trainTopic }: Props) {
       y: event.clientY - rect.top,
       category: item.category,
       score: Math.round(item.accuracy),
+      coverage: item.coverage === null ? null : Math.round(item.coverage),
     });
   };
 
@@ -157,14 +203,15 @@ function CategoryRadarChartComponent({ data, trainTopic }: Props) {
     if (!trainTopic) {
       return;
     }
-    trainTopic(item.id || toCategoryActionKey(item.category));
+
+    trainTopic(item.id || normalizeTopicKey(item.category));
   };
 
   if (!points.length) {
     return (
       <section className="h-full rounded-3xl border border-[#1F2A44] bg-[#0B1324] p-6">
         <h3 className="text-lg font-semibold text-white">Kategoriyalar bo'yicha bilim darajasi</h3>
-        <p className="mt-2 text-sm text-slate-300">Kategoriya tahlili uchun kamida bir nechta test natijasi kerak.</p>
+        <p className="mt-2 text-sm text-slate-300">Analitika uchun hali yetarli ma'lumot yo'q.</p>
       </section>
     );
   }
@@ -175,28 +222,27 @@ function CategoryRadarChartComponent({ data, trainTopic }: Props) {
         <h3 className="text-lg font-semibold text-white">Kategoriyalar bo'yicha bilim darajasi</h3>
         {weakest ? (
           <span className="rounded-full border border-amber-300/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-200">
-            Zaif: {truncateLabel(weakest.category)} ({Math.round(weakest.accuracy)}%)
+            Zaif: {truncateTopicLabel(weakest.category, 18)} ({Math.round(weakest.accuracy)}%)
           </span>
         ) : null}
       </div>
 
-      <div
-        ref={containerRef}
-        className="relative mx-auto h-[380px] w-full max-w-[460px]"
-        onMouseLeave={clearHover}
-      >
+      <div ref={containerRef} className="relative mx-auto h-[380px] w-full max-w-[460px]" onMouseLeave={clearHover}>
         <div className="pointer-events-none absolute inset-[18%] rounded-full bg-cyan-400/10 blur-3xl" />
 
-        <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="h-full w-full">
+        <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="h-full w-full" role="img" aria-label="Kategoriyalar aniqligi radar diagrammasi">
           <defs>
-            <radialGradient id="category-radar-glow" cx="50%" cy="50%" r="56%">
-              <stop offset="0%" stopColor="rgba(56,189,248,0.18)" />
-              <stop offset="100%" stopColor="rgba(56,189,248,0)" />
+            <radialGradient id="category-radar-glow" cx="50%" cy="50%" r="58%">
+              <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.18" />
+              <stop offset="100%" stopColor="#38bdf8" stopOpacity="0" />
             </radialGradient>
-            <linearGradient id="category-radar-fill" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor={weakestTone.fillStart} stopOpacity="0.26" />
-              <stop offset="100%" stopColor={averageTone.fillEnd} stopOpacity="0.1" />
-            </linearGradient>
+            <radialGradient id="category-radar-fill" cx="50%" cy="50%" r="72%">
+              <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.35" />
+              <stop offset="100%" stopColor="#38bdf8" stopOpacity="0.08" />
+            </radialGradient>
+            <filter id="category-radar-shadow" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="0" dy="0" stdDeviation="10" floodColor="#38bdf8" floodOpacity="0.16" />
+            </filter>
           </defs>
 
           <circle cx={CENTER} cy={CENTER} r={OUTER_RADIUS + 26} fill="url(#category-radar-glow)" />
@@ -210,26 +256,24 @@ function CategoryRadarChartComponent({ data, trainTopic }: Props) {
                 cy={CENTER}
                 r={radius}
                 fill="none"
-                stroke="rgba(148,163,184,0.12)"
-                strokeWidth={level === 100 ? 1.15 : 1}
+                stroke={getGridStroke(level)}
+                strokeWidth={level === 100 ? 1.3 : 1}
               />
             );
           })}
 
-          <text
-            x={CENTER}
-            y={CENTER - OUTER_RADIUS - 10}
-            textAnchor="middle"
-            fontSize="10"
-            fill="rgba(148,163,184,0.78)"
-          >
-            100
+          <text x={CENTER} y={CENTER - OUTER_RADIUS - 10} textAnchor="middle" fontSize="10" fill="rgba(148,163,184,0.78)">
+            100%
           </text>
 
           {points.map((item, index) => {
             const active = hoveredIndex === index;
             const axisEnd = polarToCartesian(OUTER_RADIUS, item.angle);
             const textAnchor = item.labelX < CENTER - 24 ? "end" : item.labelX > CENTER + 24 ? "start" : "middle";
+            const labelTransform =
+              safeData.length > 10
+                ? `translate(${(item.labelX - CENTER) * 0.05} ${(item.labelY - CENTER) * 0.05})`
+                : undefined;
 
             return (
               <g key={`axis-${item.id ?? item.category}`}>
@@ -238,16 +282,21 @@ function CategoryRadarChartComponent({ data, trainTopic }: Props) {
                   y1={CENTER}
                   x2={axisEnd.x}
                   y2={axisEnd.y}
-                  stroke={active ? "rgba(125,211,252,0.56)" : "rgba(148,163,184,0.16)"}
-                  strokeWidth={active ? 1.5 : 1}
+                  stroke={active ? "rgba(125,211,252,0.62)" : "rgba(148,163,184,0.16)"}
+                  strokeWidth={active ? 1.7 : 1}
+                  style={{ transition: "all 180ms ease" }}
                 />
                 <text
                   x={item.labelX}
                   y={item.labelY}
                   textAnchor={textAnchor}
-                  fontSize="11"
+                  fontSize={labelFontSize}
                   fill={active ? "#f8fafc" : "#cbd5e1"}
-                  style={{ transition: "all 180ms ease" }}
+                  style={{
+                    transition: "all 180ms ease",
+                    transform: labelTransform,
+                    transformOrigin: `${item.labelX}px ${item.labelY}px`,
+                  }}
                   onMouseEnter={(event) => updateTooltip(event, item, index)}
                   onMouseMove={(event) => updateTooltip(event, item, index)}
                   onClick={() => triggerTraining(item)}
@@ -264,22 +313,34 @@ function CategoryRadarChartComponent({ data, trainTopic }: Props) {
             <path
               d={polygonPath}
               fill="url(#category-radar-fill)"
-              stroke={averageTone.stroke}
+              stroke="#38bdf8"
               strokeWidth="3"
               strokeLinejoin="round"
               strokeLinecap="round"
+              filter="url(#category-radar-shadow)"
+              shapeRendering="geometricPrecision"
             />
 
             {points.map((item, index) => {
               const active = hoveredIndex === index;
-              const tone = scoreToTone(item.accuracy);
+              const activeRadius = pointRadius + 2.5;
               return (
                 <g key={`point-${item.id ?? item.category}`}>
+                  {active ? (
+                    <circle
+                      cx={item.x}
+                      cy={item.y}
+                      r={activeRadius + 6}
+                      fill="#38bdf8"
+                      fillOpacity="0.12"
+                      style={{ transition: "opacity 180ms ease" }}
+                    />
+                  ) : null}
                   <circle
                     cx={item.x}
                     cy={item.y}
-                    r={active ? 6 : 5}
-                    fill={tone.point}
+                    r={active ? activeRadius : pointRadius}
+                    fill="#38bdf8"
                     stroke="rgba(11,19,36,0.96)"
                     strokeWidth="2"
                     style={{ transition: "r 180ms ease" }}
@@ -299,26 +360,26 @@ function CategoryRadarChartComponent({ data, trainTopic }: Props) {
             })}
           </g>
 
-          <circle cx={CENTER} cy={CENTER} r={42} fill="rgba(11,19,36,0.92)" stroke="rgba(148,163,184,0.18)" />
-          <text x={CENTER} y={CENTER - 6} textAnchor="middle" fontSize="11" fill="rgba(148,163,184,0.9)">
+          <circle cx={CENTER} cy={CENTER} r={48} fill="rgba(11,19,36,0.92)" stroke="rgba(148,163,184,0.18)" />
+          <text x={CENTER} y={CENTER - 12} textAnchor="middle" fontSize="10" fill="rgba(148,163,184,0.9)">
             O'rtacha aniqlik
           </text>
-          <text x={CENTER} y={CENTER + 18} textAnchor="middle" fontSize="30" fontWeight="700" fill="#f8fafc">
+          <text x={CENTER} y={CENTER + 22} textAnchor="middle" fontSize="34" fontWeight="700" fill="#f8fafc">
             {average}%
           </text>
         </svg>
 
         {tooltip ? (
           <div
-            className="pointer-events-none absolute z-10 rounded-xl border border-[#1F2A44] bg-[#0B1324]/95 px-3 py-2 text-sm text-slate-100 shadow-[0_16px_40px_rgba(0,0,0,0.35)]"
+            className="pointer-events-none absolute z-10 min-w-[180px] max-w-[220px] rounded-xl border border-[#1F2A44] bg-[#0B1324]/95 px-3 py-2 text-sm text-slate-100 shadow-[0_16px_40px_rgba(0,0,0,0.35)]"
             style={{
-              left: Math.min(tooltip.x + 14, 320),
-              top: Math.max(tooltip.y - 18, 16),
-              transform: "translateY(-100%)",
+              left: tooltipPosition?.left ?? 12,
+              top: tooltipPosition?.top ?? 12,
             }}
           >
-            <div className="max-w-[180px] truncate font-medium">{tooltip.category}</div>
-            <div className="text-slate-300">{tooltip.score}%</div>
+            <div className="truncate font-medium">{tooltip.category || "Ma'lumot yetarli emas"}</div>
+            <div className="mt-1 text-slate-300">Aniqlik: {tooltip.score}%</div>
+            {tooltip.coverage !== null ? <div className="text-slate-400">Qamrov: {tooltip.coverage}%</div> : null}
           </div>
         ) : null}
 

@@ -23,7 +23,7 @@ const CategoryRadarChart = dynamic(() => import("@/components/dashboard/Category
   ssr: false,
   loading: () => <ChartSkeleton />,
 });
-const WeakTopicsBar = dynamic(() => import("@/components/dashboard/WeakTopicsBar"), {
+const TopicPerformanceCards = dynamic(() => import("@/components/dashboard/TopicPerformanceCards"), {
   ssr: false,
   loading: () => <ChartSkeleton />,
 });
@@ -31,7 +31,7 @@ const QuestionBankMasteryCard = dynamic(() => import("@/components/dashboard/Que
   ssr: false,
   loading: () => <ChartSkeleton />,
 });
-const PremiumRecommendationCardV2 = dynamic(() => import("@/components/dashboard/PremiumRecommendationCardV2"), {
+const RecommendationCard = dynamic(() => import("@/components/dashboard/RecommendationCard"), {
   ssr: false,
   loading: () => <ChartSkeleton />,
 });
@@ -156,9 +156,7 @@ export default function DashboardPage() {
                 <CheckCircle2 className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-100/80">
-                  Premium Active
-                </p>
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-100/80">Premium faol</p>
                 <h2 className="mt-1 text-lg font-semibold text-white">
                   Premium obuna faollashtirildi
                 </h2>
@@ -189,35 +187,61 @@ export default function DashboardPage() {
         </section>
       ) : null}
 
-      {!hasEnoughAttempts && (
+      {!hasEnoughAttempts && !data.isEmptyState && (
         <section className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4">
           <p className="text-sm text-amber-100">Analitikani to'liq ko'rish uchun yana bir nechta test yeching.</p>
         </section>
       )}
 
-      <section className="grid gap-6 xl:grid-cols-2 [&>*]:min-w-0">
-        <ScoreTrendChart data={data.scoreTrend} />
-        <CategoryRadarChart data={data.categoryPerformance} />
-      </section>
+      {data.isEmptyState ? (
+        <section className="rounded-3xl border border-[#1F2A44] bg-[linear-gradient(180deg,#101a2e_0%,#0b1324_100%)] p-6 shadow-[0_12px_32px_rgba(0,0,0,0.26)]">
+          <h2 className="text-xl font-semibold text-white">Analitika uchun hali yetarli ma'lumot yo'q.</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+            Kamida bir nechta test yakunlang. Shundan keyin kuchli va zaif mavzular, tavsiya va trendlar shu yerda ko'rinadi.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <Link
+              href="/tests"
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-sky-400 to-emerald-400 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:brightness-110"
+            >
+              <PlayCircle className="h-4 w-4" />
+              Testni boshlash
+            </Link>
+            <Link
+              href="/lessons"
+              className="inline-flex items-center gap-2 rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-5 py-2.5 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-500/20"
+            >
+              Darslarni ko'rish
+            </Link>
+          </div>
+        </section>
+      ) : (
+        <>
+          <section className="grid gap-6 xl:grid-cols-2 [&>*]:min-w-0">
+            <ScoreTrendChart data={data.scoreTrend} />
+            <CategoryRadarChart data={data.categoryMetrics} />
+          </section>
 
-      <section className="grid gap-6 xl:grid-cols-2 [&>*]:min-w-0">
-        <WeakTopicsBar data={data.weakTopics} />
-        <QuestionBankMasteryCard
-          totalQuestions={data.questionBankMastery.totalQuestions}
-          seenQuestions={data.questionBankMastery.seenQuestions}
-          correctQuestions={data.questionBankMastery.correctQuestions}
-          masteredQuestions={data.questionBankMastery.masteredQuestions}
-          needsReviewQuestions={data.questionBankMastery.needsReviewQuestions}
-        />
-      </section>
+          <section className="grid gap-6 xl:grid-cols-2 [&>*]:min-w-0">
+            <TopicPerformanceCards data={data.weakTopicMetrics} />
+            <QuestionBankMasteryCard
+              totalQuestions={data.questionBankMastery.totalQuestions}
+              seenQuestions={data.questionBankMastery.seenQuestions}
+              correctQuestions={data.questionBankMastery.correctQuestions}
+              masteredQuestions={data.questionBankMastery.masteredQuestions}
+              needsReviewQuestions={data.questionBankMastery.needsReviewQuestions}
+            />
+          </section>
 
-      <section id="premium-insights">
-        <PremiumRecommendationCardV2
-          recommendation={data.recommendation}
-          lessons={data.lessonRecommendations}
-          isPremium={isPremium}
-        />
-      </section>
+          <section id="premium-insights">
+            <RecommendationCard
+              recommendation={data.recommendation}
+              lessons={data.lessonRecommendations}
+              isPremium={isPremium}
+            />
+          </section>
+        </>
+      )}
     </div>
   );
 }

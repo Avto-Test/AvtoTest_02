@@ -27,23 +27,23 @@ export function KnowledgeConfidenceChart({ mastery, isPremium }: KnowledgeConfid
         switch (locale) {
             case "uz-cyrl":
                 return {
-                    title: "Билим ишончи",
-                    desc: "Мавзулар кесимида эҳтимолий ўзлаштириш даражаси.",
-                    empty: "Ишонч метрикалари шаклланиши учун машқни давом эттиринг.",
-                    lockTitle: "Эҳтимолий ўзлаштиришни очиш",
-                    lockDesc: "Ҳар бир мавзудаги AI ишонч даражасини кўринг",
-                    tooltipValue: "Ўзлаштириш эҳтимоли",
-                    tooltipSeries: "Ишонч",
+                    title: "Р‘РёР»РёРј РёС€РѕРЅС‡Рё",
+                    desc: "РњР°РІР·СѓР»Р°СЂ РєРµСЃРёРјРёРґР° СЌТіС‚РёРјРѕР»РёР№ СћР·Р»Р°С€С‚РёСЂРёС€ РґР°СЂР°Р¶Р°СЃРё.",
+                    empty: "РС€РѕРЅС‡ РјРµС‚СЂРёРєР°Р»Р°СЂРё С€Р°РєР»Р»Р°РЅРёС€Рё СѓС‡СѓРЅ РјР°С€Т›РЅРё РґР°РІРѕРј СЌС‚С‚РёСЂРёРЅРі.",
+                    lockTitle: "Р­ТіС‚РёРјРѕР»РёР№ СћР·Р»Р°С€С‚РёСЂРёС€РЅРё РѕС‡РёС€",
+                    lockDesc: "ТІР°СЂ Р±РёСЂ РјР°РІР·СѓРґР°РіРё AI РёС€РѕРЅС‡ РґР°СЂР°Р¶Р°СЃРёРЅРё РєСћСЂРёРЅРі",
+                    tooltipValue: "РЋР·Р»Р°С€С‚РёСЂРёС€ СЌТіС‚РёРјРѕР»Рё",
+                    tooltipSeries: "РС€РѕРЅС‡",
                 };
             case "ru":
                 return {
-                    title: "Уверенность в знаниях",
-                    desc: "Вероятность освоения по темам.",
-                    empty: "Продолжайте практику, чтобы сформировать метрики уверенности.",
-                    lockTitle: "Открыть вероятностное освоение",
-                    lockDesc: "Смотрите уровень AI-уверенности по каждой теме",
-                    tooltipValue: "Вероятность освоения",
-                    tooltipSeries: "Уверенность",
+                    title: "РЈРІРµСЂРµРЅРЅРѕСЃС‚СЊ РІ Р·РЅР°РЅРёСЏС…",
+                    desc: "Р’РµСЂРѕСЏС‚РЅРѕСЃС‚СЊ РѕСЃРІРѕРµРЅРёСЏ РїРѕ С‚РµРјР°Рј.",
+                    empty: "РџСЂРѕРґРѕР»Р¶Р°Р№С‚Рµ РїСЂР°РєС‚РёРєСѓ, С‡С‚РѕР±С‹ СЃС„РѕСЂРјРёСЂРѕРІР°С‚СЊ РјРµС‚СЂРёРєРё СѓРІРµСЂРµРЅРЅРѕСЃС‚Рё.",
+                    lockTitle: "РћС‚РєСЂС‹С‚СЊ РІРµСЂРѕСЏС‚РЅРѕСЃС‚РЅРѕРµ РѕСЃРІРѕРµРЅРёРµ",
+                    lockDesc: "РЎРјРѕС‚СЂРёС‚Рµ СѓСЂРѕРІРµРЅСЊ AI-СѓРІРµСЂРµРЅРЅРѕСЃС‚Рё РїРѕ РєР°Р¶РґРѕР№ С‚РµРјРµ",
+                    tooltipValue: "Р’РµСЂРѕСЏС‚РЅРѕСЃС‚СЊ РѕСЃРІРѕРµРЅРёСЏ",
+                    tooltipSeries: "РЈРІРµСЂРµРЅРЅРѕСЃС‚СЊ",
                 };
             case "en":
                 return {
@@ -99,8 +99,8 @@ export function KnowledgeConfidenceChart({ mastery, isPremium }: KnowledgeConfid
                     title={copy.lockTitle}
                     description={copy.lockDesc}
                 >
-                    <div className="h-[300px] w-full pt-4">
-                        <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-[300px] min-h-[220px] w-full min-w-0 pt-4">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
                             <BarChart data={chartData} layout="vertical" margin={{ left: 20, right: 30, top: 10, bottom: 10 }}>
                                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="hsl(var(--border))" />
                                 <XAxis

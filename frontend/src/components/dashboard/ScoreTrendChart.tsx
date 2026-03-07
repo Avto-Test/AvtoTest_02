@@ -2,7 +2,7 @@
 
 import { memo } from "react";
 import { Area, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import type { ScoreTrendPoint } from "@/hooks/useDashboardAnalytics";
+import type { ScoreTrendPoint } from "@/analytics/types";
 
 type Props = {
   data: ScoreTrendPoint[];
@@ -26,8 +26,8 @@ function ScoreTrendChartComponent({ data }: Props) {
         <h3 className="text-lg font-semibold text-white">Rivojlanish trendi</h3>
         <p className="text-sm text-slate-300">So'nggi testlar natijasidagi o'zgarish</p>
       </div>
-      <div className="h-[250px] min-w-0">
-        <ResponsiveContainer width="100%" height="100%">
+      <div className="h-[250px] min-h-[220px] min-w-0">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
           <LineChart data={data}>
           <defs>
             <linearGradient id="scoreTrendLine" x1="0" y1="0" x2="1" y2="0">
@@ -86,3 +86,4 @@ function ScoreTrendChartComponent({ data }: Props) {
 }
 
 export default memo(ScoreTrendChartComponent);
+
