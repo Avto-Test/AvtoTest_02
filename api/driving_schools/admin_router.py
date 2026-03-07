@@ -33,6 +33,7 @@ from api.driving_schools.schemas import (
     DrivingSchoolReviewResponse,
     DrivingSchoolUpdate,
 )
+from core.public_urls import resolve_public_upload_url
 from database.session import get_db
 from models.driving_school import DrivingSchool
 from models.driving_school_course import DrivingSchoolCourse
@@ -218,8 +219,13 @@ async def upload_driving_school_media(
     saved_path = ADMIN_UPLOADS_DIR / filename
     saved_path.write_bytes(content)
 
-    base_url = str(request.base_url).rstrip("/")
-    return {"url": f"{base_url}/uploads/driving_schools/{filename}", "filename": filename}
+    return {
+        "url": resolve_public_upload_url(
+            request,
+            f"/uploads/driving_schools/{filename}",
+        ),
+        "filename": filename,
+    }
 
 
 @router.get("", response_model=list[DrivingSchoolAdminResponse])

@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.analytics_event import AnalyticsEvent
+from models.payment import Payment
 from models.promo_code import PromoCode
 from models.subscription import Subscription
 from models.subscription_plan import SubscriptionPlan
@@ -48,6 +49,44 @@ async def test_create_checkout_session(
     assert body["checkout_url"] == provider_response.checkout_url
     assert body["session_id"] == provider_response.session_id
     assert body["provider"] == "tspay"
+
+
+@pytest.mark.asyncio
+async def test_create_checkout_session_persists_provider_cheque_id(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    normal_user_token: str,
+):
+    provider_response = CreateCheckoutSessionResponse(
+        provider="tspay",
+        session_id="sess_store_001",
+        checkout_url="https://checkout.tspay.test/sess_store_001",
+        raw_response={
+            "transaction": {
+                "id": "sess_store_001",
+                "cheque_id": "cheque_store_001",
+                "url": "https://checkout.tspay.test/sess_store_001",
+            }
+        },
+    )
+
+    with patch(
+        "api.payments.router.PAYMENT_PROVIDER.create_checkout_session",
+        new=AsyncMock(return_value=provider_response),
+    ):
+        response = await client.post(
+            "/api/payments/create-session",
+            headers={"Authorization": f"Bearer {normal_user_token}"},
+        )
+
+    assert response.status_code == 200
+
+    payment_result = await db_session.execute(
+        select(Payment).where(Payment.provider_session_id == "sess_store_001")
+    )
+    payment = payment_result.scalar_one_or_none()
+    assert payment is not None
+    assert payment.provider_payment_id == "cheque_store_001"
 
 
 @pytest.mark.asyncio
@@ -304,3 +343,70 @@ async def test_get_transaction_status(
     assert body["provider"] == "tspay"
     assert body["cheque_id"] == "998877"
     assert body["pay_status"] == "paid"
+
+
+@pytest.mark.asyncio
+async def test_get_transaction_status_resolves_cheque_id_from_local_payment(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    normal_user,
+    normal_user_token: str,
+):
+    db_session.add(
+        Payment(
+            user_id=normal_user.id,
+            provider="tspay",
+            provider_session_id="6090",
+            provider_payment_id=None,
+            status="session_created",
+            amount_cents=100000,
+            currency="UZS",
+            raw_payload={
+                "provider_session": {
+                    "transaction": {
+                        "id": 6090,
+                        "cheque_id": "uuid_cheque_6090",
+                    }
+                },
+                "plan": {
+                    "code": "premium",
+                    "duration_days": 30,
+                },
+            },
+        )
+    )
+    await db_session.commit()
+
+    status_response = GetTransactionStatusResponse(
+        provider="tspay",
+        cheque_id="uuid_cheque_6090",
+        transaction_id="6090",
+        pay_status="success",
+        amount=100000,
+        raw_response={
+            "id": 6090,
+            "cheque_id": "uuid_cheque_6090",
+            "status": "success",
+            "amount": 1000,
+        },
+    )
+
+    with patch(
+        "api.payments.router.PAYMENT_PROVIDER.get_transaction_status",
+        new=AsyncMock(return_value=status_response),
+    ) as mocked_get_status:
+        response = await client.get(
+            "/api/payments/transactions/6090",
+            headers={"Authorization": f"Bearer {normal_user_token}"},
+        )
+
+    assert response.status_code == 200
+    mocked_get_status.assert_awaited_once_with(cheque_id="uuid_cheque_6090")
+
+    refreshed_result = await db_session.execute(
+        select(Payment).where(Payment.provider_session_id == "6090")
+    )
+    refreshed_payment = refreshed_result.scalar_one_or_none()
+    assert refreshed_payment is not None
+    assert refreshed_payment.provider_payment_id == "uuid_cheque_6090"
+    assert refreshed_payment.status == "succeeded"

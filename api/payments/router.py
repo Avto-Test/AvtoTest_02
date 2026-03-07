@@ -104,6 +104,44 @@ def _normalize_plan_code(value: str | None) -> str:
     return normalized or DEFAULT_PLAN_CODE
 
 
+def _first_non_empty_string(*values: Any) -> str | None:
+    for value in values:
+        if value is None:
+            continue
+        normalized = str(value).strip()
+        if normalized:
+            return normalized
+    return None
+
+
+def _extract_provider_cheque_id_from_session_payload(
+    payload: dict[str, Any] | None,
+) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+
+    transaction = payload.get("transaction")
+    if not isinstance(transaction, dict):
+        return None
+
+    return _first_non_empty_string(transaction.get("cheque_id"))
+
+
+def _extract_provider_cheque_id_from_payment(payment: Payment | None) -> str | None:
+    if payment is None:
+        return None
+
+    raw_payload = payment.raw_payload if isinstance(payment.raw_payload, dict) else {}
+    provider_session = raw_payload.get("provider_session")
+    if not isinstance(provider_session, dict):
+        provider_session = None
+
+    return _first_non_empty_string(
+        payment.provider_payment_id,
+        _extract_provider_cheque_id_from_session_payload(provider_session),
+    )
+
+
 def _normalize_origin(value: str | None) -> str | None:
     if not value:
         return None
@@ -553,6 +591,9 @@ async def _create_session(
             user_id=current_user.id,
             provider=session.provider,
             provider_session_id=session.session_id,
+            provider_payment_id=_extract_provider_cheque_id_from_session_payload(
+                session.raw_response
+            ),
             status="session_created",
             amount_cents=payload.amount_cents,
             currency=payload.currency,
@@ -665,8 +706,18 @@ async def get_transaction_status(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden.")
 
     try:
+        provider_lookup_id = _first_non_empty_string(
+            _extract_provider_cheque_id_from_payment(local_payment),
+            normalized_cheque_id,
+        )
+        if provider_lookup_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="cheque_id is required.",
+            )
+
         provider_status = await PAYMENT_PROVIDER.get_transaction_status(
-            cheque_id=normalized_cheque_id
+            cheque_id=provider_lookup_id
         )
     except PaymentProviderError as exc:
         logger.error(
@@ -678,6 +729,27 @@ async def get_transaction_status(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="To'lov provayderi vaqtincha ishlamayapti.",
         ) from exc
+
+    payment_record_changed = False
+    if local_payment is not None:
+        resolved_provider_payment_id = _first_non_empty_string(provider_status.cheque_id)
+        if (
+            resolved_provider_payment_id is not None
+            and local_payment.provider_payment_id != resolved_provider_payment_id
+        ):
+            local_payment.provider_payment_id = resolved_provider_payment_id
+            payment_record_changed = True
+
+        resolved_provider_session_id = _first_non_empty_string(
+            local_payment.provider_session_id,
+            provider_status.transaction_id,
+        )
+        if (
+            resolved_provider_session_id is not None
+            and local_payment.provider_session_id != resolved_provider_session_id
+        ):
+            local_payment.provider_session_id = resolved_provider_session_id
+            payment_record_changed = True
 
     pay_status = (provider_status.pay_status or "").strip().lower()
     if pay_status in {"success", "paid", "succeeded"} and local_payment is not None:
@@ -747,11 +819,15 @@ async def get_transaction_status(
             local_payment.status = "succeeded"
             local_payment.processed_at = now
             await db.commit()
+            payment_record_changed = False
     elif pay_status in {"canceled", "cancelled", "failed", "error"} and local_payment is not None:
         if local_payment.status not in {"succeeded", "failed", "canceled"}:
             local_payment.status = "failed"
             local_payment.processed_at = utc_now()
             await db.commit()
+            payment_record_changed = False
+    elif payment_record_changed:
+        await db.commit()
 
     return TransactionStatusResponse(
         cheque_id=provider_status.cheque_id,

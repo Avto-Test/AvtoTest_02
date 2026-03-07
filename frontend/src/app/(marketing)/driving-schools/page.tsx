@@ -8,6 +8,7 @@ import {
     DrivingSchoolMetaResponse,
 } from '@/schemas/drivingSchool.schema';
 import { getDrivingSchoolMeta, getDrivingSchools } from '@/lib/drivingSchools';
+import { resolvePublicMediaUrl } from '@/lib/media';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -307,13 +308,15 @@ export default function DrivingSchoolsCatalogPage() {
                     </div>
                 ) : (
                     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                        {items.map((school) => (
+                        {items.map((school) => {
+                            const logoUrl = resolvePublicMediaUrl(school.logo_url);
+                            return (
                             <article key={school.id} className="group rounded-2xl border border-border bg-card p-5 transition hover:-translate-y-0.5 hover:border-primary/30">
                                 <div className="flex items-start gap-4">
                                     <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-background">
-                                        {school.logo_url ? (
+                                        {logoUrl ? (
                                             // eslint-disable-next-line @next/next/no-img-element
-                                            <img src={school.logo_url} alt={school.name} className="h-full w-full object-cover" />
+                                            <img src={logoUrl} alt={school.name} className="h-full w-full object-cover" />
                                         ) : (
                                             <span className="text-xs font-semibold text-muted-foreground">LOGO</span>
                                         )}
@@ -359,7 +362,7 @@ export default function DrivingSchoolsCatalogPage() {
                                     </Button>
                                 </div>
                             </article>
-                        ))}
+                        )})}
                     </div>
                 )}
 

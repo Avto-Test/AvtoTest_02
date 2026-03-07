@@ -23,6 +23,32 @@ import uuid
 logger = get_logger(__name__)
 PAYMENT_PROVIDER = TSPayProvider()
 
+
+def _first_non_empty_string(*values: object | None) -> str | None:
+    for value in values:
+        if value is None:
+            continue
+        normalized = str(value).strip()
+        if normalized:
+            return normalized
+    return None
+
+
+def _extract_provider_cheque_id_from_payment(payment: Payment) -> str | None:
+    raw_payload = payment.raw_payload if isinstance(payment.raw_payload, dict) else {}
+    provider_session = raw_payload.get("provider_session")
+    if not isinstance(provider_session, dict):
+        provider_session = {}
+
+    transaction = provider_session.get("transaction")
+    if not isinstance(transaction, dict):
+        transaction = {}
+
+    return _first_non_empty_string(
+        payment.provider_payment_id,
+        transaction.get("cheque_id"),
+    )
+
 async def reconcile_pending_payments() -> None:
     """Finds old pending payments and syncs status with TsPay."""
     now = utc_now()
@@ -33,7 +59,7 @@ async def reconcile_pending_payments() -> None:
             result = await db.execute(
                 select(Payment).where(
                     and_(
-                        Payment.status == "pending",
+                        Payment.status.in_(("pending", "session_created")),
                         Payment.created_at < threshold,
                         Payment.provider == PAYMENT_PROVIDER.provider_name
                     )
@@ -47,10 +73,12 @@ async def reconcile_pending_payments() -> None:
             logger.info(f"Reconciliation: Found {len(payments)} pending payments to check.")
             
             for payment in payments:
-                if not payment.provider_session_id and not payment.provider_payment_id:
+                cheque_id = _first_non_empty_string(
+                    _extract_provider_cheque_id_from_payment(payment),
+                    payment.provider_session_id,
+                )
+                if cheque_id is None:
                     continue
-                    
-                cheque_id = payment.provider_payment_id or payment.provider_session_id
                 
                 try:
                     provider_status = await PAYMENT_PROVIDER.get_transaction_status(cheque_id)
@@ -62,6 +90,26 @@ async def reconcile_pending_payments() -> None:
                     continue
                     
                 pay_status = (provider_status.pay_status or "").strip().lower()
+                payment_record_changed = False
+
+                resolved_provider_payment_id = _first_non_empty_string(provider_status.cheque_id)
+                if (
+                    resolved_provider_payment_id is not None
+                    and payment.provider_payment_id != resolved_provider_payment_id
+                ):
+                    payment.provider_payment_id = resolved_provider_payment_id
+                    payment_record_changed = True
+
+                resolved_provider_session_id = _first_non_empty_string(
+                    payment.provider_session_id,
+                    provider_status.transaction_id,
+                )
+                if (
+                    resolved_provider_session_id is not None
+                    and payment.provider_session_id != resolved_provider_session_id
+                ):
+                    payment.provider_session_id = resolved_provider_session_id
+                    payment_record_changed = True
                 
                 # Check match amount and currency if we successfully talk to provider
                 # Replicate the same validation as the manual verification endpoint
@@ -125,13 +173,17 @@ async def reconcile_pending_payments() -> None:
                     payment.status = "succeeded"
                     payment.processed_at = utc_now()
                     await db.commit()
+                    payment_record_changed = False
                     logger.info(f"Reconciliation: Successfully activated {cheque_id}")
                     
                 elif pay_status in {"canceled", "cancelled", "failed", "error"}:
                     payment.status = "failed"
                     payment.processed_at = utc_now()
                     await db.commit()
+                    payment_record_changed = False
                     logger.info(f"Reconciliation: Marked {cheque_id} as failed.")
+                elif payment_record_changed:
+                    await db.commit()
                     
     except Exception as e:
         logger.error(f"Reconciliation job failed: {e}")

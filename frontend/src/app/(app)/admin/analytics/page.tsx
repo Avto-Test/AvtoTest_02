@@ -13,6 +13,7 @@ import { SummaryCard } from '@/components/admin/SummaryCard';
 import { TrendIndicator, type FunnelTrendSignal } from '@/components/admin/TrendIndicator';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { useAuth } from '@/store/useAuth';
 import { Cell, Funnel, FunnelChart, LabelList, ResponsiveContainer, Tooltip } from 'recharts';
 
 type Period = 'today' | 'yesterday' | '7d' | '30d';
@@ -161,6 +162,9 @@ function formatRateDelta(value: number): DeltaDisplay {
 export default function AdminAnalyticsPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
+    const token = useAuth((state) => state.token);
+    const hydrated = useAuth((state) => state.hydrated);
+    const signOut = useAuth((state) => state.signOut);
 
     const period = useMemo(() => normalizePeriod(searchParams.get('period')), [searchParams]);
 
@@ -171,16 +175,37 @@ export default function AdminAnalyticsPage() {
     const [isChartContainerReady, setIsChartContainerReady] = useState(false);
     const chartContainerRef = useRef<HTMLDivElement | null>(null);
 
+    const redirectToLogin = useCallback(() => {
+        signOut();
+        const next = `${window.location.pathname}${window.location.search}`;
+        router.replace(`/login?next=${encodeURIComponent(next)}`);
+    }, [router, signOut]);
+
     const loadFunnel = useCallback(async (selectedPeriod: Period) => {
+        if (!hydrated) {
+            return;
+        }
+
         setIsLoading(true);
         setError(null);
 
         try {
+            const headers: HeadersInit = {};
+            if (token) {
+                headers.Authorization = `Bearer ${token}`;
+            }
+
             const response = await fetch(`/api/analytics/funnel?period=${selectedPeriod}`, {
                 method: 'GET',
+                headers,
                 credentials: 'include',
                 cache: 'no-store',
             });
+
+            if (response.status === 401) {
+                redirectToLogin();
+                return;
+            }
 
             if (!response.ok) {
                 const payload = await response.json().catch(() => null) as { error?: string } | null;
@@ -204,11 +229,14 @@ export default function AdminAnalyticsPage() {
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [hydrated, redirectToLogin, token]);
 
     useEffect(() => {
+        if (!hydrated) {
+            return;
+        }
         void loadFunnel(period);
-    }, [period, loadFunnel]);
+    }, [hydrated, period, loadFunnel]);
 
     useEffect(() => {
         setIsChartReady(true);
@@ -401,7 +429,7 @@ export default function AdminAnalyticsPage() {
                                     </div>
                                     <div ref={chartContainerRef} className="h-[340px] w-full min-w-0">
                                         {canRenderChart ? (
-                                            <ResponsiveContainer width="100%" height="100%">
+                                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={260}>
                                                 <FunnelChart>
                                                     <Tooltip
                                                         formatter={(value: number | string | undefined) => [Number(value ?? 0), 'Count']}

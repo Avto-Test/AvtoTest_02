@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +21,9 @@ from api.driving_schools.schemas import (
     DrivingSchoolCatalogItemResponse,
     DrivingSchoolCatalogResponse,
     DrivingSchoolDetailResponse,
+    DrivingSchoolMediaCreate,
+    DrivingSchoolMediaResponse,
+    DrivingSchoolMediaUpdate,
     DrivingSchoolLeadCreate,
     DrivingSchoolLeadResponse,
     DrivingSchoolMetaResponse,
@@ -31,10 +34,12 @@ from api.driving_schools.schemas import (
     DrivingSchoolUpdate,
 )
 from core.config import settings
+from core.public_urls import resolve_public_upload_url
 from database.session import get_db
 from models.analytics_event import AnalyticsEvent
 from models.driving_school import DrivingSchool
 from models.driving_school_lead import DrivingSchoolLead
+from models.driving_school_media import DrivingSchoolMedia
 from models.driving_school_partner_application import DrivingSchoolPartnerApplication
 from models.driving_school_review import DrivingSchoolReview
 from models.user import User
@@ -45,6 +50,7 @@ router = APIRouter(prefix="/driving-schools", tags=["driving-schools"])
 ALLOWED_OWNER_MEDIA_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 MAX_OWNER_MEDIA_SIZE_BYTES = 10 * 1024 * 1024
 OWNER_UPLOADS_DIR = Path(__file__).resolve().parents[2] / "uploads" / "driving_schools"
+ALLOWED_SCHOOL_MEDIA_TYPES = {"image", "video"}
 
 
 def _average_rating(school: DrivingSchool) -> tuple[float, int]:
@@ -121,6 +127,16 @@ def _to_owner_school_response(school: DrivingSchool) -> DrivingSchoolAdminRespon
         courses=sorted(school.courses, key=lambda item: (item.sort_order, item.created_at)),
         media_items=sorted(school.media_items, key=lambda item: (item.sort_order, item.created_at)),
     )
+
+
+def _normalize_school_media_type(value: str | None) -> str:
+    media_type = (value or "image").strip().lower()
+    if media_type not in ALLOWED_SCHOOL_MEDIA_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Media type faqat image yoki video bo'lishi mumkin.",
+        )
+    return media_type
 
 
 async def _get_optional_user(request: Request, db: AsyncSession) -> User | None:
@@ -402,8 +418,113 @@ async def upload_my_school_media(
     saved_path = OWNER_UPLOADS_DIR / filename
     saved_path.write_bytes(content)
 
-    base_url = str(request.base_url).rstrip("/")
-    return {"url": f"{base_url}/uploads/driving_schools/{filename}", "filename": filename}
+    return {
+        "url": resolve_public_upload_url(
+            request,
+            f"/uploads/driving_schools/{filename}",
+        ),
+        "filename": filename,
+    }
+
+
+@router.post("/me/media", response_model=DrivingSchoolMediaResponse, status_code=status.HTTP_201_CREATED)
+async def create_my_school_media(
+    payload: DrivingSchoolMediaCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> DrivingSchoolMedia:
+    school = await _get_my_school(current_user, db)
+    if school is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driving school profile not found")
+
+    media_type = _normalize_school_media_type(payload.media_type)
+    media_url = payload.url.strip()
+    if not media_url:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Media URL bo'sh bo'lishi mumkin emas.")
+
+    next_sort_order = payload.sort_order
+    if next_sort_order <= 0:
+        if school.media_items:
+            next_sort_order = max(item.sort_order for item in school.media_items) + 1
+        else:
+            next_sort_order = 0
+
+    row = DrivingSchoolMedia(
+        school_id=school.id,
+        media_type=media_type,
+        url=media_url,
+        caption=payload.caption.strip() if payload.caption else None,
+        sort_order=next_sort_order,
+        is_active=payload.is_active,
+    )
+    db.add(row)
+    school.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+@router.put("/me/media/{media_id}", response_model=DrivingSchoolMediaResponse)
+async def update_my_school_media(
+    media_id: UUID,
+    payload: DrivingSchoolMediaUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> DrivingSchoolMedia:
+    school = await _get_my_school(current_user, db)
+    if school is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driving school profile not found")
+
+    result = await db.execute(
+        select(DrivingSchoolMedia).where(
+            DrivingSchoolMedia.id == media_id,
+            DrivingSchoolMedia.school_id == school.id,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media item not found")
+
+    data = payload.model_dump(exclude_unset=True)
+    for key, value in data.items():
+        if key == "media_type":
+            setattr(row, key, _normalize_school_media_type(value))
+            continue
+        if isinstance(value, str):
+            setattr(row, key, value.strip())
+        else:
+            setattr(row, key, value)
+
+    school.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+@router.delete("/me/media/{media_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_my_school_media(
+    media_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    school = await _get_my_school(current_user, db)
+    if school is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driving school profile not found")
+
+    result = await db.execute(
+        select(DrivingSchoolMedia).where(
+            DrivingSchoolMedia.id == media_id,
+            DrivingSchoolMedia.school_id == school.id,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media item not found")
+
+    await db.delete(row)
+    school.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/me/leads", response_model=list[DrivingSchoolLeadResponse])

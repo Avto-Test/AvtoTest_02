@@ -4,6 +4,7 @@
 import { MapPin, MessageCircle, Phone, ShieldCheck, Star, TriangleAlert, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { resolvePublicMediaUrl } from '@/lib/media';
 import type { InstructorProfileBuilderFormData } from '@/schemas/instructorProfileBuilder.schema';
 
 type LivePreviewProps = {
@@ -23,6 +24,7 @@ function buildMiniMapEmbedUrl(latitude: number | null, longitude: number | null)
 
 export function LivePreview({ profile, mode }: LivePreviewProps) {
   const heroImage = profile.media.find((item) => item.isPrimary) ?? profile.media[0] ?? null;
+  const heroImageUrl = resolvePublicMediaUrl(heroImage?.url);
   const mapUrl = buildMiniMapEmbedUrl(profile.location.latitude, profile.location.longitude);
   const warningMessages: string[] = [];
   if (!heroImage) warningMessages.push("Asosiy rasm qo'shilmagan");
@@ -36,9 +38,9 @@ export function LivePreview({ profile, mode }: LivePreviewProps) {
     >
       <div className="overflow-hidden rounded-xl border border-white/10 bg-slate-950">
         <div className="relative h-48 w-full bg-slate-800">
-          {heroImage ? (
+          {heroImageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={heroImage.url} alt={profile.fullName || 'Instructor'} className="h-full w-full object-cover" />
+            <img src={heroImageUrl} alt={profile.fullName || 'Instructor'} className="h-full w-full object-cover" />
           ) : (
             <div className="flex h-full items-center justify-center text-sm text-slate-500">
               Asosiy rasm yo'q
@@ -103,10 +105,17 @@ export function LivePreview({ profile, mode }: LivePreviewProps) {
             ) : (
               <div className="mt-2 grid grid-cols-3 gap-2">
                 {profile.media.slice(0, 6).map((item) => (
-                  <div key={item.id} className="aspect-video overflow-hidden rounded-md border border-white/10">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={item.url} alt={item.caption || 'Gallery'} className="h-full w-full object-cover" />
-                  </div>
+                  (() => {
+                    const mediaUrl = resolvePublicMediaUrl(item.url);
+                    return (
+                      <div key={item.id} className="aspect-video overflow-hidden rounded-md border border-white/10">
+                        {mediaUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={mediaUrl} alt={item.caption || 'Gallery'} className="h-full w-full object-cover" />
+                        ) : null}
+                      </div>
+                    );
+                  })()
                 ))}
               </div>
             )}

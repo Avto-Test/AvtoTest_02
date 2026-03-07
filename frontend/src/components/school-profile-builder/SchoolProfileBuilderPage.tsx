@@ -35,6 +35,7 @@ import {
   updateMyDrivingSchoolProfile,
   uploadMyDrivingSchoolMedia,
 } from '@/lib/drivingSchools';
+import { resolvePublicMediaUrl } from '@/lib/media';
 import { useAuth } from '@/store/useAuth';
 
 const schoolProfileBuilderSchema = z.object({
@@ -478,6 +479,7 @@ export function SchoolProfileBuilderPage() {
 
   const canSave = form.formState.isValid && !savingNow && !autosaving && schoolExists;
   const live = values;
+  const liveLogoUrl = resolvePublicMediaUrl(live.logo_url);
 
   if (!hydrated || loading) {
     return (
@@ -684,11 +686,11 @@ export function SchoolProfileBuilderPage() {
                       }}
                     />
 
-                    {live.logo_url ? (
+                    {liveLogoUrl ? (
                       <div className="flex items-center gap-3 rounded-lg border border-border bg-background p-2">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
-                          src={live.logo_url}
+                          src={liveLogoUrl}
                           alt="Logo preview"
                           className="h-16 w-20 rounded-md border border-border object-cover"
                         />
@@ -909,9 +911,9 @@ export function SchoolProfileBuilderPage() {
               >
                 <div className="relative overflow-hidden rounded-t-2xl border-b border-border">
                   <div className="h-44 w-full bg-gradient-to-br from-sky-500/25 via-cyan-400/15 to-emerald-400/20">
-                    {live.logo_url ? (
+                    {liveLogoUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={live.logo_url} alt={live.name || 'Logo'} className="h-full w-full object-cover" />
+                      <img src={liveLogoUrl} alt={live.name || 'Logo'} className="h-full w-full object-cover" />
                     ) : null}
                   </div>
                   <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background to-transparent p-4">

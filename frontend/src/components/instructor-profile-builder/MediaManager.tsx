@@ -5,6 +5,7 @@ import { ChangeEvent, DragEvent, useRef } from 'react';
 import { ArrowDown, ArrowUp, ImagePlus, RefreshCcw, Star, Trash2, UploadCloud, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { resolvePublicMediaUrl } from '@/lib/media';
 import type { BuilderMediaItem } from '@/schemas/instructorProfileBuilder.schema';
 
 type MediaManagerProps = {
@@ -85,6 +86,7 @@ export function MediaManager({
         {media.map((item, index) => {
           const progress = uploadProgress[item.id];
           const error = uploadErrors[item.id];
+          const mediaUrl = resolvePublicMediaUrl(item.url);
           return (
             <div
               key={item.id}
@@ -92,9 +94,9 @@ export function MediaManager({
             >
               <div className="grid gap-3 md:grid-cols-[96px_minmax(0,1fr)]">
                 <div className="relative h-24 w-24 overflow-hidden rounded-md border border-white/10 bg-slate-900">
-                  {item.url ? (
+                  {mediaUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={item.url} alt={item.caption || 'Media'} className="h-full w-full object-cover" />
+                    <img src={mediaUrl} alt={item.caption || 'Media'} className="h-full w-full object-cover" />
                   ) : null}
                 </div>
                 <div className="space-y-2">
