@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import PremiumLock from '@/components/PremiumLock';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { getLessonsFeed, LessonItem, LessonSection } from '@/lib/lessons';
+import { normalizeTopicKey } from '@/lib/dashboardTopic';
 import { useAuth } from '@/store/useAuth';
 
 function toYoutubeEmbed(url: string): string | null {
@@ -37,7 +39,7 @@ function LessonPreview({ lesson }: { lesson: LessonItem }) {
                         ))}
                     </div>
                 ) : (
-                    <p className="text-muted-foreground">Text content is available for this lesson.</p>
+                    <p className="text-muted-foreground">Bu dars uchun matnli kontent mavjud.</p>
                 )}
             </div>
         );
@@ -61,7 +63,7 @@ function LessonPreview({ lesson }: { lesson: LessonItem }) {
 
         return (
             <video controls className="max-h-60 w-full rounded-md border" src={lesson.content_url}>
-                Your browser does not support video playback.
+                Brauzeringiz video ijrosini qo'llab-quvvatlamaydi.
             </video>
         );
     }
@@ -83,13 +85,14 @@ function LessonPreview({ lesson }: { lesson: LessonItem }) {
     return (
         <Button variant="outline" asChild>
             <a href={lesson.content_url} target="_blank" rel="noreferrer">
-                Open Lesson Material
+                Dars materialini ochish
             </a>
         </Button>
     );
 }
 
 export default function LessonsPage() {
+    const searchParams = useSearchParams();
     const { user } = useAuth();
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -97,6 +100,10 @@ export default function LessonsPage() {
     const [sections, setSections] = useState<LessonSection[]>([]);
     const [isPremiumFromApi, setIsPremiumFromApi] = useState(false);
     const [selectedCategoryKey, setSelectedCategoryKey] = useState<string | null>(null);
+    const [querySelectionApplied, setQuerySelectionApplied] = useState(false);
+    const [highlightedSectionKey, setHighlightedSectionKey] = useState<string | null>(null);
+    const [autoFocusedSectionKey, setAutoFocusedSectionKey] = useState<string | null>(null);
+    const selectedSectionRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
         async function load() {
@@ -108,7 +115,7 @@ export default function LessonsPage() {
                 setIsPremiumFromApi(feed.is_premium_user);
                 setError(null);
             } catch (err) {
-                setError(err instanceof Error ? err.message : 'Failed to load lessons');
+                setError(err instanceof Error ? err.message : "Darslarni yuklab bo'lmadi");
             } finally {
                 setIsLoading(false);
             }
@@ -124,7 +131,7 @@ export default function LessonsPage() {
         }
         const grouped = new Map<string, LessonItem[]>();
         for (const lesson of lessons) {
-            const key = lesson.section || lesson.topic || 'General';
+            const key = lesson.section || lesson.topic || 'Umumiy';
             const existing = grouped.get(key) || [];
             existing.push(lesson);
             grouped.set(key, existing);
@@ -141,14 +148,87 @@ export default function LessonsPage() {
         [categorySections, selectedCategoryKey]
     );
 
+    const focusedTopic = searchParams.get('topic')?.trim() ?? '';
+    const isFocusedSelection = useMemo(() => {
+        if (!focusedTopic || !selectedCategory) {
+            return false;
+        }
+
+        const normalizedFocusedTopic = normalizeTopicKey(focusedTopic);
+        return (
+            normalizeTopicKey(selectedCategory.key) === normalizedFocusedTopic ||
+            normalizeTopicKey(selectedCategory.title) === normalizedFocusedTopic ||
+            selectedCategory.lessons.some(
+                (lesson) =>
+                    normalizeTopicKey(lesson.topic ?? '') === normalizedFocusedTopic ||
+                    normalizeTopicKey(lesson.section ?? '') === normalizedFocusedTopic
+            )
+        );
+    }, [focusedTopic, selectedCategory]);
+
+    useEffect(() => {
+        setQuerySelectionApplied(false);
+    }, [focusedTopic]);
+
     useEffect(() => {
         if (selectedCategoryKey && !categorySections.some((section) => section.key === selectedCategoryKey)) {
             setSelectedCategoryKey(null);
         }
     }, [categorySections, selectedCategoryKey]);
 
+    useEffect(() => {
+        if (querySelectionApplied || !focusedTopic || categorySections.length === 0) {
+            return;
+        }
+
+        const normalizedFocusedTopic = normalizeTopicKey(focusedTopic);
+        const matchedSection =
+            categorySections.find(
+                (section) =>
+                    normalizeTopicKey(section.key) === normalizedFocusedTopic ||
+                    normalizeTopicKey(section.title) === normalizedFocusedTopic ||
+                    section.lessons.some(
+                        (lesson) =>
+                            normalizeTopicKey(lesson.topic ?? '') === normalizedFocusedTopic ||
+                            normalizeTopicKey(lesson.section ?? '') === normalizedFocusedTopic
+                    )
+            ) ?? null;
+
+        if (matchedSection) {
+            setSelectedCategoryKey(matchedSection.key);
+            setAutoFocusedSectionKey(matchedSection.key);
+        }
+
+        setQuerySelectionApplied(true);
+    }, [categorySections, focusedTopic, querySelectionApplied]);
+
+    useEffect(() => {
+        if (!selectedCategory || !autoFocusedSectionKey || selectedCategory.key !== autoFocusedSectionKey) {
+            return;
+        }
+
+        const scrollTarget = selectedSectionRef.current;
+        if (!scrollTarget) {
+            return;
+        }
+
+        const frameId = window.requestAnimationFrame(() => {
+            scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            setHighlightedSectionKey(autoFocusedSectionKey);
+        });
+
+        const timeoutId = window.setTimeout(() => {
+            setHighlightedSectionKey((current) => (current === autoFocusedSectionKey ? null : current));
+        }, 1800);
+
+        return () => {
+            window.cancelAnimationFrame(frameId);
+            window.clearTimeout(timeoutId);
+        };
+    }, [autoFocusedSectionKey, selectedCategory]);
+
     if (isLoading) {
-        return <div className="py-12 text-center text-muted-foreground">Loading lessons...</div>;
+        return <div className="py-12 text-center text-muted-foreground">Darslar yuklanmoqda...</div>;
     }
 
     return (
@@ -173,18 +253,36 @@ export default function LessonsPage() {
                     {"Hozircha darslar qo'shilmagan."}
                 </div>
             ) : selectedCategory ? (
+                <div
+                    ref={selectedSectionRef}
+                    className={`rounded-2xl transition-all duration-500 ${
+                        highlightedSectionKey === selectedCategory.key
+                            ? 'bg-cyan-500/5 p-4 ring-1 ring-cyan-400/35 shadow-[0_0_0_1px_rgba(34,211,238,0.12),0_18px_30px_rgba(8,47,73,0.18)]'
+                            : ''
+                    }`}
+                >
                 <section className="space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                        <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => setSelectedCategoryKey(null)}
-                        >
+                        <Button type="button" variant="outline" onClick={() => setSelectedCategoryKey(null)}>
                             {'<-'} Kategoriyalarga qaytish
                         </Button>
-                        <div className="text-sm text-muted-foreground">
-                            {selectedCategory.lessons.length} ta dars
+                        <div className="flex items-center gap-2">
+                            {isFocusedSelection ? (
+                                <Badge className="border-cyan-400/30 bg-cyan-500/10 text-cyan-100">Tavsiya</Badge>
+                            ) : null}
+                            <div className="text-sm text-muted-foreground">
+                                {selectedCategory.lessons.length} ta dars
+                            </div>
                         </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="text-xl font-semibold text-foreground">{selectedCategory.title}</h2>
+                        {isFocusedSelection ? (
+                            <Badge variant="secondary" className="border-cyan-400/30 bg-cyan-500/10 text-cyan-100">
+                                Tavsiya
+                            </Badge>
+                        ) : null}
                     </div>
 
                     <div className="grid gap-4 md:grid-cols-2">
@@ -193,7 +291,7 @@ export default function LessonsPage() {
                                 <div className="mb-2 flex flex-wrap items-center gap-2">
                                     <Badge variant="outline">{lesson.content_type}</Badge>
                                     {lesson.topic ? <Badge variant="secondary">{lesson.topic}</Badge> : null}
-                                    {lesson.is_premium ? <Badge>Premium</Badge> : <Badge variant="secondary">All</Badge>}
+                                    {lesson.is_premium ? <Badge>Premium</Badge> : <Badge variant="secondary">Ochiq</Badge>}
                                 </div>
                                 <h2 className="text-lg font-semibold text-foreground">{lesson.title}</h2>
                                 {lesson.description ? (
@@ -215,6 +313,7 @@ export default function LessonsPage() {
                         ))}
                     </div>
                 </section>
+                </div>
             ) : (
                 <section className="space-y-4">
                     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

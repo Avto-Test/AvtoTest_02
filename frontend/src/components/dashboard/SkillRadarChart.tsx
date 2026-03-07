@@ -26,21 +26,21 @@ export function SkillRadarChart({ skills, isPremium }: SkillRadarChartProps) {
         switch (locale) {
             case "uz-cyrl":
                 return {
-                    title: "Кўникма вектори",
-                    desc: "Мавзулар бўйича кўникма даражангиз.",
-                    empty: "Кўникма профили шаклланиши учун машқни давом эттиринг.",
-                    lockTitle: "Кўникма таҳлилини очиш",
-                    lockDesc: "Мавзулар бўйича батафсил кўникма харитасини кўринг",
-                    series: "Кўникма",
+                    title: "РљСћРЅРёРєРјР° РІРµРєС‚РѕСЂРё",
+                    desc: "РњР°РІР·СѓР»Р°СЂ Р±СћР№РёС‡Р° РєСћРЅРёРєРјР° РґР°СЂР°Р¶Р°РЅРіРёР·.",
+                    empty: "РљСћРЅРёРєРјР° РїСЂРѕС„РёР»Рё С€Р°РєР»Р»Р°РЅРёС€Рё СѓС‡СѓРЅ РјР°С€Т›РЅРё РґР°РІРѕРј СЌС‚С‚РёСЂРёРЅРі.",
+                    lockTitle: "РљСћРЅРёРєРјР° С‚Р°ТіР»РёР»РёРЅРё РѕС‡РёС€",
+                    lockDesc: "РњР°РІР·СѓР»Р°СЂ Р±СћР№РёС‡Р° Р±Р°С‚Р°С„СЃРёР» РєСћРЅРёРєРјР° С…Р°СЂРёС‚Р°СЃРёРЅРё РєСћСЂРёРЅРі",
+                    series: "РљСћРЅРёРєРјР°",
                 };
             case "ru":
                 return {
-                    title: "Вектор навыков",
-                    desc: "Ваш уровень по темам.",
-                    empty: "Продолжайте практику, чтобы сформировать профиль навыков.",
-                    lockTitle: "Открыть анализ навыков",
-                    lockDesc: "Смотрите подробную карту уровня по темам",
-                    series: "Навык",
+                    title: "Р’РµРєС‚РѕСЂ РЅР°РІС‹РєРѕРІ",
+                    desc: "Р’Р°С€ СѓСЂРѕРІРµРЅСЊ РїРѕ С‚РµРјР°Рј.",
+                    empty: "РџСЂРѕРґРѕР»Р¶Р°Р№С‚Рµ РїСЂР°РєС‚РёРєСѓ, С‡С‚РѕР±С‹ СЃС„РѕСЂРјРёСЂРѕРІР°С‚СЊ РїСЂРѕС„РёР»СЊ РЅР°РІС‹РєРѕРІ.",
+                    lockTitle: "РћС‚РєСЂС‹С‚СЊ Р°РЅР°Р»РёР· РЅР°РІС‹РєРѕРІ",
+                    lockDesc: "РЎРјРѕС‚СЂРёС‚Рµ РїРѕРґСЂРѕР±РЅСѓСЋ РєР°СЂС‚Сѓ СѓСЂРѕРІРЅСЏ РїРѕ С‚РµРјР°Рј",
+                    series: "РќР°РІС‹Рє",
                 };
             case "en":
                 return {
@@ -95,8 +95,8 @@ export function SkillRadarChart({ skills, isPremium }: SkillRadarChartProps) {
                     title={copy.lockTitle}
                     description={copy.lockDesc}
                 >
-                    <div className="h-[300px] w-full pt-4">
-                        <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-[300px] min-h-[220px] w-full min-w-0 pt-4">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
                             <RadarChart cx="50%" cy="50%" outerRadius="80%" data={chartData}>
                                 <PolarGrid stroke="hsl(var(--border))" />
                                 <PolarAngleAxis

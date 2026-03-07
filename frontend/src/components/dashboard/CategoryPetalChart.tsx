@@ -1,10 +1,10 @@
 "use client";
 
 import { memo, useMemo } from "react";
-import type { CategoryPoint } from "@/hooks/useDashboardAnalytics";
+import type { CategoryMetric } from "@/analytics/types";
 
 type Props = {
-  data: CategoryPoint[];
+  data: CategoryMetric[];
 };
 
 type PetalPoint = {
@@ -204,3 +204,4 @@ function CategoryPetalChartComponent({ data }: Props) {
 }
 
 export default memo(CategoryPetalChartComponent);
+
