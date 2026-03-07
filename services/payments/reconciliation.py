@@ -34,19 +34,61 @@ def _first_non_empty_string(*values: object | None) -> str | None:
     return None
 
 
+def _iter_payment_payload_candidates(payload: dict | None) -> tuple[dict, ...]:
+    if not isinstance(payload, dict):
+        return ()
+
+    candidates: list[dict] = []
+    seen: set[int] = set()
+
+    def add_candidate(value: object | None) -> None:
+        if not isinstance(value, dict):
+            return
+        value_id = id(value)
+        if value_id in seen:
+            return
+        seen.add(value_id)
+        candidates.append(value)
+
+    add_candidate(payload)
+
+    data_payload = payload.get("data")
+    add_candidate(data_payload)
+
+    provider_session = payload.get("provider_session")
+    add_candidate(provider_session)
+
+    for candidate in (
+        payload.get("transaction"),
+        data_payload.get("transaction") if isinstance(data_payload, dict) else None,
+        provider_session.get("transaction") if isinstance(provider_session, dict) else None,
+    ):
+        add_candidate(candidate)
+
+    return tuple(candidates)
+
+
+def _amount_matches_reference(
+    event_amount: int | None,
+    reference_amount: int | None,
+) -> bool:
+    if event_amount is None or reference_amount is None:
+        return True
+    event_value = int(event_amount)
+    reference_value = int(reference_amount)
+    if event_value == reference_value:
+        return True
+    return event_value * 100 == reference_value or event_value == reference_value * 100
+
+
 def _extract_provider_cheque_id_from_payment(payment: Payment) -> str | None:
     raw_payload = payment.raw_payload if isinstance(payment.raw_payload, dict) else {}
     provider_session = raw_payload.get("provider_session")
-    if not isinstance(provider_session, dict):
-        provider_session = {}
-
-    transaction = provider_session.get("transaction")
-    if not isinstance(transaction, dict):
-        transaction = {}
+    payload_candidates = _iter_payment_payload_candidates(provider_session)
 
     return _first_non_empty_string(
         payment.provider_payment_id,
-        transaction.get("cheque_id"),
+        *[candidate.get("cheque_id") for candidate in payload_candidates],
     )
 
 async def reconcile_pending_payments() -> None:
@@ -116,7 +158,10 @@ async def reconcile_pending_payments() -> None:
                 provider_amount = provider_status.amount
                 
                 if pay_status in {"success", "paid", "succeeded"}:
-                    if provider_amount is not None and provider_amount != payment.amount_cents:
+                    if not _amount_matches_reference(
+                        event_amount=provider_amount,
+                        reference_amount=payment.amount_cents,
+                    ):
                         logger.error(
                             "CRITICAL: TSPay transaction %s amount mismatch during reconciliation. Expected: %s, Got: %s",
                             cheque_id,
@@ -135,7 +180,7 @@ async def reconcile_pending_payments() -> None:
                     except (ValueError, TypeError):
                         duration_days = 30
                         
-                    provider_sub_id = provider_status.transaction_id or provider_status.cheque_id
+                    provider_sub_id = provider_status.cheque_id or provider_status.transaction_id
                     
                     if payment.user_id:
                         result_sub = await db.execute(select(Subscription).where(Subscription.user_id == payment.user_id))

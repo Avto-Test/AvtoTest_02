@@ -55,3 +55,27 @@ async def test_tspay_status_parser_uses_top_level_status_and_cheque_id(monkeypat
     assert result.transaction_id == "6089"
     assert result.pay_status == "success"
     assert result.amount == 100000
+
+
+def test_tspay_verify_webhook_maps_transaction_id_to_session_and_cheque_id_to_payment():
+    provider = TSPayProvider()
+    provider.require_webhook_signature = False
+
+    payload = b"""
+    {
+      "event": "payment_success",
+      "status": "success",
+      "transaction": {
+        "id": 6090,
+        "cheque_id": "40b4e004-36e1-4f09-80bc-d3ce38d31ef9",
+        "amount": 1000
+      }
+    }
+    """
+
+    event = provider.verify_webhook(payload=payload, signature_header=None)
+
+    assert event.session_id == "6090"
+    assert event.payment_id == "40b4e004-36e1-4f09-80bc-d3ce38d31ef9"
+    assert event.metadata["transaction_id"] == "6090"
+    assert event.metadata["cheque_id"] == "40b4e004-36e1-4f09-80bc-d3ce38d31ef9"

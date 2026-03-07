@@ -15,12 +15,15 @@ from models.payment import Payment
 from models.promo_code import PromoCode
 from models.subscription import Subscription
 from models.subscription_plan import SubscriptionPlan
+from models.user import User
+from services.payments.reconciliation import reconcile_pending_payments
 from services.payments.types import (
     CreateCheckoutSessionResponse,
     GetTransactionStatusResponse,
     VerifiedWebhookEvent,
     utc_now,
 )
+from tests.conftest import TestingSessionLocal
 
 
 @pytest.mark.asyncio
@@ -316,6 +319,81 @@ async def test_webhook_does_not_double_activate_on_distinct_success_events(
 
 
 @pytest.mark.asyncio
+async def test_webhook_tspay_alias_resolves_cheque_id_and_activates_subscription(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    normal_user,
+):
+    payment = Payment(
+        user_id=normal_user.id,
+        provider="tspay",
+        provider_session_id="6092",
+        provider_payment_id=None,
+        status="session_created",
+        amount_cents=100000,
+        currency="UZS",
+        raw_payload={
+            "provider_session": {
+                "transaction": {
+                    "id": 6092,
+                    "cheque_id": "uuid_cheque_6092",
+                }
+            },
+            "plan": {
+                "code": "premium",
+                "duration_days": 30,
+            },
+        },
+    )
+    db_session.add(payment)
+    await db_session.commit()
+
+    event = VerifiedWebhookEvent(
+        provider="tspay",
+        provider_event_id="evt_tspay_alias_001",
+        event_type="payment_success",
+        occurred_at=utc_now(),
+        session_id="6092",
+        payment_id=None,
+        user_id=None,
+        status="success",
+        amount_cents=100000,
+        currency="UZS",
+        metadata={"transaction_id": "6092"},
+        raw_payload={
+            "transaction_id": "6092",
+            "status": "success",
+        },
+    )
+
+    with patch("api.payments.router.PAYMENT_PROVIDER.verify_webhook", return_value=event):
+        response = await client.post(
+            "/api/payments/webhook/tspay",
+            content=b'{"transaction_id":"6092","status":"success"}',
+            headers={"x-tspay-signature": "t=1730000000,v1=test"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+
+    refreshed_payment_result = await db_session.execute(
+        select(Payment).where(Payment.id == payment.id)
+    )
+    refreshed_payment = refreshed_payment_result.scalar_one_or_none()
+    assert refreshed_payment is not None
+    assert refreshed_payment.provider_payment_id == "uuid_cheque_6092"
+    assert refreshed_payment.status == "succeeded"
+
+    subscription_result = await db_session.execute(
+        select(Subscription).where(Subscription.user_id == normal_user.id)
+    )
+    subscription = subscription_result.scalar_one_or_none()
+    assert subscription is not None
+    assert subscription.provider_subscription_id == "uuid_cheque_6092"
+    assert subscription.plan == "premium"
+
+
+@pytest.mark.asyncio
 async def test_get_transaction_status(
     client: AsyncClient,
     normal_user_token: str,
@@ -410,3 +488,85 @@ async def test_get_transaction_status_resolves_cheque_id_from_local_payment(
     assert refreshed_payment is not None
     assert refreshed_payment.provider_payment_id == "uuid_cheque_6090"
     assert refreshed_payment.status == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_activates_session_created_payment_using_cheque_id(
+):
+    from core.security import get_password_hash
+
+    async with TestingSessionLocal() as seed_session:
+        user = User(
+            email="reconcile@example.com",
+            hashed_password=get_password_hash("password123"),
+            is_verified=True,
+            is_active=True,
+        )
+        seed_session.add(user)
+        await seed_session.flush()
+
+        payment = Payment(
+            user_id=user.id,
+            provider="tspay",
+            provider_session_id="6093",
+            provider_payment_id=None,
+            status="session_created",
+            amount_cents=100000,
+            currency="UZS",
+            created_at=utc_now() - timedelta(minutes=5),
+            raw_payload={
+                "provider_session": {
+                    "transaction": {
+                        "id": 6093,
+                        "cheque_id": "uuid_cheque_6093",
+                    }
+                },
+                "plan": {
+                    "code": "premium",
+                    "duration_days": 30,
+                },
+            },
+        )
+        seed_session.add(payment)
+        await seed_session.commit()
+        user_id = user.id
+        payment_id = payment.id
+
+    status_response = GetTransactionStatusResponse(
+        provider="tspay",
+        cheque_id="uuid_cheque_6093",
+        transaction_id="6093",
+        pay_status="success",
+        amount=100000,
+        raw_response={
+            "id": 6093,
+            "cheque_id": "uuid_cheque_6093",
+            "status": "success",
+            "amount": 1000,
+        },
+    )
+
+    with patch(
+        "services.payments.reconciliation.PAYMENT_PROVIDER.get_transaction_status",
+        new=AsyncMock(return_value=status_response),
+    ), patch(
+        "services.payments.reconciliation.async_session_maker",
+        new=TestingSessionLocal,
+    ):
+        await reconcile_pending_payments()
+
+    async with TestingSessionLocal() as verify_session:
+        refreshed_payment_result = await verify_session.execute(
+            select(Payment).where(Payment.id == payment_id)
+        )
+        refreshed_payment = refreshed_payment_result.scalar_one_or_none()
+        assert refreshed_payment is not None
+        assert refreshed_payment.provider_payment_id == "uuid_cheque_6093"
+        assert refreshed_payment.status == "succeeded"
+
+        subscription_result = await verify_session.execute(
+            select(Subscription).where(Subscription.user_id == user_id)
+        )
+        subscription = subscription_result.scalar_one_or_none()
+        assert subscription is not None
+        assert subscription.provider_subscription_id == "uuid_cheque_6093"

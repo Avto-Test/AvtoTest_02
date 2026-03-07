@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { AnomalyAlert, type FunnelAnomalySignal } from '@/components/admin/AnomalyAlert';
@@ -171,9 +171,6 @@ export default function AdminAnalyticsPage() {
     const [funnel, setFunnel] = useState<FunnelApiResponse>(EMPTY_FUNNEL);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [isChartReady, setIsChartReady] = useState(false);
-    const [isChartContainerReady, setIsChartContainerReady] = useState(false);
-    const chartContainerRef = useRef<HTMLDivElement | null>(null);
 
     const redirectToLogin = useCallback(() => {
         signOut();
@@ -207,6 +204,10 @@ export default function AdminAnalyticsPage() {
                 return;
             }
 
+            if (response.status === 403) {
+                throw new Error('Admin access required.');
+            }
+
             if (!response.ok) {
                 const payload = await response.json().catch(() => null) as { error?: string } | null;
                 throw new Error(payload?.error || 'Failed to load analytics funnel data.');
@@ -238,31 +239,6 @@ export default function AdminAnalyticsPage() {
         void loadFunnel(period);
     }, [hydrated, period, loadFunnel]);
 
-    useEffect(() => {
-        setIsChartReady(true);
-    }, []);
-
-    useEffect(() => {
-        if (!isChartReady || !chartContainerRef.current) {
-            setIsChartContainerReady(false);
-            return;
-        }
-
-        const element = chartContainerRef.current;
-        const updateReadyState = () => {
-            setIsChartContainerReady(element.clientWidth > 0 && element.clientHeight > 0);
-        };
-
-        updateReadyState();
-
-        const observer = new ResizeObserver(updateReadyState);
-        observer.observe(element);
-
-        return () => {
-            observer.disconnect();
-        };
-    }, [isChartReady]);
-
     const totalEvents =
         funnel.premium_block_view +
         funnel.upgrade_click +
@@ -287,7 +263,6 @@ export default function AdminAnalyticsPage() {
 
     const funnelColors = ['#cbd5e1', '#94a3b8', '#64748b', '#334155'];
     const shouldShowChartSection = !isLoading && !error && !isEmpty && funnel.premium_block_view > 0;
-    const canRenderChart = shouldShowChartSection && isChartReady && isChartContainerReady;
     const summaryDelta = useMemo(() => {
         if (period !== '7d' || !funnel.comparison) {
             return null;
@@ -427,35 +402,33 @@ export default function AdminAnalyticsPage() {
                                             Stage drop-off from premium exposure to successful upgrades.
                                         </p>
                                     </div>
-                                    <div ref={chartContainerRef} className="h-[340px] w-full min-w-0">
-                                        {canRenderChart ? (
-                                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={260}>
-                                                <FunnelChart>
-                                                    <Tooltip
-                                                        formatter={(value: number | string | undefined) => [Number(value ?? 0), 'Count']}
-                                                    />
-                                                    <Funnel
-                                                        data={funnelData}
-                                                        dataKey="value"
-                                                        nameKey="name"
-                                                        isAnimationActive={false}
-                                                    >
-                                                        {funnelData.map((entry, index) => (
-                                                            <Cell
-                                                                key={`${entry.name}-${index}`}
-                                                                fill={funnelColors[index % funnelColors.length]}
-                                                            />
-                                                        ))}
-                                                        <LabelList
-                                                            position="right"
-                                                            fill="#64748b"
-                                                            stroke="none"
-                                                            dataKey="label"
+                                    <div className="w-full min-w-0 min-h-[260px]">
+                                        <ResponsiveContainer width="100%" height={260}>
+                                            <FunnelChart>
+                                                <Tooltip
+                                                    formatter={(value: number | string | undefined) => [Number(value ?? 0), 'Count']}
+                                                />
+                                                <Funnel
+                                                    data={funnelData}
+                                                    dataKey="value"
+                                                    nameKey="name"
+                                                    isAnimationActive={false}
+                                                >
+                                                    {funnelData.map((entry, index) => (
+                                                        <Cell
+                                                            key={`${entry.name}-${index}`}
+                                                            fill={funnelColors[index % funnelColors.length]}
                                                         />
-                                                    </Funnel>
-                                                </FunnelChart>
-                                            </ResponsiveContainer>
-                                        ) : null}
+                                                    ))}
+                                                    <LabelList
+                                                        position="right"
+                                                        fill="#64748b"
+                                                        stroke="none"
+                                                        dataKey="label"
+                                                    />
+                                                </Funnel>
+                                            </FunnelChart>
+                                        </ResponsiveContainer>
                                     </div>
                                 </CardContent>
                             </Card>
