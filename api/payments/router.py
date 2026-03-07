@@ -114,17 +114,60 @@ def _first_non_empty_string(*values: Any) -> str | None:
     return None
 
 
+def _iter_payment_payload_candidates(
+    payload: dict[str, Any] | None,
+) -> tuple[dict[str, Any], ...]:
+    if not isinstance(payload, dict):
+        return ()
+
+    candidates: list[dict[str, Any]] = []
+    seen: set[int] = set()
+
+    def add_candidate(value: Any) -> None:
+        if not isinstance(value, dict):
+            return
+        value_id = id(value)
+        if value_id in seen:
+            return
+        seen.add(value_id)
+        candidates.append(value)
+
+    add_candidate(payload)
+
+    data_payload = payload.get("data")
+    add_candidate(data_payload)
+
+    provider_session = payload.get("provider_session")
+    add_candidate(provider_session)
+
+    transaction_candidates = (
+        payload.get("transaction"),
+        data_payload.get("transaction") if isinstance(data_payload, dict) else None,
+        provider_session.get("transaction") if isinstance(provider_session, dict) else None,
+    )
+    for candidate in transaction_candidates:
+        add_candidate(candidate)
+
+    return tuple(candidates)
+
+
 def _extract_provider_cheque_id_from_session_payload(
     payload: dict[str, Any] | None,
 ) -> str | None:
-    if not isinstance(payload, dict):
-        return None
+    payload_candidates = _iter_payment_payload_candidates(payload)
+    return _first_non_empty_string(
+        *[candidate.get("cheque_id") for candidate in payload_candidates],
+    )
 
-    transaction = payload.get("transaction")
-    if not isinstance(transaction, dict):
-        return None
 
-    return _first_non_empty_string(transaction.get("cheque_id"))
+def _extract_provider_session_id_from_session_payload(
+    payload: dict[str, Any] | None,
+) -> str | None:
+    payload_candidates = _iter_payment_payload_candidates(payload)
+    return _first_non_empty_string(
+        *[candidate.get("transaction_id") for candidate in payload_candidates],
+        *[candidate.get("id") for candidate in payload_candidates],
+    )
 
 
 def _extract_provider_cheque_id_from_payment(payment: Payment | None) -> str | None:
@@ -139,6 +182,21 @@ def _extract_provider_cheque_id_from_payment(payment: Payment | None) -> str | N
     return _first_non_empty_string(
         payment.provider_payment_id,
         _extract_provider_cheque_id_from_session_payload(provider_session),
+    )
+
+
+def _extract_provider_session_id_from_payment(payment: Payment | None) -> str | None:
+    if payment is None:
+        return None
+
+    raw_payload = payment.raw_payload if isinstance(payment.raw_payload, dict) else {}
+    provider_session = raw_payload.get("provider_session")
+    if not isinstance(provider_session, dict):
+        provider_session = None
+
+    return _first_non_empty_string(
+        payment.provider_session_id,
+        _extract_provider_session_id_from_session_payload(provider_session),
     )
 
 
@@ -688,13 +746,16 @@ async def get_transaction_status(
         )
 
     local_payment_result = await db.execute(
-        select(Payment).where(
+        select(Payment)
+        .where(
             Payment.provider == PAYMENT_PROVIDER.provider_name,
             or_(
                 Payment.provider_session_id == normalized_cheque_id,
                 Payment.provider_payment_id == normalized_cheque_id,
             ),
         )
+        .order_by(Payment.processed_at.desc().nullslast(), Payment.created_at.desc())
+        .limit(1)
     )
     local_payment = local_payment_result.scalar_one_or_none()
     if (
@@ -758,8 +819,10 @@ async def get_transaction_status(
             
             # Provider Value Validation
             provider_amount = provider_status.amount
-            provider_currency = "UZS"  # TSPay default
-            if provider_amount is not None and provider_amount != local_payment.amount_cents:
+            if not _amount_matches_reference(
+                event_amount=provider_amount,
+                reference_amount=local_payment.amount_cents,
+            ):
                 logger.error(
                     "CRITICAL: TSPay transaction %s amount mismatch. Expected: %s, Got: %s",
                     normalized_cheque_id,
@@ -781,7 +844,7 @@ async def get_transaction_status(
             except (ValueError, TypeError):
                 duration_days = 30
                 
-            provider_sub_id = provider_status.transaction_id or provider_status.cheque_id
+            provider_sub_id = provider_status.cheque_id or provider_status.transaction_id
             
             # Idempotency safety: Ensure we don't activate the same transaction twice
             result_sub = await db.execute(select(Subscription).where(Subscription.user_id == local_payment.user_id))
@@ -1034,13 +1097,27 @@ async def _process_verified_webhook_event(
         return WebhookResponse(status="success", idempotent=True)
 
     reference_payment = await _resolve_reference_payment(event=event, db=db)
+    resolved_provider_session_id = _first_non_empty_string(
+        event.session_id,
+        event.metadata.get("transaction_id"),
+        _extract_provider_session_id_from_payment(reference_payment),
+    )
+    resolved_provider_payment_id = _first_non_empty_string(
+        event.payment_id,
+        event.metadata.get("cheque_id"),
+        _extract_provider_cheque_id_from_payment(reference_payment),
+    )
+
+    if reference_payment is not None and reference_payment.status == "succeeded":
+        logger.warning("Webhook replay ignored for settled payment event: %s", event.provider_event_id)
+        return WebhookResponse(status="success", idempotent=True)
 
     if payment is None:
         payment = Payment(
             provider=event.provider,
             provider_event_id=event.provider_event_id,
-            provider_session_id=event.session_id,
-            provider_payment_id=event.payment_id,
+            provider_session_id=resolved_provider_session_id,
+            provider_payment_id=resolved_provider_payment_id,
             event_type=event.event_type,
             status="processing",
             amount_cents=event.amount_cents,
@@ -1050,8 +1127,8 @@ async def _process_verified_webhook_event(
         )
         db.add(payment)
     else:
-        payment.provider_session_id = event.session_id or payment.provider_session_id
-        payment.provider_payment_id = event.payment_id or payment.provider_payment_id
+        payment.provider_session_id = resolved_provider_session_id or payment.provider_session_id
+        payment.provider_payment_id = resolved_provider_payment_id or payment.provider_payment_id
         payment.event_type = event.event_type
         payment.amount_cents = event.amount_cents or payment.amount_cents
         payment.currency = event.currency or payment.currency
@@ -1060,20 +1137,30 @@ async def _process_verified_webhook_event(
         payment.status = "processing"
 
     if reference_payment is not None:
-        if reference_payment.status == "succeeded":
-            logger.warning("Webhook replay ignored for event: %s", event.provider_event_id)
-            return WebhookResponse(status="success", idempotent=True)
-
         if payment.amount_cents is None:
             payment.amount_cents = reference_payment.amount_cents
         if payment.currency is None:
             payment.currency = reference_payment.currency
+        if resolved_provider_session_id is not None:
+            reference_payment.provider_session_id = resolved_provider_session_id
+        if resolved_provider_payment_id is not None:
+            reference_payment.provider_payment_id = resolved_provider_payment_id
+
+        reference_raw_payload = (
+            dict(reference_payment.raw_payload)
+            if isinstance(reference_payment.raw_payload, dict)
+            else {}
+        )
+        reference_raw_payload["last_provider_webhook"] = event.raw_payload
+        reference_payment.raw_payload = reference_raw_payload
 
     user_id = await _resolve_webhook_user_id(event, db)
     if user_id is None and reference_payment is not None:
         user_id = _normalize_uuid(reference_payment.user_id)
     if user_id is not None:
         payment.user_id = user_id
+        if reference_payment is not None and reference_payment.user_id is None:
+            reference_payment.user_id = user_id
 
     now = utc_now()
 
@@ -1084,12 +1171,34 @@ async def _process_verified_webhook_event(
         ):
             payment.status = "failed"
             payment.processed_at = now
+            if reference_payment is not None:
+                reference_payment.status = "failed"
+                reference_payment.processed_at = now
             await db.commit()
             logger.error(
                 "TSPay webhook amount mismatch. event_id=%s event_amount=%s expected_amount=%s",
                 event.provider_event_id,
                 event.amount_cents,
                 reference_payment.amount_cents,
+            )
+            return WebhookResponse(status="ignored")
+
+        if (
+            reference_payment is not None
+            and event.currency
+            and reference_payment.currency
+            and event.currency.strip().upper() != reference_payment.currency.strip().upper()
+        ):
+            payment.status = "failed"
+            payment.processed_at = now
+            reference_payment.status = "failed"
+            reference_payment.processed_at = now
+            await db.commit()
+            logger.error(
+                "TSPay webhook currency mismatch. event_id=%s event_currency=%s expected_currency=%s",
+                event.provider_event_id,
+                event.currency,
+                reference_payment.currency,
             )
             return WebhookResponse(status="ignored")
 
@@ -1116,20 +1225,27 @@ async def _process_verified_webhook_event(
             minimum=1,
             maximum=3650,
         )
+        activation_payment = reference_payment or payment
         await _activate_subscription(
             user_id=user_id,
             db=db,
             provider=event.provider,
-            provider_subscription_id=event.session_id or event.payment_id,
+            provider_subscription_id=resolved_provider_payment_id or resolved_provider_session_id,
             plan_code=plan_code,
             duration_days=duration_days,
-            payment=payment,
+            payment=activation_payment,
         )
         await _record_promo_redemption(event=event, payment=payment, user_id=user_id, db=db)
         await _emit_upgrade_success_event(user_id=user_id, db=db, payment=payment, event=event)
         payment.status = "succeeded"
+        if reference_payment is not None:
+            reference_payment.status = "succeeded"
+            reference_payment.processed_at = now
     elif event.is_failure:
         payment.status = "failed"
+        if reference_payment is not None:
+            reference_payment.status = "failed"
+            reference_payment.processed_at = now
     else:
         payment.status = "ignored"
 
@@ -1181,6 +1297,14 @@ async def tspay_webhook(
     return await _process_verified_webhook_event(event=event, signature=signature, db=db)
 
 
+@router.post("/api/payments/webhook/tspay", response_model=WebhookResponse)
+async def tspay_webhook_named(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> WebhookResponse:
+    return await tspay_webhook(request=request, db=db)
+
+
 @router.post("/payments/webhook", response_model=WebhookResponse, include_in_schema=False)
 async def tspay_webhook_legacy(
     request: Request,
@@ -1189,4 +1313,12 @@ async def tspay_webhook_legacy(
     """
     Legacy webhook endpoint retained for backward compatibility.
     """
+    return await tspay_webhook(request=request, db=db)
+
+
+@router.post("/payments/webhook/tspay", response_model=WebhookResponse, include_in_schema=False)
+async def tspay_webhook_named_legacy(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> WebhookResponse:
     return await tspay_webhook(request=request, db=db)

@@ -117,6 +117,80 @@ def _pick_first_non_empty_string(*values: Any) -> str | None:
     return None
 
 
+def _pick_first_non_none(*values: Any) -> Any:
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        return value
+    return None
+
+
+def _as_mapping(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _first_mapping(*values: Any) -> dict[str, Any] | None:
+    for value in values:
+        mapping = _as_mapping(value)
+        if mapping is not None:
+            return mapping
+    return None
+
+
+def _iter_tspay_payload_candidates(payload: dict[str, Any]) -> tuple[dict[str, Any], ...]:
+    candidates: list[dict[str, Any]] = []
+    seen: set[int] = set()
+
+    def add_candidate(value: Any) -> None:
+        mapping = _as_mapping(value)
+        if mapping is None:
+            return
+        mapping_id = id(mapping)
+        if mapping_id in seen:
+            return
+        seen.add(mapping_id)
+        candidates.append(mapping)
+
+    add_candidate(payload)
+
+    data_payload = _as_mapping(payload.get("data"))
+    add_candidate(data_payload)
+
+    provider_session_payload = _as_mapping(payload.get("provider_session"))
+    add_candidate(provider_session_payload)
+
+    transaction_candidates = (
+        payload.get("transaction"),
+        data_payload.get("transaction") if data_payload is not None else None,
+        provider_session_payload.get("transaction") if provider_session_payload is not None else None,
+    )
+    for candidate in transaction_candidates:
+        add_candidate(candidate)
+
+    return tuple(candidates)
+
+
+def _pick_first_from_candidates(
+    candidates: tuple[dict[str, Any], ...],
+    *keys: str,
+) -> Any:
+    for candidate in candidates:
+        for key in keys:
+            if key not in candidate:
+                continue
+            value = candidate.get(key)
+            if value is None:
+                continue
+            if isinstance(value, str) and not value.strip():
+                continue
+            return value
+    return None
+
+
 def _parse_signature_header(signature_header: str | None) -> tuple[int, str]:
     if signature_header is None or not signature_header.strip():
         raise PaymentSignatureError("Missing TSPay signature header.")
@@ -306,34 +380,22 @@ class TSPayProvider(PaymentProvider):
         if not isinstance(body, dict):
             raise PaymentProviderError("Invalid TSPay status response.")
 
-        payload_data = body.get("data")
-        if not isinstance(payload_data, dict):
-            payload_data = body
-
-        currency_raw = payload_data.get("currency") or body.get("currency")
+        payload_candidates = _iter_tspay_payload_candidates(body)
+        currency_raw = _pick_first_from_candidates(payload_candidates, "currency")
         normalized_currency = (
             _normalize_currency(currency_raw) if currency_raw is not None else None
         )
         resolved_cheque_id = _pick_first_non_empty_string(
-            payload_data.get("cheque_id"),
-            body.get("cheque_id"),
+            _pick_first_from_candidates(payload_candidates, "cheque_id"),
             normalized_cheque_id,
         )
         resolved_transaction_id = _pick_first_non_empty_string(
-            payload_data.get("transaction_id"),
-            payload_data.get("id"),
-            body.get("transaction_id"),
-            body.get("id"),
+            _pick_first_from_candidates(payload_candidates, "transaction_id", "id"),
         )
         resolved_status = _pick_first_non_empty_string(
-            payload_data.get("pay_status"),
-            payload_data.get("status"),
-            body.get("pay_status"),
-            body.get("status"),
+            _pick_first_from_candidates(payload_candidates, "pay_status", "status"),
         )
-        amount_value = payload_data.get("amount")
-        if amount_value is None:
-            amount_value = body.get("amount")
+        amount_value = _pick_first_from_candidates(payload_candidates, "amount")
 
         return GetTransactionStatusResponse(
             provider=self.provider_name,
@@ -381,14 +443,32 @@ class TSPayProvider(PaymentProvider):
         if not isinstance(parsed, dict):
             raise PaymentProviderError("Invalid TSPay webhook payload shape.")
 
-        metadata = {}
-        payload_metadata = parsed.get("metadata")
-        if isinstance(payload_metadata, dict):
-            metadata.update(payload_metadata)
+        payload_candidates = _iter_tspay_payload_candidates(parsed)
+        data_payload = _as_mapping(parsed.get("data"))
+        provider_session_payload = _as_mapping(parsed.get("provider_session"))
+        transaction_payload = _first_mapping(
+            parsed.get("transaction"),
+            data_payload.get("transaction") if data_payload is not None else None,
+            provider_session_payload.get("transaction") if provider_session_payload is not None else None,
+        )
 
-        event_type_raw = parsed.get("event") or parsed.get("type") or parsed.get("event_type")
+        metadata = {}
+        for candidate in reversed(payload_candidates):
+            payload_metadata = candidate.get("metadata")
+            if isinstance(payload_metadata, dict):
+                metadata.update(payload_metadata)
+
+        event_type_raw = _pick_first_non_empty_string(
+            parsed.get("event"),
+            parsed.get("type"),
+            parsed.get("event_type"),
+            _pick_first_from_candidates(payload_candidates, "event", "type", "event_type"),
+        )
         event_type = str(event_type_raw).strip().lower() if event_type_raw is not None else ""
-        status_raw = parsed.get("status")
+        status_raw = _pick_first_non_empty_string(
+            parsed.get("status"),
+            _pick_first_from_candidates(payload_candidates, "pay_status", "status"),
+        )
         status = str(status_raw).strip().lower() if status_raw is not None else ""
 
         if not event_type:
@@ -401,8 +481,19 @@ class TSPayProvider(PaymentProvider):
             else:
                 raise PaymentProviderError("Missing TSPay event type.")
 
-        transaction_id_raw = parsed.get("transaction_id")
-        cheque_id_raw = parsed.get("cheque_id")
+        transaction_identity_candidates = tuple(
+            candidate
+            for candidate in (transaction_payload, data_payload, provider_session_payload)
+            if candidate is not None
+        )
+        transaction_id_raw = _pick_first_non_none(
+            parsed.get("transaction_id"),
+            _pick_first_from_candidates(transaction_identity_candidates, "transaction_id", "id"),
+        )
+        cheque_id_raw = _pick_first_non_none(
+            parsed.get("cheque_id"),
+            _pick_first_from_candidates(payload_candidates, "cheque_id"),
+        )
         transaction_id = (
             str(transaction_id_raw).strip()
             if transaction_id_raw is not None and str(transaction_id_raw).strip()
@@ -422,13 +513,27 @@ class TSPayProvider(PaymentProvider):
             timestamp_part = str(parsed.get("timestamp") or signature_ts)
             provider_event_id = f"tspay:{event_type}:{id_part}:{timestamp_part}"
 
-        occurred_at = _safe_datetime_from_value(parsed.get("timestamp"))
+        occurred_at = _safe_datetime_from_value(
+            _pick_first_non_none(
+                parsed.get("timestamp"),
+                _pick_first_from_candidates(payload_candidates, "timestamp"),
+            )
+        )
         if occurred_at is None:
-            occurred_at = _safe_datetime_from_value(parsed.get("created_at"))
+            occurred_at = _safe_datetime_from_value(
+                _pick_first_non_none(
+                    parsed.get("created_at"),
+                    _pick_first_from_candidates(payload_candidates, "created_at"),
+                )
+            )
         if occurred_at is None:
             occurred_at = datetime.fromtimestamp(signature_ts, tz=timezone.utc)
 
-        user_id = metadata.get("user_id") or parsed.get("user_id")
+        user_id = _pick_first_non_empty_string(
+            metadata.get("user_id"),
+            parsed.get("user_id"),
+            _pick_first_from_candidates(payload_candidates, "user_id"),
+        )
         if user_id is not None and not isinstance(user_id, str):
             user_id = str(user_id)
 
@@ -442,27 +547,49 @@ class TSPayProvider(PaymentProvider):
             else:
                 status = ""
 
-        currency = parsed.get("currency")
+        currency = _pick_first_non_none(
+            parsed.get("currency"),
+            _pick_first_from_candidates(payload_candidates, "currency"),
+        )
         if currency is not None and isinstance(currency, str):
             currency = currency.upper()
         elif currency is not None:
             currency = str(currency).upper()
 
-        amount_cents = _from_provider_amount_to_cents(parsed.get("amount"), currency)
+        amount_cents = _from_provider_amount_to_cents(
+            _pick_first_non_none(
+                parsed.get("amount"),
+                _pick_first_from_candidates(payload_candidates, "amount"),
+            ),
+            currency,
+        )
         if amount_cents is None:
-            amount_cents = _safe_int(parsed.get("amount_cents"))
+            amount_cents = _safe_int(
+                _pick_first_non_none(
+                    parsed.get("amount_cents"),
+                    _pick_first_from_candidates(payload_candidates, "amount_cents"),
+                )
+            )
 
         if transaction_id is not None:
             metadata.setdefault("transaction_id", transaction_id)
         if cheque_id is not None:
             metadata.setdefault("cheque_id", cheque_id)
-        if parsed.get("shop_id") is not None:
-            metadata.setdefault("shop_id", parsed.get("shop_id"))
-        if parsed.get("comment") is not None:
-            metadata.setdefault("comment", parsed.get("comment"))
+        shop_id = _pick_first_non_none(
+            parsed.get("shop_id"),
+            _pick_first_from_candidates(payload_candidates, "shop_id"),
+        )
+        if shop_id is not None:
+            metadata.setdefault("shop_id", shop_id)
+        comment = _pick_first_non_none(
+            parsed.get("comment"),
+            _pick_first_from_candidates(payload_candidates, "comment"),
+        )
+        if comment is not None:
+            metadata.setdefault("comment", comment)
 
-        session_id = cheque_id or transaction_id
-        payment_id = transaction_id or cheque_id
+        session_id = transaction_id
+        payment_id = cheque_id
 
         return VerifiedWebhookEvent(
             provider=self.provider_name,

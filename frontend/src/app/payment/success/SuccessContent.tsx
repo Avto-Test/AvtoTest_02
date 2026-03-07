@@ -16,16 +16,19 @@ import {
 } from "@/lib/payments";
 import { useAuth } from "@/store/useAuth";
 
-type SuccessStage = "checking" | "success" | "fallback";
+type SuccessStage = "checking" | "success" | "pending";
+
+const POLL_INTERVAL_MS = 3000;
+const MAX_POLLS = 10;
 
 const copy = {
   badge: "TsPay Success",
-  checkingTitle: "To'lov muvaffaqiyatli amalga oshirildi",
-  checkingDescription: "Premium obuna faollashtirilmoqda",
+  checkingTitle: "To'lov tasdiqlanmoqda",
+  checkingDescription: "Premium obuna holati har 3 soniyada tekshirilyapti",
   successTitle: "Premium obuna faollashtirildi",
   successDescription: "Barcha premium funksiyalar endi siz uchun ochiq. Dashboard orqali yangi imkoniyatlarni ko'rishingiz mumkin.",
-  fallbackTitle: "To'lov holati aniqlanmoqda",
-  fallbackDescription: "Qaytgan javob hali yakuniy emas. Holatni qayta tekshirish yoki dashboardga o'tish mumkin.",
+  pendingTitle: "Premium faollashuvi kutilmoqda",
+  pendingDescription: "Webhook yoki status tekshiruvi hali yakunlanmadi. Holatni qayta tekshirish yoki dashboardga o'tish mumkin.",
   dashboard: "Dashboard ga o'tish",
   tests: "Testlarni boshlash",
   pending: "Holatni qayta tekshirish",
@@ -39,6 +42,7 @@ export default function SuccessContent() {
   const { token, hydrated, fetchUser } = useAuth();
   const [stage, setStage] = useState<SuccessStage>("checking");
   const [chequeId, setChequeId] = useState<string | null>(null);
+  const [pollCount, setPollCount] = useState(0);
 
   const fallbackRoute = useMemo(() => {
     if (!chequeId) return "/payment/pending";
@@ -46,76 +50,98 @@ export default function SuccessContent() {
   }, [chequeId]);
 
   useEffect(() => {
-    let cancelled = false;
+    if (!hydrated) {
+      return undefined;
+    }
 
-    const verifyPayment = async () => {
-      const resolvedChequeId = resolveCheckoutSessionId(searchParams);
-      if (!cancelled) {
+    let cancelled = false;
+    let timeoutId: number | null = null;
+
+    const markSuccess = (resolvedChequeId: string | null) => {
+      if (cancelled) return;
+      if (resolvedChequeId) {
         setChequeId(resolvedChequeId);
       }
+      markPremiumActivationBanner();
+      clearRememberedCheckoutSession();
+      setStage("success");
+    };
 
-      if (hydrated && token) {
+    const scheduleNextPoll = (attempt: number, resolvedChequeId: string) => {
+      if (cancelled) return;
+      timeoutId = window.setTimeout(() => {
+        void verifyPayment(attempt + 1, resolvedChequeId);
+      }, POLL_INTERVAL_MS);
+    };
+
+    const verifyPayment = async (attempt: number, currentChequeId: string) => {
+      setPollCount(attempt + 1);
+
+      if (token || useAuth.getState().token) {
         await fetchUser().catch(() => undefined);
         if (cancelled) return;
 
         if (useAuth.getState().user?.plan === "premium") {
-          markPremiumActivationBanner();
-          clearRememberedCheckoutSession();
-          setStage("success");
+          markSuccess(currentChequeId);
           return;
         }
-      }
-
-      if (!resolvedChequeId) {
-        if (!cancelled) {
-          setStage("fallback");
-        }
-        return;
       }
 
       try {
-        const transaction = await getTransactionStatus(resolvedChequeId);
+        const transaction = await getTransactionStatus(currentChequeId);
         if (cancelled) return;
 
         const normalizedStatus = normalizePaymentStatus(transaction.pay_status);
-        const normalizedChequeId = transaction.cheque_id || resolvedChequeId;
-        setChequeId(normalizedChequeId);
-
-        if (normalizedStatus === "success") {
-          if (hydrated && token) {
-            await fetchUser().catch(() => undefined);
-            if (cancelled) return;
-
-            if (useAuth.getState().user?.plan !== "premium") {
-              router.replace(`/payment/pending?cheque_id=${encodeURIComponent(normalizedChequeId)}`);
-              return;
-            }
-          }
-
-          markPremiumActivationBanner();
-          clearRememberedCheckoutSession();
-          setStage("success");
-          return;
-        }
+        const resolvedChequeId = transaction.cheque_id || currentChequeId;
+        setChequeId(resolvedChequeId);
 
         if (normalizedStatus === "failed") {
           clearRememberedCheckoutSession();
-          router.replace(`/payment/cancel?cheque_id=${encodeURIComponent(normalizedChequeId)}`);
+          router.replace(`/payment/cancel?cheque_id=${encodeURIComponent(resolvedChequeId)}`);
           return;
         }
 
-        router.replace(`/payment/pending?cheque_id=${encodeURIComponent(normalizedChequeId)}`);
-      } catch {
-        if (!cancelled) {
-          setStage("fallback");
+        if (normalizedStatus === "success") {
+          await fetchUser().catch(() => undefined);
+          if (cancelled) return;
+          markSuccess(resolvedChequeId);
+          return;
         }
+
+        if (attempt + 1 >= MAX_POLLS) {
+          setStage("pending");
+          return;
+        }
+
+        scheduleNextPoll(attempt, resolvedChequeId);
+      } catch {
+        if (attempt + 1 >= MAX_POLLS) {
+          if (!cancelled) {
+            setStage("pending");
+          }
+          return;
+        }
+
+        scheduleNextPoll(attempt, currentChequeId);
       }
     };
 
-    void verifyPayment();
+    const resolvedChequeId = resolveCheckoutSessionId(searchParams);
+    if (!resolvedChequeId) {
+      if (!cancelled) {
+        setStage("pending");
+      }
+      return undefined;
+    }
+
+    setChequeId(resolvedChequeId);
+    void verifyPayment(0, resolvedChequeId);
 
     return () => {
       cancelled = true;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
     };
   }, [fetchUser, hydrated, router, searchParams, token]);
 
@@ -138,13 +164,18 @@ export default function SuccessContent() {
     );
   }
 
-  if (stage === "fallback") {
+  if (stage === "pending") {
+    const pendingDescription =
+      pollCount >= MAX_POLLS
+        ? copy.pendingDescription
+        : copy.checkingDescription;
+
     return (
       <PaymentStatusView
         tone="info"
         badge={copy.badge}
-        title={copy.fallbackTitle}
-        description={copy.fallbackDescription}
+        title={copy.pendingTitle}
+        description={pendingDescription}
         icon={<Sparkles className="h-10 w-10" />}
         meta={
           chequeId ? (

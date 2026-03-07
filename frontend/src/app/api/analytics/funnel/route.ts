@@ -568,13 +568,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (!user.isAdmin) {
-      const limited: FunnelApiResponse = {
-        ...EMPTY_RESPONSE,
-        pass_probability: await resolvePassProbability(token),
-      };
-      limited.leak = getFunnelLeak(limited);
-      limited.recommendation = getFunnelRecommendation(limited.leak);
-      return NextResponse.json(limited, { status: 200 });
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     let from: Date | null = null;
