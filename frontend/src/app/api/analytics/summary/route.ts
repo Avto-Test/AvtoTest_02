@@ -1,34 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { getRequestAuthToken, getServerApiBaseUrl } from "@/lib/server-api";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function getApiBaseUrl(): string {
-  const rawBaseUrl = process.env.API_URL;
-  if (!rawBaseUrl) {
-    throw new Error("API_URL is not defined");
-  }
-  return rawBaseUrl.trim().replace(/\/+$/, "");
-}
-
-function getAuthToken(request: NextRequest): string | null {
-  const authHeader = request.headers.get("authorization");
-  if (authHeader?.startsWith("Bearer ")) {
-    const token = authHeader.slice("Bearer ".length).trim();
-    if (token.length > 0) return token;
-  }
-  const cookieToken = request.cookies.get("access_token")?.value;
-  return cookieToken && cookieToken.length > 0 ? cookieToken : null;
-}
-
 export async function GET(request: NextRequest) {
   try {
-    const token = getAuthToken(request);
+    const token = getRequestAuthToken(request);
     if (!token) {
       return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
     }
 
-    const response = await fetch(`${getApiBaseUrl()}/analytics/me/summary`, {
+    const response = await fetch(`${getServerApiBaseUrl()}/analytics/me/summary`, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${token}`,

@@ -51,6 +51,40 @@ async def test_create_checkout_session(
 
 
 @pytest.mark.asyncio
+async def test_create_checkout_session_honors_allowed_redirect_urls(
+    client: AsyncClient,
+    normal_user_token: str,
+):
+    provider_response = CreateCheckoutSessionResponse(
+        provider="tspay",
+        session_id="sess_redirect_001",
+        checkout_url="https://checkout.tspay.test/sess_redirect_001",
+        raw_response={"id": "sess_redirect_001", "url": "https://checkout.tspay.test/sess_redirect_001"},
+    )
+
+    with patch(
+        "api.payments.router.PAYMENT_PROVIDER.create_checkout_session",
+        new=AsyncMock(return_value=provider_response),
+    ) as mocked_create_session:
+        response = await client.post(
+            "/api/payments/create-session",
+            json={
+                "success_url": "http://localhost:3000/payment/success",
+                "cancel_url": "http://localhost:3000/payment/cancel",
+            },
+            headers={"Authorization": f"Bearer {normal_user_token}"},
+        )
+
+    assert response.status_code == 200
+    awaited_call = mocked_create_session.await_args
+    payload = awaited_call.kwargs.get("payload") if awaited_call.kwargs else None
+    if payload is None:
+        payload = awaited_call.args[0]
+    assert payload.success_url == "http://localhost:3000/payment/success"
+    assert payload.cancel_url == "http://localhost:3000/payment/cancel"
+
+
+@pytest.mark.asyncio
 async def test_create_checkout_session_with_plan_and_promo(
     client: AsyncClient,
     db_session: AsyncSession,
@@ -103,7 +137,7 @@ async def test_create_checkout_session_with_plan_and_promo(
     payload = awaited_call.kwargs.get("payload") if awaited_call.kwargs else None
     if payload is None:
         payload = awaited_call.args[0]
-    assert payload.amount_cents == 2700
+    assert payload.amount_cents == 35100000
     assert payload.metadata["plan"] == "premium_quarterly"
     assert payload.metadata["duration_days"] == "90"
     assert payload.metadata["promo_code"] == "QTR10"

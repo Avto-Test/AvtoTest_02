@@ -1,10 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-function getApiBaseUrl(): string {
-    const rawBaseUrl = process.env.API_URL || "http://127.0.0.1:8000";
-    return rawBaseUrl.toString().trim().replace(/\/+$/, "");
-}
+import { getServerApiBaseUrl } from '@/lib/server-api';
 
 interface MeResponse {
     is_admin?: boolean;
@@ -31,7 +28,7 @@ export async function middleware(request: NextRequest) {
 
     if (isAdminRoute && token) {
         try {
-            const response = await fetch(`${getApiBaseUrl()}/api/auth/me`, {
+            const response = await fetch(`${getServerApiBaseUrl()}/api/auth/me`, {
                 method: 'GET',
                 headers: {
                     Authorization: `Bearer ${token}`,

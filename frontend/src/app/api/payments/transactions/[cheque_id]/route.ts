@@ -1,32 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { getRequestAuthToken, getServerApiBaseUrl } from "@/lib/server-api";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function getApiBaseUrl(): string {
-  const rawBaseUrl = process.env.API_URL;
-  if (!rawBaseUrl) {
-    throw new Error("API_URL is not defined");
-  }
-  return rawBaseUrl.trim().replace(/\/+$/, "");
-}
-
-function getAuthToken(request: NextRequest): string | null {
-  const authHeader = request.headers.get("authorization");
-  if (authHeader?.startsWith("Bearer ")) {
-    const token = authHeader.slice("Bearer ".length).trim();
-    return token.length > 0 ? token : null;
-  }
-
-  const cookieToken = request.cookies.get("access_token")?.value;
-  return cookieToken && cookieToken.length > 0 ? cookieToken : null;
-}
 
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ cheque_id: string }> }
 ) {
-  const token = getAuthToken(request);
+  const token = getRequestAuthToken(request);
   if (!token) {
     return NextResponse.json(
       { detail: "Authentication required." },
@@ -45,7 +28,7 @@ export async function GET(
 
   try {
     const response = await fetch(
-      `${getApiBaseUrl()}/api/payments/transactions/${encodeURIComponent(
+      `${getServerApiBaseUrl()}/api/payments/transactions/${encodeURIComponent(
         normalizedChequeId
       )}`,
       {

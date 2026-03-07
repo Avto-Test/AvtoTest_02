@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Pool } from "pg";
 
+import { getRequestAuthToken, getServerApiBaseUrl } from "@/lib/server-api";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -153,27 +155,8 @@ function getPool(): Pool {
   return globalForPool.analyticsPool;
 }
 
-function getApiBaseUrl(): string {
-  const rawBaseUrl = process.env.API_URL;
-  if (!rawBaseUrl) {
-    throw new Error("API_URL is not defined");
-  }
-  return rawBaseUrl.trim().replace(/\/+$/, "");
-}
-
-function getAuthToken(request: NextRequest): string | null {
-  const authHeader = request.headers.get("authorization");
-  if (authHeader?.startsWith("Bearer ")) {
-    const token = authHeader.slice("Bearer ".length).trim();
-    return token.length > 0 ? token : null;
-  }
-
-  const cookieToken = request.cookies.get("access_token")?.value;
-  return cookieToken && cookieToken.length > 0 ? cookieToken : null;
-}
-
 async function resolveUser(token: string): Promise<ResolvedUser | null> {
-  const apiBaseUrl = getApiBaseUrl();
+  const apiBaseUrl = getServerApiBaseUrl();
   const userResponse = await fetch(`${apiBaseUrl}/auth/me`, {
     method: "GET",
     headers: {
@@ -245,7 +228,7 @@ function toFunnelResponse(counts: Record<TrackedEventName, number>): FunnelRespo
 
 async function resolvePassProbability(token: string): Promise<number> {
   try {
-    const apiBaseUrl = getApiBaseUrl();
+    const apiBaseUrl = getServerApiBaseUrl();
     const response = await fetch(`${apiBaseUrl}/analytics/me/dashboard`, {
       method: "GET",
       headers: {
@@ -574,7 +557,7 @@ async function queryEventCounts(
 
 export async function GET(request: NextRequest) {
   try {
-    const token = getAuthToken(request);
+    const token = getRequestAuthToken(request);
     if (!token) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
