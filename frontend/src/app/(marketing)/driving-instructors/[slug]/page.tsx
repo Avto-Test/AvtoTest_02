@@ -23,6 +23,7 @@ import {
   submitDrivingInstructorLead,
   submitDrivingInstructorReview,
 } from '@/lib/drivingInstructors';
+import { resolvePublicMediaUrl } from '@/lib/media';
 
 function RatingStars({ rating }: { rating: number }) {
   const rounded = Math.round(rating);
@@ -166,6 +167,10 @@ export default function DrivingInstructorDetailPage() {
     if (!instructor || instructor.media_items.length === 0) return null;
     return instructor.media_items[activeMediaIdx] || instructor.media_items[0];
   }, [instructor, activeMediaIdx]);
+  const activeMediaUrl = useMemo(
+    () => resolvePublicMediaUrl(activeMedia?.url),
+    [activeMedia?.url],
+  );
 
   const referralUrl = instructor ? buildDrivingInstructorReferralUrl(instructor.referral_code) : '';
 
@@ -358,10 +363,10 @@ export default function DrivingInstructorDetailPage() {
             {activeMedia ? (
               <div className="overflow-hidden rounded-xl border border-border bg-background">
                 {activeMedia.media_type === 'video' ? (
-                  <video src={activeMedia.url} controls className="h-[360px] w-full object-cover" />
+                  <video src={activeMediaUrl ?? activeMedia.url} controls className="h-[360px] w-full object-cover" />
                 ) : (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={activeMedia.url} alt={activeMedia.caption || instructor.full_name} className="h-[360px] w-full object-cover" />
+                  <img src={activeMediaUrl ?? activeMedia.url} alt={activeMedia.caption || instructor.full_name} className="h-[360px] w-full object-cover" />
                 )}
               </div>
             ) : (
@@ -373,19 +378,24 @@ export default function DrivingInstructorDetailPage() {
             {instructor.media_items.length > 0 ? (
               <div className="grid grid-cols-4 gap-2">
                 {instructor.media_items.map((item, idx) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setActiveMediaIdx(idx)}
-                    className={`overflow-hidden rounded-lg border ${idx === activeMediaIdx ? 'border-primary' : 'border-border'}`}
-                  >
-                    {item.media_type === 'video' ? (
-                      <div className="flex h-20 items-center justify-center bg-muted text-xs text-muted-foreground">Video</div>
-                    ) : (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={item.url} alt={item.caption || `${instructor.full_name}-${idx + 1}`} className="h-20 w-full object-cover" />
-                    )}
-                  </button>
+                  (() => {
+                    const itemUrl = resolvePublicMediaUrl(item.url) ?? item.url;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setActiveMediaIdx(idx)}
+                        className={`overflow-hidden rounded-lg border ${idx === activeMediaIdx ? 'border-primary' : 'border-border'}`}
+                      >
+                        {item.media_type === 'video' ? (
+                          <div className="flex h-20 items-center justify-center bg-muted text-xs text-muted-foreground">Video</div>
+                        ) : (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={itemUrl} alt={item.caption || `${instructor.full_name}-${idx + 1}`} className="h-20 w-full object-cover" />
+                        )}
+                      </button>
+                    );
+                  })()
                 ))}
               </div>
             ) : null}

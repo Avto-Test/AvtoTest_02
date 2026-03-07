@@ -17,6 +17,7 @@ import {
     submitDrivingSchoolLead,
     submitDrivingSchoolReview,
 } from '@/lib/drivingSchools';
+import { resolvePublicMediaUrl } from '@/lib/media';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/store/useAuth';
@@ -149,6 +150,10 @@ export default function DrivingSchoolDetailPage() {
         if (!school || school.media_items.length === 0) return null;
         return school.media_items[activeMediaIdx] || school.media_items[0];
     }, [school, activeMediaIdx]);
+    const activeMediaUrl = useMemo(
+        () => resolvePublicMediaUrl(activeMedia?.url),
+        [activeMedia?.url],
+    );
 
     const reviewStats = useMemo(() => {
         const total = reviews.length;
@@ -272,10 +277,10 @@ export default function DrivingSchoolDetailPage() {
                         {activeMedia ? (
                             <div className="overflow-hidden rounded-xl border border-border bg-background">
                                 {activeMedia.media_type === 'video' ? (
-                                    <video src={activeMedia.url} controls className="h-[360px] w-full object-cover" />
+                                    <video src={activeMediaUrl ?? activeMedia.url} controls className="h-[360px] w-full object-cover" />
                                 ) : (
                                     // eslint-disable-next-line @next/next/no-img-element
-                                    <img src={activeMedia.url} alt={activeMedia.caption || school.name} className="h-[360px] w-full object-cover" />
+                                    <img src={activeMediaUrl ?? activeMedia.url} alt={activeMedia.caption || school.name} className="h-[360px] w-full object-cover" />
                                 )}
                             </div>
                         ) : (
@@ -287,19 +292,24 @@ export default function DrivingSchoolDetailPage() {
                         {school.media_items.length > 0 ? (
                             <div className="grid grid-cols-4 gap-2">
                                 {school.media_items.map((item, idx) => (
-                                    <button
-                                        key={item.id}
-                                        type="button"
-                                        onClick={() => setActiveMediaIdx(idx)}
-                                        className={`overflow-hidden rounded-lg border ${idx === activeMediaIdx ? 'border-primary' : 'border-border'}`}
-                                    >
-                                        {item.media_type === 'video' ? (
-                                            <div className="flex h-20 items-center justify-center bg-muted text-xs text-muted-foreground">Video</div>
-                                        ) : (
-                                            // eslint-disable-next-line @next/next/no-img-element
-                                            <img src={item.url} alt={item.caption || `${school.name}-${idx + 1}`} className="h-20 w-full object-cover" />
-                                        )}
-                                    </button>
+                                    (() => {
+                                        const itemUrl = resolvePublicMediaUrl(item.url) ?? item.url;
+                                        return (
+                                            <button
+                                                key={item.id}
+                                                type="button"
+                                                onClick={() => setActiveMediaIdx(idx)}
+                                                className={`overflow-hidden rounded-lg border ${idx === activeMediaIdx ? 'border-primary' : 'border-border'}`}
+                                            >
+                                                {item.media_type === 'video' ? (
+                                                    <div className="flex h-20 items-center justify-center bg-muted text-xs text-muted-foreground">Video</div>
+                                                ) : (
+                                                    // eslint-disable-next-line @next/next/no-img-element
+                                                    <img src={itemUrl} alt={item.caption || `${school.name}-${idx + 1}`} className="h-20 w-full object-cover" />
+                                                )}
+                                            </button>
+                                        );
+                                    })()
                                 ))}
                             </div>
                         ) : null}

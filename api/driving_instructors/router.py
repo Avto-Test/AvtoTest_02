@@ -37,6 +37,7 @@ from api.driving_instructors.schemas import (
     DrivingInstructorUpdate,
 )
 from core.config import settings
+from core.public_urls import resolve_public_upload_url
 from database.session import get_db
 from models.analytics_event import AnalyticsEvent
 from models.driving_instructor import DrivingInstructor
@@ -345,8 +346,13 @@ async def upload_application_media(request: Request, file: UploadFile = File(...
     filename = f"{uuid4().hex}{extension}"
     (UPLOADS_DIR / filename).write_bytes(content)
 
-    base_url = str(request.base_url).rstrip("/")
-    return {"url": f"{base_url}/uploads/driving_instructors/{filename}", "filename": filename}
+    return {
+        "url": resolve_public_upload_url(
+            request,
+            f"/uploads/driving_instructors/{filename}",
+        ),
+        "filename": filename,
+    }
 
 
 @router.get("/me/summary")

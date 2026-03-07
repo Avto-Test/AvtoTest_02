@@ -31,10 +31,14 @@ export const useAuthStore = create<AuthState>()(
             isLoading: true,
 
             setToken: (token: string) => {
+                const isHttps =
+                    typeof window !== 'undefined'
+                        ? window.location.protocol === 'https:'
+                        : process.env.NODE_ENV === 'production';
                 Cookies.set('access_token', token, {
                     expires: 7,
-                    secure: process.env.NODE_ENV === 'production',
-                    sameSite: 'strict'
+                    secure: isHttps,
+                    sameSite: 'lax'
                 });
                 set({ accessToken: token, isAuthenticated: true });
             },

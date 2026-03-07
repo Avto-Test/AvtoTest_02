@@ -32,7 +32,7 @@ function syncAuthCookie(token: string | null): void {
     Cookies.set(AUTH_COOKIE_KEY, token, {
         expires: 7,
         secure: isHttps,
-        sameSite: "strict",
+        sameSite: "lax",
     });
 }
 

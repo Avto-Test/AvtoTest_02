@@ -109,10 +109,11 @@ def _build_signature_payload(timestamp: int, payload: bytes) -> bytes:
 
 def _pick_first_non_empty_string(*values: Any) -> str | None:
     for value in values:
-        if isinstance(value, str):
-            normalized = value.strip()
-            if normalized:
-                return normalized
+        if value is None:
+            continue
+        normalized = str(value).strip()
+        if normalized:
+            return normalized
     return None
 
 
@@ -313,22 +314,34 @@ class TSPayProvider(PaymentProvider):
         normalized_currency = (
             _normalize_currency(currency_raw) if currency_raw is not None else None
         )
+        resolved_cheque_id = _pick_first_non_empty_string(
+            payload_data.get("cheque_id"),
+            body.get("cheque_id"),
+            normalized_cheque_id,
+        )
+        resolved_transaction_id = _pick_first_non_empty_string(
+            payload_data.get("transaction_id"),
+            payload_data.get("id"),
+            body.get("transaction_id"),
+            body.get("id"),
+        )
+        resolved_status = _pick_first_non_empty_string(
+            payload_data.get("pay_status"),
+            payload_data.get("status"),
+            body.get("pay_status"),
+            body.get("status"),
+        )
+        amount_value = payload_data.get("amount")
+        if amount_value is None:
+            amount_value = body.get("amount")
 
         return GetTransactionStatusResponse(
             provider=self.provider_name,
-            cheque_id=str(payload_data.get("id") or normalized_cheque_id),
-            transaction_id=(
-                str(payload_data.get("transaction_id"))
-                if payload_data.get("transaction_id") is not None
-                else None
-            ),
-            pay_status=(
-                str(payload_data.get("pay_status"))
-                if payload_data.get("pay_status") is not None
-                else None
-            ),
+            cheque_id=resolved_cheque_id or normalized_cheque_id,
+            transaction_id=resolved_transaction_id,
+            pay_status=resolved_status,
             amount=_from_provider_amount_to_cents(
-                payload_data.get("amount"),
+                amount_value,
                 normalized_currency,
             ),
             raw_response=body,
