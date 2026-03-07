@@ -3,6 +3,10 @@ import type { Metadata } from 'next';
 export const metadata: Metadata = {
     title: 'Ro\'yxatdan o\'tish - AUTOTEST',
     description: 'Haydovchilik imtihoniga tayyorgarlikni boshlash uchun bepul hisob yarating.',
+    robots: {
+        index: false,
+        follow: false,
+    },
 };
 
 export default function RegisterLayout({

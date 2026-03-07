@@ -3,6 +3,10 @@ import type { Metadata } from 'next';
 export const metadata: Metadata = {
     title: 'Kirish - AUTOTEST',
     description: 'Tayyorgarlikni davom ettirish uchun AUTOTEST hisobingizga kiring.',
+    robots: {
+        index: false,
+        follow: false,
+    },
 };
 
 export default function LoginLayout({
