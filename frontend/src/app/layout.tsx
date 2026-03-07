@@ -5,6 +5,7 @@ import 'leaflet/dist/leaflet.css';
 import { ThemeProvider } from "@/components/theme-provider";
 import { I18nProvider } from "@/components/i18n-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { getSiteUrl } from "@/lib/seo";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -17,8 +18,27 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AUTOTEST - Professional Online Testing Platform",
-  description: "Prepare for your driving license test with AUTOTEST.",
+  metadataBase: new URL(getSiteUrl()),
+  applicationName: "AUTOTEST",
+  title: "AUTOTEST | Haydovchilik imtihoniga tayyorgarlik platformasi",
+  description:
+    "AUTOTEST yordamida haydovchilik imtihoniga online tayyorlaning: testlar, premium analytics, avtomaktablar va instruktorlar katalogi.",
+  keywords: [
+    "AUTOTEST",
+    "haydovchilik imtihoni",
+    "online test",
+    "yo'l harakati qoidalari",
+    "avtomaktab",
+    "instruktor",
+  ],
+  openGraph: {
+    siteName: "AUTOTEST",
+    locale: "uz_UZ",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+  },
 };
 
 export const viewport: Viewport = {
