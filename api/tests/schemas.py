@@ -58,3 +58,13 @@ class PublicTestDetail(BaseModel):
     created_at: datetime
     
     model_config = ConfigDict(from_attributes=True)
+
+
+class FreeTestStatus(BaseModel):
+    """Schema describing free plan daily test usage."""
+
+    attempts_used_today: int
+    attempts_limit: int
+    attempts_remaining: int
+    limit_reached: bool
+    is_premium: bool

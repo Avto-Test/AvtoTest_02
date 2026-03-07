@@ -17,6 +17,8 @@ type RawOverview = {
 };
 
 type RawCategory = {
+  id?: string | null;
+  category_id?: string | null;
   category?: string | null;
   topic?: string | null;
   accuracy?: number | null;
@@ -87,6 +89,7 @@ export type ScoreTrendPoint = {
 };
 
 export type CategoryPoint = {
+  id?: string;
   category: string;
   accuracy: number;
 };
@@ -222,6 +225,7 @@ function normalizeDashboardPayload(
 
   const categoryPerformance: CategoryPoint[] = categoriesRaw
     .map((category) => ({
+      id: String(category.id ?? category.category_id ?? category.category ?? category.topic ?? "").trim() || undefined,
       category: normalizeCategoryLabel(String(category.category ?? category.topic ?? "")),
       accuracy: normalizePercent(toNumber(category.accuracy, 0)),
     }))

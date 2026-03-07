@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from api.attempts.schemas import AdaptiveStartResponse
-from api.tests.schemas import PublicTestDetail, PublicTestList
+from api.tests.schemas import FreeTestStatus, PublicTestDetail, PublicTestList
 from api.auth.router import get_current_user
 from models.user import User
 from database.session import get_db
@@ -42,6 +42,7 @@ QUESTION_COUNT_TO_MINUTES = {
     40: 50,
     50: 62,
 }
+FREE_RANDOM_QUESTION_COUNT = 20
 
 
 def _sanitize_option_text(text_value: str) -> str:
@@ -49,6 +50,89 @@ def _sanitize_option_text(text_value: str) -> str:
     if text.lower().endswith("/t"):
         return text[:-2].rstrip()
     return text
+
+
+async def _get_free_attempt_status(current_user: User, db: AsyncSession) -> FreeTestStatus:
+    from api.attempts.router import FREE_MAX_ATTEMPTS_PER_DAY
+
+    if current_user.is_premium or current_user.is_admin:
+        return FreeTestStatus(
+            attempts_used_today=0,
+            attempts_limit=0,
+            attempts_remaining=999999,
+            limit_reached=False,
+            is_premium=True,
+        )
+
+    now = datetime.now(timezone.utc)
+    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    attempts_today_result = await db.execute(
+        select(func.count(Attempt.id)).where(
+            Attempt.user_id == current_user.id,
+            Attempt.started_at >= start_of_day,
+        )
+    )
+    attempts_used_today = int(attempts_today_result.scalar_one() or 0)
+    attempts_limit = FREE_MAX_ATTEMPTS_PER_DAY
+    attempts_remaining = max(0, attempts_limit - attempts_used_today)
+    return FreeTestStatus(
+        attempts_used_today=attempts_used_today,
+        attempts_limit=attempts_limit,
+        attempts_remaining=attempts_remaining,
+        limit_reached=attempts_used_today >= attempts_limit,
+        is_premium=False,
+    )
+
+
+def _build_balanced_random_selection(
+    all_questions: list[Question],
+    total_questions: int,
+) -> list[Question]:
+    if len(all_questions) < total_questions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Not enough questions for requested count ({total_questions}).",
+        )
+
+    grouped_questions: dict[str, list[Question]] = defaultdict(list)
+    for question in all_questions:
+        group_key = (
+            str(question.category_id)
+            if question.category_id
+            else (question.topic or question.category or "__general__").strip().lower()
+        )
+        grouped_questions[group_key].append(question)
+
+    group_items = list(grouped_questions.items())
+    random.shuffle(group_items)
+    for _, group in group_items:
+        random.shuffle(group)
+
+    selected: list[Question] = []
+    selected_ids: set[UUID] = set()
+
+    while len(selected) < total_questions:
+        progressed = False
+        for _, group in group_items:
+            while group:
+                question = group.pop()
+                if question.id in selected_ids:
+                    continue
+                selected.append(question)
+                selected_ids.add(question.id)
+                progressed = True
+                break
+            if len(selected) >= total_questions:
+                break
+        if not progressed:
+            break
+
+    if len(selected) < total_questions:
+        remaining = [question for question in all_questions if question.id not in selected_ids]
+        random.shuffle(remaining)
+        selected.extend(remaining[: total_questions - len(selected)])
+
+    return selected[:total_questions]
 
 
 class AdaptiveStartRequest(BaseModel):
@@ -204,43 +288,12 @@ async def get_tests(
     ]
 
 
-@router.get("/{test_id}", response_model=PublicTestDetail)
-async def get_test_detail(
-    test_id: UUID,
+@router.get("/free-status", response_model=FreeTestStatus)
+async def get_free_test_status(
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
-    """
-    Get full test detail for taking a test.
-    Includes questions and answer options (without is_correct).
-    """
-    stmt = (
-        select(Test)
-        .options(
-            selectinload(Test.questions).selectinload(Question.answer_options)
-        )
-        .where(Test.id == test_id)
-        .where(Test.is_active == True)
-    )
-
-    result = await db.execute(stmt)
-    test = result.scalar_one_or_none()
-
-    if not test:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Test not found",
-        )
-
-    return {
-        "id": test.id,
-        "title": test.title,
-        "description": test.description,
-        "difficulty": test.difficulty,
-        "is_premium": test.is_premium,
-        "duration": test.duration,
-        "questions": [_public_question_payload(question) for question in test.questions],
-        "created_at": test.created_at,
-    }
+) -> FreeTestStatus:
+    return await _get_free_attempt_status(current_user, db)
 
 
 async def _get_or_create_adaptive_profile(current_user: User, db: AsyncSession) -> UserAdaptiveProfile:
@@ -814,4 +867,128 @@ async def start_adaptive_test(
         questions=[_public_question_payload(question) for question in questions],
         question_count=len(questions),
         duration_minutes=duration_minutes,
+        attempt_mode="adaptive",
     )
+
+
+@router.get("/free-random", response_model=AdaptiveStartResponse)
+async def start_free_random_test(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> AdaptiveStartResponse:
+    usage = await _get_free_attempt_status(current_user, db)
+
+    if usage.is_premium:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Premium users should use adaptive mode instead of free random mode.",
+        )
+
+    if usage.limit_reached:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "DAILY_LIMIT_REACHED",
+                "attempts_used_today": usage.attempts_used_today,
+                "attempts_limit": usage.attempts_limit,
+                "attempts_remaining": usage.attempts_remaining,
+            },
+        )
+
+    questions_result = await db.execute(
+        select(Question)
+        .options(selectinload(Question.answer_options))
+        .where(Question.answer_options.any())
+    )
+    all_questions = list(questions_result.scalars().all())
+    questions = _build_balanced_random_selection(all_questions, FREE_RANDOM_QUESTION_COUNT)
+
+    free_test_result = await db.execute(
+        select(Test).where(Test.title == "Free Random Practice")
+    )
+    free_test = free_test_result.scalar_one_or_none()
+    duration_minutes = QUESTION_COUNT_TO_MINUTES[FREE_RANDOM_QUESTION_COUNT]
+
+    if free_test is None:
+        free_test = Test(
+            title="Free Random Practice",
+            description="Randomized daily practice for free users.",
+            difficulty="Random",
+            duration=duration_minutes,
+            is_active=True,
+            is_premium=False,
+        )
+        db.add(free_test)
+        await db.flush()
+    elif free_test.duration != duration_minutes:
+        free_test.duration = duration_minutes
+
+    attempt = Attempt(
+        user_id=current_user.id,
+        test_id=free_test.id,
+        mode="free_random",
+        pressure_mode=False,
+        pressure_score_modifier=1.0,
+        question_ids=[str(question.id) for question in questions],
+        question_count=len(questions),
+        time_limit_seconds=duration_minutes * 60,
+    )
+    db.add(attempt)
+    await db.commit()
+    await db.refresh(attempt)
+
+    refreshed_usage = await _get_free_attempt_status(current_user, db)
+
+    return AdaptiveStartResponse(
+        id=attempt.id,
+        test_id=attempt.test_id,
+        score=attempt.score,
+        started_at=attempt.started_at.isoformat(),
+        finished_at=None,
+        questions=[_public_question_payload(question) for question in questions],
+        question_count=len(questions),
+        duration_minutes=duration_minutes,
+        attempt_mode="free_random",
+        attempts_used_today=refreshed_usage.attempts_used_today,
+        attempts_limit=refreshed_usage.attempts_limit,
+        attempts_remaining=refreshed_usage.attempts_remaining,
+    )
+
+
+@router.get("/{test_id}", response_model=PublicTestDetail)
+async def get_test_detail(
+    test_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get full test detail for taking a test.
+    Includes questions and answer options (without is_correct).
+    """
+    stmt = (
+        select(Test)
+        .options(
+            selectinload(Test.questions).selectinload(Question.answer_options)
+        )
+        .where(Test.id == test_id)
+        .where(Test.is_active == True)
+    )
+
+    result = await db.execute(stmt)
+    test = result.scalar_one_or_none()
+
+    if not test:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Test not found",
+        )
+
+    return {
+        "id": test.id,
+        "title": test.title,
+        "description": test.description,
+        "difficulty": test.difficulty,
+        "is_premium": test.is_premium,
+        "duration": test.duration,
+        "questions": [_public_question_payload(question) for question in test.questions],
+        "created_at": test.created_at,
+    }
