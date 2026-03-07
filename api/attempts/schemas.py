@@ -63,6 +63,10 @@ class StartAttemptResponse(AttemptResponse):
     question_count: int
     duration_minutes: int
     questions: list[PublicQuestion]
+    attempt_mode: str = "standard"
+    attempts_used_today: int | None = None
+    attempts_limit: int | None = None
+    attempts_remaining: int | None = None
 
 
 class AdaptiveStartResponse(StartAttemptResponse):
@@ -76,6 +80,7 @@ class AnswerResponse(BaseModel):
     question_id: UUID
     selected_option_id: UUID
     is_correct: bool
+    correct_option_id: UUID | None = None
 
     class Config:
         from_attributes = True

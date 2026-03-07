@@ -39,11 +39,12 @@ from models.question import Question
 from models.test import Test
 from models.user import User
 from models.user_adaptive_profile import UserAdaptiveProfile
+from models.user_question_history import UserQuestionHistory
 
 router = APIRouter(prefix="/attempts", tags=["attempts"])
 
 # Limits
-FREE_MAX_ATTEMPTS_PER_DAY = 3
+FREE_MAX_ATTEMPTS_PER_DAY = 2
 GUEST_MAX_ATTEMPTS = 2
 GUEST_COOKIE_NAME = "guest_id"
 GUEST_COOKIE_MAX_AGE = 60 * 60 * 24 * 30
@@ -377,6 +378,14 @@ async def submit_answer(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Answer option not found for this question",
         )
+
+    correct_option_result = await db.execute(
+        select(AnswerOption.id).where(
+            AnswerOption.question_id == data.question_id,
+            AnswerOption.is_correct == True,
+        )
+    )
+    correct_option_id = correct_option_result.scalar_one_or_none()
     
     # Check if answer already exists for this question
     result = await db.execute(
@@ -399,6 +408,7 @@ async def submit_answer(
             question_id=existing_answer.question_id,
             selected_option_id=existing_answer.selected_option_id,
             is_correct=existing_answer.is_correct,
+            correct_option_id=correct_option_id,
         )
     
     # Create new answer
@@ -418,6 +428,7 @@ async def submit_answer(
         question_id=attempt_answer.question_id,
         selected_option_id=attempt_answer.selected_option_id,
         is_correct=attempt_answer.is_correct,
+        correct_option_id=correct_option_id,
     )
 
 
@@ -458,6 +469,14 @@ async def submit_guest_answer(
     if option is None:
         raise HTTPException(status_code=400, detail="Answer option not found for this question")
 
+    correct_option_result = await db.execute(
+        select(AnswerOption.id).where(
+            AnswerOption.question_id == data.question_id,
+            AnswerOption.is_correct == True,
+        )
+    )
+    correct_option_id = correct_option_result.scalar_one_or_none()
+
     result = await db.execute(
         select(GuestAttemptAnswer).where(
             GuestAttemptAnswer.attempt_id == data.attempt_id,
@@ -475,6 +494,7 @@ async def submit_guest_answer(
             question_id=existing_answer.question_id,
             selected_option_id=existing_answer.selected_option_id,
             is_correct=existing_answer.is_correct,
+            correct_option_id=correct_option_id,
         )
 
     attempt_answer = GuestAttemptAnswer(
@@ -492,6 +512,7 @@ async def submit_guest_answer(
         question_id=attempt_answer.question_id,
         selected_option_id=attempt_answer.selected_option_id,
         is_correct=attempt_answer.is_correct,
+        correct_option_id=correct_option_id,
     )
 
 
@@ -678,7 +699,7 @@ async def bulk_submit_attempt(
         )
 
     # 2b. Response Times Validation (Phase 11)
-    if len(data.response_times) not in {len(questions), len(data.answers)}:
+    if data.response_times and len(data.response_times) not in {len(questions), len(data.answers)}:
         raise HTTPException(
             status_code=400,
             detail="Response times count must match total questions (or submitted answers for legacy clients).",
@@ -757,6 +778,17 @@ async def bulk_submit_attempt(
         delete(AttemptAnswer).where(AttemptAnswer.attempt_id == attempt.id)
     )
 
+    submitted_question_ids = list(data.answers.keys())
+    history_rows = (
+        await db.execute(
+            select(UserQuestionHistory).where(
+                UserQuestionHistory.user_id == current_user.id,
+                UserQuestionHistory.question_id.in_(submitted_question_ids),
+            )
+        )
+    ).scalars().all() if submitted_question_ids else []
+    history_map = {row.question_id: row for row in history_rows}
+
     for q_id, opt_id in data.answers.items():
         question = questions_map[q_id]
         selected_option = next((o for o in question.answer_options if o.id == opt_id), None)
@@ -773,16 +805,6 @@ async def bulk_submit_attempt(
         
         if is_correct:
             correct_count += 1
-            if adaptive_profile is not None:
-                adaptive_profile.target_difficulty_percent = max(
-                    0,
-                    int(adaptive_profile.target_difficulty_percent) - 1,
-                )
-        elif adaptive_profile is not None:
-            adaptive_profile.target_difficulty_percent = min(
-                100,
-                int(adaptive_profile.target_difficulty_percent) + 1,
-            )
             
         # Create record
         ans_record = AttemptAnswer(
@@ -792,6 +814,23 @@ async def bulk_submit_attempt(
             is_correct=is_correct
         )
         db.add(ans_record)
+
+        history = history_map.get(q_id)
+        if history is None:
+            history = UserQuestionHistory(
+                user_id=current_user.id,
+                question_id=q_id,
+                attempt_count=0,
+                correct_count=0,
+            )
+            db.add(history)
+            history_map[q_id] = history
+
+        history.attempt_count = int(history.attempt_count) + 1
+        history.last_seen_at = now
+        if is_correct:
+            history.correct_count = int(history.correct_count) + 1
+            history.last_correct_at = now
 
         # Atomic update for Question performance
         correct_inc = 1 if is_correct else 0
@@ -841,7 +880,56 @@ async def bulk_submit_attempt(
             dynamic_difficulty_score=question.dynamic_difficulty_score
         ))
 
-    # 5. Finalize attempt
+    # 5. Score-based adaptive target update (faster than per-question +/-1).
+    if adaptive_profile is not None and questions:
+        score_percent = (correct_count / len(questions)) * 100.0
+        delta = 0
+        if score_percent >= 85:
+            delta = -4
+        elif score_percent >= 70:
+            delta = -2
+        elif score_percent <= 35:
+            delta = +5
+        elif score_percent <= 50:
+            delta = +3
+
+        # Difficulty momentum from historical adaptive performance:
+        # rising trend -> slightly harder; falling trend -> slightly easier.
+        recent_scores_rows = (
+            await db.execute(
+                select(Attempt.score, Attempt.question_count)
+                .where(
+                    Attempt.user_id == current_user.id,
+                    Attempt.mode == "adaptive",
+                    Attempt.finished_at.is_not(None),
+                    Attempt.score.is_not(None),
+                    Attempt.question_count > 0,
+                )
+                .order_by(Attempt.finished_at.desc())
+                .limit(6)
+            )
+        ).all()
+        if len(recent_scores_rows) >= 6:
+            recents = [
+                (float(row.score) / max(1, int(row.question_count))) * 100.0
+                for row in recent_scores_rows[:3]
+            ]
+            previous = [
+                (float(row.score) / max(1, int(row.question_count))) * 100.0
+                for row in recent_scores_rows[3:6]
+            ]
+            trend = (sum(recents) / len(recents)) - (sum(previous) / len(previous))
+            if trend > 5.0:
+                delta -= 2
+            elif trend < -5.0:
+                delta += 2
+
+        adaptive_profile.target_difficulty_percent = max(
+            0,
+            min(100, int(adaptive_profile.target_difficulty_percent) + delta),
+        )
+
+    # 6. Finalize attempt
     attempt.score = int(correct_count * attempt.pressure_score_modifier)
     attempt.finished_at = now
     
@@ -1034,7 +1122,7 @@ async def bulk_submit_attempt(
 
         # Dashboard Pass Prediction recalculation
         recent_stmt = (
-            select(Attempt.score)
+            select(Attempt.score, Attempt.question_count)
             .where(
                 Attempt.user_id == current_user.id,
                 Attempt.finished_at.is_not(None)
@@ -1043,10 +1131,13 @@ async def bulk_submit_attempt(
             .limit(5)
         )
         recent_res = await db.execute(recent_stmt)
-        recent_raw = [r.score for r in recent_res.all()]
+        recent_data = recent_res.all()
 
-        if recent_raw:
-            avg_pct = (sum(recent_raw) / len(recent_raw) / 20) * 100
+        if recent_data:
+            # Correctly calculate percentage based on each attempt's question count
+            total_pct = sum((row.score / max(1, row.question_count)) * 100 for row in recent_data)
+            avg_pct = total_pct / len(recent_data)
+            
             # Simplified probability estimate for result page
             prob = min(100.0, max(0.0, avg_pct))
             if prob >= 95:
@@ -1098,5 +1189,3 @@ async def bulk_submit_attempt(
         cognitive_profile=cognitive_profile,
         pressure_mode=attempt.pressure_mode
     )
-
-

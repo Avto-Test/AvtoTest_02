@@ -19,7 +19,7 @@ const ScoreTrendChart = dynamic(() => import("@/components/dashboard/ScoreTrendC
   ssr: false,
   loading: () => <ChartSkeleton />,
 });
-const CategoryPetalChart = dynamic(() => import("@/components/dashboard/CategoryPetalChart"), {
+const CategoryRadarChart = dynamic(() => import("@/components/dashboard/CategoryRadarChart"), {
   ssr: false,
   loading: () => <ChartSkeleton />,
 });
@@ -197,7 +197,7 @@ export default function DashboardPage() {
 
       <section className="grid gap-6 xl:grid-cols-2 [&>*]:min-w-0">
         <ScoreTrendChart data={data.scoreTrend} />
-        <CategoryPetalChart data={data.categoryPerformance} />
+        <CategoryRadarChart data={data.categoryPerformance} />
       </section>
 
       <section className="grid gap-6 xl:grid-cols-2 [&>*]:min-w-0">

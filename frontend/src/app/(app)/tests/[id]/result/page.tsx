@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { useTestStore } from "@/store/useTestStore";
+import { useAuth } from "@/store/useAuth";
 import { BadgeV2, ButtonV2, CardV2 } from "@/components/ui-v2";
 import { AnswerReviewAccordion } from "@/components/result/AnswerReviewAccordion";
 
@@ -64,6 +65,7 @@ export default function ResultPageV2() {
   const params = useParams();
   const router = useRouter();
   const { result, reset, questions } = useTestStore();
+  const { user } = useAuth();
 
   const testId = String(params.id);
   const typedResult = (result as StoredResult | null) ?? null;
@@ -144,6 +146,9 @@ export default function ResultPageV2() {
       <CardV2 className="p-6 md:p-8">
         <div className="space-y-6">
           <p className="text-xs uppercase tracking-wide text-[var(--v2-text-tertiary)]">Executive Summary</p>
+          <div className="inline-flex rounded-full border border-[var(--v2-border)] bg-[var(--v2-surface-subtle)] px-4 py-2 text-sm font-medium text-[var(--v2-text-primary)]">
+            {user?.plan === "premium" || user?.is_admin ? "∞ / unlimited" : "Free mode"}
+          </div>
           <div className="grid gap-6 md:grid-cols-2">
             <div className="rounded-3xl bg-[var(--v2-surface-subtle)] p-6">
               <div className="space-y-2">
