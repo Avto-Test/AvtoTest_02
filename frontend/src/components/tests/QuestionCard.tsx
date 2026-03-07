@@ -77,9 +77,10 @@ export function QuestionCard({
             </CardHeader>
             <CardContent>
                 <RadioGroup value={selectedOptionId} className="space-y-3">
-                    {question.answer_options.map((option) => (
+                    {question.answer_options.map((option, index) => (
                         <AnswerOption
                             key={option.id}
+                            index={index}
                             option={{ ...option, text: stripCorrectMarker(option.text) }}
                             selected={selectedOptionId === option.id}
                             onSelect={onSelectOption}

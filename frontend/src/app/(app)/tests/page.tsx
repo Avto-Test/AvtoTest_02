@@ -36,7 +36,7 @@ export default function TestsPage() {
     void fetchUser();
   }, [hydrated, authLoading, user, fetchUser]);
 
-  const isPremium = user?.plan === "premium" || user?.is_admin === true;
+  const hasPremiumAccess = user?.plan === "premium" || user?.is_admin === true;
   const pressureEnabled = searchParams.get("pressure") === "true";
   const completed = searchParams.get("completed") === "1";
 
@@ -45,7 +45,7 @@ export default function TestsPage() {
       return;
     }
 
-    if (isPremium) {
+    if (hasPremiumAccess) {
       setFreeStatus({
         attempts_used_today: 0,
         attempts_limit: 0,
@@ -81,10 +81,10 @@ export default function TestsPage() {
     return () => {
       cancelled = true;
     };
-  }, [hydrated, authLoading, user, isPremium]);
+  }, [hydrated, authLoading, user, hasPremiumAccess]);
 
   useEffect(() => {
-    if (!freeStatus || isPremium || !freeStatus.limit_reached || limitTrackedRef.current) {
+    if (!freeStatus || hasPremiumAccess || !freeStatus.limit_reached || limitTrackedRef.current) {
       return;
     }
     limitTrackedRef.current = true;
@@ -93,21 +93,21 @@ export default function TestsPage() {
       attempts_limit: freeStatus.attempts_limit,
       location: "tests_start_page",
     });
-  }, [freeStatus, isPremium]);
+  }, [freeStatus, hasPremiumAccess]);
 
   const usageLabel = useMemo(() => {
-    if (isPremium) {
+    if (hasPremiumAccess) {
       return "∞ / unlimited";
     }
     if (!freeStatus) {
       return "-- / 2";
     }
     return `${freeStatus.attempts_used_today}/${freeStatus.attempts_limit} attempts used`;
-  }, [freeStatus, isPremium]);
+  }, [freeStatus, hasPremiumAccess]);
 
   const openUpgradeModal = (source: string, count?: number) => {
     setUpgradeCopy({
-      title: "Premium bilan ko‘proq imkoniyat ochiladi",
+      title: "Premium bilan ko'proq imkoniyat ochiladi",
       description: "Cheksiz testlar, adaptive AI rejimi va batafsil analytics Premium tarifda mavjud.",
     });
     setUpgradeOpen(true);
@@ -118,7 +118,7 @@ export default function TestsPage() {
   };
 
   const handleCountClick = (count: number) => {
-    if (!isPremium && count !== 20) {
+    if (!hasPremiumAccess && count !== 20) {
       openUpgradeModal("locked_question_count", count);
       return;
     }
@@ -126,7 +126,7 @@ export default function TestsPage() {
   };
 
   const handleFreeStart = async () => {
-    if (isPremium) {
+    if (hasPremiumAccess) {
       router.push(`/tests/adaptive?count=${questionCount}${pressureEnabled ? "&pressure=true" : ""}`);
       return;
     }
@@ -145,7 +145,7 @@ export default function TestsPage() {
   };
 
   const handleAdaptiveStart = () => {
-    if (!isPremium) {
+    if (!hasPremiumAccess) {
       openUpgradeModal("adaptive_mode_locked");
       return;
     }
@@ -172,7 +172,7 @@ export default function TestsPage() {
           <CardHeader className="pb-4">
             <CardTitle>Kunlik limit</CardTitle>
             <CardDescription>
-              {isPremium ? "Premium foydalanuvchilar uchun cheklov yo‘q." : "Free foydalanuvchilar kuniga 2 ta random test ishlata oladi."}
+              {hasPremiumAccess ? "Premium foydalanuvchilar uchun cheklov yo'q." : "Free foydalanuvchilar kuniga 2 ta random test ishlata oladi."}
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -180,7 +180,7 @@ export default function TestsPage() {
               <div className="rounded-2xl border border-border bg-background px-4 py-3 text-lg font-semibold">
                 {statusLoading ? "..." : usageLabel}
               </div>
-              {isPremium ? (
+              {hasPremiumAccess ? (
                 <div className="inline-flex items-center gap-2 rounded-full bg-emerald-500/10 px-3 py-1 text-sm text-emerald-300">
                   <Infinity className="h-4 w-4" />
                   Unlimited
@@ -188,7 +188,7 @@ export default function TestsPage() {
               ) : null}
             </div>
 
-            {!isPremium && freeStatus?.limit_reached ? (
+            {!hasPremiumAccess && freeStatus?.limit_reached ? (
               <div className="flex flex-col items-start gap-3 md:items-end">
                 <div className="text-sm text-amber-300">Bugungi urinishlar soni tugadi</div>
                 <Button onClick={() => openUpgradeModal("daily_limit_banner")}>
@@ -202,7 +202,7 @@ export default function TestsPage() {
         <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-card p-3">
           <span className="mr-2 text-sm font-medium text-muted-foreground">Question count:</span>
           {QUESTION_COUNTS.map((count) => {
-            const locked = !isPremium && count !== 20;
+            const locked = !hasPremiumAccess && count !== 20;
             return (
               <Button
                 key={count}
@@ -219,46 +219,58 @@ export default function TestsPage() {
         </div>
 
         <div className="grid gap-6 lg:grid-cols-2">
-          <Card className="border-border shadow-sm">
-            <CardHeader>
-              <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                <Sparkles className="h-5 w-5" />
-              </div>
-              <CardTitle>Free random mode</CardTitle>
-              <CardDescription>
-                20 ta random savol, kuniga 2 marta. Natijadan keyin to‘liq hisobot ko‘rsatilmaydi.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="text-sm text-muted-foreground">
-                Random questions, instant feedback, auto-next. Analytics report yo‘q.
-              </div>
-              <Button
-                onClick={handleFreeStart}
-                disabled={statusLoading || (!isPremium && freeStatus?.limit_reached)}
-                className="w-full"
-              >
-                Free testni boshlash
-              </Button>
-            </CardContent>
-          </Card>
+          {!hasPremiumAccess ? (
+            <Card className="border-border shadow-sm">
+              <CardHeader>
+                <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                  <Sparkles className="h-5 w-5" />
+                </div>
+                <CardTitle>Free random mode</CardTitle>
+                <CardDescription>
+                  20 ta random savol, kuniga 2 marta. Natijadan keyin to'liq hisobot ko'rsatilmaydi.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="text-sm text-muted-foreground">
+                  Random questions, instant feedback, auto-next. Analytics report yo'q.
+                </div>
+                <Button
+                  onClick={handleFreeStart}
+                  disabled={statusLoading || freeStatus?.limit_reached}
+                  className="w-full"
+                >
+                  Free testni boshlash
+                </Button>
+              </CardContent>
+            </Card>
+          ) : null}
 
-          <Card className="border-border shadow-sm">
+          <Card className={`border-border shadow-sm ${hasPremiumAccess ? "lg:col-span-2" : ""}`}>
             <CardHeader>
               <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-300">
                 <Crown className="h-5 w-5" />
               </div>
-              <CardTitle>Premium adaptive mode</CardTitle>
+              <CardTitle>{hasPremiumAccess ? "Adaptive mode" : "Premium adaptive mode"}</CardTitle>
               <CardDescription>
-                Adaptive algorithm, unlimited attempts va full report faqat Premium’da ochiladi.
+                {hasPremiumAccess
+                  ? "Adaptive algorithm, unlimited attempts va full analytics siz uchun ochiq."
+                  : "Adaptive algorithm, unlimited attempts va full analytics faqat Premium'da ochiladi."}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="text-sm text-muted-foreground">
-                Tanlangan savollar soni: <strong>{questionCount}</strong>
+                {hasPremiumAccess ? (
+                  <>
+                    Tanlangan savollar soni: <strong>{questionCount}</strong> | Unlimited tests | Full analytics
+                  </>
+                ) : (
+                  <>
+                    Tanlangan savollar soni: <strong>{questionCount}</strong>
+                  </>
+                )}
               </div>
               <Button onClick={handleAdaptiveStart} className="w-full">
-                {isPremium ? "Adaptive testni boshlash" : "Premium bilan ochish"}
+                {hasPremiumAccess ? "Adaptive testni boshlash" : "Premium bilan ochish"}
               </Button>
             </CardContent>
           </Card>

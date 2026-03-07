@@ -13,6 +13,7 @@ import {
     Target
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getOptionFunctionLabelById } from "@/lib/testOptionLabels";
 import { PublicQuestion } from "@/types/test";
 
 interface AnswerReviewAccordionProps {
@@ -57,6 +58,8 @@ export function AnswerReviewAccordion({
                     const isExpanded = expandedIds.has(ans.question_id);
                     const selectedOption = question?.answer_options.find((o) => o.id === ans.selected_option_id);
                     const correctOption = question?.answer_options.find((o) => o.id === ans.correct_option_id);
+                    const selectedOptionLabel = question ? getOptionFunctionLabelById(question, ans.selected_option_id) : null;
+                    const correctOptionLabel = question ? getOptionFunctionLabelById(question, ans.correct_option_id) : null;
 
                     if (!question) return null;
 
@@ -118,9 +121,16 @@ export function AnswerReviewAccordion({
                                                 {ans.is_correct ? <CheckCircle2 className="w-5 h-5 text-emerald-500" /> : <XCircle className="w-5 h-5 text-red-500" />}
                                                 <div>
                                                     <span className="text-[10px] uppercase font-bold text-slate-400 leading-none">Your Answer</span>
-                                                    <p className={cn("font-bold text-slate-900", ans.is_correct ? "text-emerald-900" : "text-red-900")}>
-                                                        {selectedOption?.text || "None selected"}
-                                                    </p>
+                                                    <div className="mt-1 flex items-center gap-2">
+                                                        {selectedOptionLabel ? (
+                                                            <span className="inline-flex rounded-full border border-slate-200 bg-white/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                                                                {selectedOptionLabel}
+                                                            </span>
+                                                        ) : null}
+                                                        <p className={cn("font-bold text-slate-900", ans.is_correct ? "text-emerald-900" : "text-red-900")}>
+                                                            {selectedOption?.text || "None selected"}
+                                                        </p>
+                                                    </div>
                                                 </div>
                                             </div>
 
@@ -129,9 +139,16 @@ export function AnswerReviewAccordion({
                                                     <CheckCircle2 className="w-5 h-5 text-emerald-500" />
                                                     <div>
                                                         <span className="text-[10px] uppercase font-bold text-slate-400 leading-none">Correct Answer</span>
-                                                        <p className="font-bold text-emerald-900">
-                                                            {correctOption?.text}
-                                                        </p>
+                                                        <div className="mt-1 flex items-center gap-2">
+                                                            {correctOptionLabel ? (
+                                                                <span className="inline-flex rounded-full border border-emerald-200 bg-white/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-600">
+                                                                    {correctOptionLabel}
+                                                                </span>
+                                                            ) : null}
+                                                            <p className="font-bold text-emerald-900">
+                                                                {correctOption?.text}
+                                                            </p>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             )}

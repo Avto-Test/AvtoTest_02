@@ -1,12 +1,13 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ChevronLeft, Crown, Send, Timer } from "lucide-react";
 import { toast } from "sonner";
 
 import api from "@/lib/axios";
 import { trackEvent } from "@/lib/analytics";
+import { getOptionFunctionLabel } from "@/lib/testOptionLabels";
 import { logViolation } from "@/lib/violations";
 import { useI18n } from "@/components/i18n-provider";
 import FullScreenLoader from "@/components/FullScreenLoader";
@@ -133,15 +134,6 @@ export default function TestAttemptPage() {
   const youtubeEmbed = currentQuestion?.video_url ? getYouTubeEmbedUrl(currentQuestion.video_url) : null;
   const progress = questions.length > 0 ? ((currentQuestionIndex + 1) / questions.length) * 100 : 0;
 
-  const unansweredIndexes = useMemo(
-    () =>
-      questions
-        .map((q, index) => ({ q, index }))
-        .filter(({ q }) => !answers[q.id])
-        .map(({ index }) => index),
-    [questions, answers]
-  );
-
   useEffect(() => {
     setQuestionStartTime(Date.now());
     setAnswerFeedback(null);
@@ -169,7 +161,7 @@ export default function TestAttemptPage() {
           ...extra,
         },
       });
-      toast.warning("Qoidabuzarlik urinish qayd etildi.");
+      toast.warning("Qoidabuzarlik urinishi qayd etildi.");
     };
 
     const clearClipboard = async () => {
@@ -305,25 +297,36 @@ export default function TestAttemptPage() {
     };
   }, [attemptId, normalizedTestId, violationCooldown]);
 
-  const handleSubmit = useCallback(
-    async (options?: { bypassIncompleteCheck?: boolean }) => {
+  const submitAttempt = useCallback(
+    async (
+      submissionAnswers: Record<string, string>,
+      submissionResponseTimes: Record<string, number>,
+      options?: { enforceComplete?: boolean }
+    ) => {
       if (!attemptId || isSubmitting) return;
 
-      if (!options?.bypassIncompleteCheck && unansweredIndexes.length > 0) {
-        const firstUnansweredIndex = unansweredIndexes[0] ?? 0;
-        goToQuestion(firstUnansweredIndex);
-        toast.error(t("test.all_required").replace("{count}", String(unansweredIndexes.length)));
-        return;
+      if (options?.enforceComplete !== false) {
+        const missingIndexes = questions
+          .map((question, index) => ({ question, index }))
+          .filter(({ question }) => !submissionAnswers[question.id])
+          .map(({ index }) => index);
+
+        if (missingIndexes.length > 0) {
+          const firstUnansweredIndex = missingIndexes[0] ?? 0;
+          goToQuestion(firstUnansweredIndex);
+          toast.error(t("test.all_required").replace("{count}", String(missingIndexes.length)));
+          return;
+        }
       }
 
       setIsSubmitting(true);
       const toastId = toast.loading(t("test.submitting"));
-      const orderedResponseTimes = questions.map((q) => responseTimes[q.id] || 0);
+      const orderedResponseTimes = questions.map((q) => submissionResponseTimes[q.id] || 0);
 
       try {
         const res = await api.post<BulkSubmitResponse>("/attempts/submit", {
           attempt_id: attemptId,
-          answers,
+          answers: submissionAnswers,
           response_times: orderedResponseTimes,
         });
 
@@ -357,7 +360,6 @@ export default function TestAttemptPage() {
       }
     },
     [
-      answers,
       attemptId,
       attemptMode,
       freeUsage,
@@ -365,12 +367,19 @@ export default function TestAttemptPage() {
       isSubmitting,
       questions,
       reset,
-      responseTimes,
       router,
       setResult,
       t,
-      unansweredIndexes,
     ]
+  );
+
+  const handleSubmit = useCallback(
+    async (options?: { bypassIncompleteCheck?: boolean }) => {
+      await submitAttempt(answers, responseTimes, {
+        enforceComplete: options?.bypassIncompleteCheck ? false : true,
+      });
+    },
+    [answers, responseTimes, submitAttempt]
   );
 
   const handleAnswerCapture = useCallback(
@@ -390,10 +399,15 @@ export default function TestAttemptPage() {
 
       try {
         const duration = now - questionStartTime;
-        setResponseTimes((prev) => ({
-          ...prev,
-          [questionId]: (prev[questionId] || 0) + duration,
-        }));
+        const nextResponseTimes = {
+          ...responseTimes,
+          [questionId]: (responseTimes[questionId] || 0) + duration,
+        };
+        const nextAnswers = {
+          ...answers,
+          [questionId]: optionId,
+        };
+        setResponseTimes(nextResponseTimes);
 
         const response = await api.post<{
           is_correct: boolean;
@@ -423,7 +437,7 @@ export default function TestAttemptPage() {
           setAnswerFeedback(null);
 
           if (currentQuestionIndex >= questions.length - 1) {
-            void handleSubmit();
+            void submitAttempt(nextAnswers, nextResponseTimes, { enforceComplete: false });
             return;
           }
           nextQuestion();
@@ -431,10 +445,10 @@ export default function TestAttemptPage() {
       } catch (error) {
         setPendingSelectionId(null);
         setIsAnswering(false);
-        toast.error(getErrorDetail(error) || "Javobni yuborib bo‘lmadi.");
+        toast.error(getErrorDetail(error) || "Javobni yuborib bo'lmadi.");
       }
     },
-    [answers, attemptId, currentQuestion, currentQuestionIndex, handleSubmit, isAnswering, nextQuestion, questionStartTime, questions.length, setAnswer]
+    [answers, attemptId, currentQuestion, currentQuestionIndex, isAnswering, nextQuestion, questionStartTime, questions.length, responseTimes, setAnswer, submitAttempt]
   );
 
   useEffect(() => {
@@ -603,7 +617,7 @@ export default function TestAttemptPage() {
           <div className="space-y-2">
             <h1 className="text-3xl font-bold text-foreground">Free test yakunlandi</h1>
             <p className="text-muted-foreground">
-              To‘g‘ri javoblar: {freeCompletion.score}/{freeCompletion.total}
+              To'g'ri javoblar: {freeCompletion.score}/{freeCompletion.total}
             </p>
           </div>
 
@@ -810,7 +824,7 @@ export default function TestAttemptPage() {
                   <div
                     className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold transition-colors ${badgeClass}`}
                   >
-                    {String.fromCharCode(65 + idx)}
+                    {getOptionFunctionLabel(idx)}
                   </div>
                   <span className="text-sm font-medium text-foreground sm:text-base">{stripCorrectMarker(option.text)}</span>
                 </button>
@@ -824,8 +838,8 @@ export default function TestAttemptPage() {
         <div className="text-sm text-muted-foreground">
           {answerFeedback
             ? answerFeedback.isCorrect
-              ? "To‘g‘ri javob. Keyingi savolga o‘tilmoqda..."
-              : "To‘g‘ri javob ko‘rsatildi. Keyingi savolga o‘tilmoqda..."
+              ? "To'g'ri javob. Keyingi savolga o'tilmoqda..."
+              : "To'g'ri javob ko'rsatildi. Keyingi savolga o'tilmoqda..."
             : "Javobni tanlang. Keyingi savol avtomatik ochiladi."}
         </div>
 
