@@ -6,7 +6,6 @@ import { useSearchParams } from "next/navigation";
 import { Activity, Sparkles, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/axios";
-import { createCheckoutSession } from "@/lib/billing";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/store/useAuth";
 import {
@@ -22,6 +21,7 @@ import { ZonePremiumV2 } from "@/components/dashboard/zones/ZonePremiumV2";
 import { ZoneRevenueTriggersV2 } from "@/components/dashboard/zones/ZoneRevenueTriggersV2";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BadgeV2, ButtonV2, CardV2, SectionWrapperV2 } from "@/components/ui-v2";
+import type { DashboardAnalyticsViewModel, RecommendationInsight } from "@/analytics/types";
 import type { UserAttemptSummary } from "@/schemas/analytics.schema";
 import { useI18n } from "@/components/i18n-provider";
 
@@ -158,12 +158,64 @@ export default function DashboardV2Page() {
     return overview.overview;
   }, [overview]);
 
-  const recommendation = useMemo(() => {
-    return overview?.recommendation || null;
-  }, [overview]);
   const lessonRecommendations = useMemo(() => {
     return Array.isArray(overview?.lesson_recommendations) ? overview.lesson_recommendations : [];
   }, [overview]);
+  const recommendation = useMemo<RecommendationInsight>(() => {
+    const raw = overview?.recommendation;
+    const topic =
+      typeof raw?.topic === "string" && raw.topic.trim().length > 0 ? raw.topic.trim() : null;
+    const accuracy =
+      typeof raw?.accuracy === "number" && Number.isFinite(raw.accuracy)
+        ? Math.max(0, Math.min(100, raw.accuracy))
+        : null;
+
+    return {
+      topic,
+      accuracy,
+      coverage: null,
+      attempts: null,
+      reasoning: accuracy === null ? null : accuracy < 40 ? "lowest_accuracy" : "practice_recommended",
+      priorityScore: accuracy,
+      explanation: topic
+        ? accuracy === null
+          ? `${topic} mavzusi bo'yicha tavsiya tayyor. Shu yo'nalishda mashq qilish foydali bo'ladi.`
+          : accuracy < 40
+            ? `Siz ${topic} mavzusida atigi ${Math.round(accuracy)}% aniqlikka egasiz. Bu sizning eng zaif yo'nalishlaringizdan biri.`
+            : accuracy < 70
+              ? `${topic} mavzusida sizning aniqligingiz ${Math.round(accuracy)}%. Bu yo'nalishni mustahkamlash orqali umumiy natijangizni tez oshirish mumkin.`
+              : `${topic} mavzusi yaxshi o'zlashtirilgan, ammo qo'shimcha mashq yanada mustahkamlaydi.`
+        : "Tavsiya uchun hali yetarli ma'lumot yo'q.",
+      categoryId: null,
+      normalizedTopicKey: topic ? topic.toLocaleLowerCase("uz-UZ") : null,
+      actionLabel:
+        typeof raw?.action_label === "string" && raw.action_label.trim().length > 0
+          ? raw.action_label.trim()
+          : "Shu mavzuda mashq qilish",
+    };
+  }, [overview]);
+  const recommendationLessons = useMemo<DashboardAnalyticsViewModel["lessonRecommendations"]>(() => {
+    return lessonRecommendations.map((lesson, index) => ({
+      lessonId:
+        typeof lesson.lesson_id === "string" && lesson.lesson_id.trim().length > 0
+          ? lesson.lesson_id
+          : `${lesson.title || "lesson"}-${index}`,
+      title:
+        typeof lesson.title === "string" && lesson.title.trim().length > 0
+          ? lesson.title
+          : "Tavsiya dars",
+      reason:
+        typeof lesson.reason === "string" && lesson.reason.trim().length > 0
+          ? lesson.reason
+          : "Qo'shimcha mashq tavsiya etiladi.",
+      topic:
+        typeof lesson.topic === "string" && lesson.topic.trim().length > 0 ? lesson.topic : null,
+      contentType:
+        typeof lesson.content_type === "string" && lesson.content_type.trim().length > 0
+          ? lesson.content_type
+          : null,
+    }));
+  }, [lessonRecommendations]);
 
   const premiumOverview = useMemo(() => {
     if (!dashboardData) return null;
@@ -472,7 +524,7 @@ export default function DashboardV2Page() {
               <RecommendationCard
                 recommendation={recommendation}
                 isPremium={isPremium}
-                onUpgrade={createCheckoutSession}
+                lessons={recommendationLessons}
               />
             </SectionWrapperV2>
           </div>
@@ -539,7 +591,7 @@ export default function DashboardV2Page() {
               <RecommendationCard
                 recommendation={recommendation}
                 isPremium={isPremium}
-                onUpgrade={createCheckoutSession}
+                lessons={recommendationLessons}
               />
             </SectionWrapperV2>
 
