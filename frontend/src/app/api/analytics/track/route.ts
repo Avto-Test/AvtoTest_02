@@ -2,6 +2,8 @@ import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { Pool } from "pg";
 
+import { getRequestAuthToken, getServerApiBaseUrl } from "@/lib/server-api";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -77,27 +79,8 @@ function getPool(): Pool {
   return globalForPool.analyticsPool;
 }
 
-function getApiBaseUrl(): string {
-  const rawBaseUrl = process.env.API_URL;
-  if (!rawBaseUrl) {
-    throw new Error("API_URL is not defined");
-  }
-  return rawBaseUrl.trim().replace(/\/+$/, "");
-}
-
-function getAuthToken(request: NextRequest): string | null {
-  const authHeader = request.headers.get("authorization");
-  if (authHeader?.startsWith("Bearer ")) {
-    const token = authHeader.slice("Bearer ".length).trim();
-    return token.length > 0 ? token : null;
-  }
-
-  const cookieToken = request.cookies.get("access_token")?.value;
-  return cookieToken && cookieToken.length > 0 ? cookieToken : null;
-}
-
 async function resolveUserId(token: string): Promise<string | null> {
-  const apiBaseUrl = getApiBaseUrl();
+  const apiBaseUrl = getServerApiBaseUrl();
   const userResponse = await fetch(`${apiBaseUrl}/auth/me`, {
     method: "GET",
     headers: {
@@ -150,7 +133,7 @@ function parseBody(payload: unknown): TrackEventPayload | null {
 
 export async function POST(request: NextRequest) {
   try {
-    const token = getAuthToken(request);
+    const token = getRequestAuthToken(request);
     if (!token) {
       return NextResponse.json({ success: false }, { status: 401 });
     }

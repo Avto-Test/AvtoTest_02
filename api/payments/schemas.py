@@ -14,6 +14,8 @@ class CreateSessionRequest(BaseModel):
 
     plan_id: UUID | None = None
     promo_code: str | None = Field(default=None, max_length=50)
+    success_url: str | None = Field(default=None, max_length=2048)
+    cancel_url: str | None = Field(default=None, max_length=2048)
 
 
 class RedeemPromoRequest(BaseModel):

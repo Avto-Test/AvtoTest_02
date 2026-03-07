@@ -9,6 +9,7 @@ import uuid
 from datetime import timedelta
 from uuid import UUID
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from sqlalchemy import and_, func, or_, select
@@ -101,6 +102,81 @@ def _normalize_plan_code(value: str | None) -> str:
         return DEFAULT_PLAN_CODE
     normalized = value.strip().lower()
     return normalized or DEFAULT_PLAN_CODE
+
+
+def _normalize_origin(value: str | None) -> str | None:
+    if not value:
+        return None
+
+    parsed = urlsplit(value.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+
+    return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+
+
+def _allowed_redirect_origins() -> set[str]:
+    configured_origins = settings.ALLOWED_ORIGINS
+    if isinstance(configured_origins, str):
+        raw_origins = [item.strip() for item in configured_origins.split(",") if item.strip()]
+    else:
+        raw_origins = [str(item).strip() for item in configured_origins if str(item).strip()]
+
+    candidates = [
+        *raw_origins,
+        settings.FRONTEND_SUCCESS_URL,
+        settings.FRONTEND_CANCEL_URL,
+        settings.TSPAY_SUCCESS_URL,
+        settings.TSPAY_CANCEL_URL,
+    ]
+
+    allowed = set()
+    for candidate in candidates:
+        origin = _normalize_origin(candidate)
+        if origin:
+            allowed.add(origin)
+    return allowed
+
+
+def _resolve_checkout_redirect_url(
+    candidate_url: str | None,
+    *,
+    fallback_url: str,
+) -> str:
+    normalized_fallback = fallback_url.strip()
+    normalized_candidate = candidate_url.strip() if candidate_url else ""
+    if not normalized_candidate:
+        return normalized_fallback
+
+    parsed_candidate = urlsplit(normalized_candidate)
+    candidate_origin = _normalize_origin(normalized_candidate)
+    if (
+        parsed_candidate.scheme in {"http", "https"}
+        and parsed_candidate.netloc
+        and candidate_origin in _allowed_redirect_origins()
+    ):
+        return normalized_candidate
+
+    logger.warning(
+        "Ignoring unsupported checkout redirect URL '%s'; falling back to '%s'.",
+        normalized_candidate,
+        normalized_fallback,
+    )
+    return normalized_fallback
+
+
+def _resolve_checkout_redirect_urls(
+    request_payload: CreateSessionRequest,
+) -> tuple[str, str]:
+    success_url = _resolve_checkout_redirect_url(
+        request_payload.success_url,
+        fallback_url=settings.FRONTEND_SUCCESS_URL,
+    )
+    cancel_url = _resolve_checkout_redirect_url(
+        request_payload.cancel_url,
+        fallback_url=settings.FRONTEND_CANCEL_URL,
+    )
+    return success_url, cancel_url
 
 
 def _resolve_plan_pricing(plan: SubscriptionPlan | None) -> tuple[int, str]:
@@ -445,13 +521,14 @@ async def _create_session(
             }
         )
 
+    success_url, cancel_url = _resolve_checkout_redirect_urls(request_payload)
     payload = CreateCheckoutSessionRequest(
         user_id=str(current_user.id),
         email=current_user.email,
         amount_cents=final_amount_cents,
         currency=currency,
-        success_url=settings.FRONTEND_SUCCESS_URL,
-        cancel_url=settings.FRONTEND_CANCEL_URL,
+        success_url=success_url,
+        cancel_url=cancel_url,
         idempotency_key=idempotency_key,
         metadata=metadata,
     )
