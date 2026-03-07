@@ -5,11 +5,13 @@ Environment variables management using Pydantic Settings
 
 import os
 from functools import lru_cache
+from pathlib import Path
 
 from typing import Any, Union
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
@@ -34,6 +36,8 @@ class Settings(BaseSettings):
     EMAIL_PASSWORD: str = ""
     EMAIL_FROM: str = ""
     EMAIL_TIMEOUT_SECONDS: float = 12.0
+    RESEND_API_KEY: str = ""
+    RESEND_KEY: str = ""
     # SMTP aliases used by some deployment panels/secrets
     SMTP_HOST: str = ""
     SMTP_PORT: int | None = None
@@ -176,6 +180,11 @@ class Settings(BaseSettings):
         if not self.EMAIL_FROM and self.EMAIL_USERNAME:
             self.EMAIL_FROM = self.EMAIL_USERNAME
 
+        if not self.RESEND_API_KEY and self.RESEND_KEY:
+            self.RESEND_API_KEY = self.RESEND_KEY
+        if not self.RESEND_KEY and self.RESEND_API_KEY:
+            self.RESEND_KEY = self.RESEND_API_KEY
+
         if not self.DEBUG:
             if not self.SECRET_KEY:
                 raise ValueError("SECRET_KEY must be set when DEBUG is False (Production Mode)")
@@ -190,7 +199,7 @@ class Settings(BaseSettings):
         return self
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(str(BASE_DIR / ".env"), str(BASE_DIR / ".env.local")),
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore"

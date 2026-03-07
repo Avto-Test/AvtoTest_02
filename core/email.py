@@ -14,12 +14,20 @@ from core.config import settings
 
 logger = logging.getLogger(__name__)
 
-EMAIL_FROM = os.getenv("EMAIL_FROM") or settings.EMAIL_FROM or "AUTOTEST <onboarding@resend.dev>"
+
+def _get_email_from() -> str:
+    return (
+        settings.EMAIL_FROM
+        or os.getenv("EMAIL_FROM")
+        or "AUTOTEST <onboarding@resend.dev>"
+    ).strip()
 
 
 def _get_resend_api_key() -> str:
     return (
-        os.getenv("RESEND_API_KEY")
+        settings.RESEND_API_KEY
+        or settings.RESEND_KEY
+        or os.getenv("RESEND_API_KEY")
         or os.getenv("RESEND_KEY")
         or ""
     ).strip()
@@ -44,7 +52,7 @@ def send_email(to_email: str, subject: str, html: str) -> bool:
         return False
 
     params = {
-        "from": EMAIL_FROM,
+        "from": _get_email_from(),
         "to": [to_email],
         "subject": subject,
         "html": html,
