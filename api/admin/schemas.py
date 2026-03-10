@@ -249,7 +249,7 @@ class SubscriptionPlanCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: str | None = Field(default=None, max_length=500)
     price_cents: int = Field(..., ge=1)
-    currency: str = Field(default="USD", min_length=3, max_length=10)
+    currency: str = Field(default="UZS", min_length=3, max_length=10)
     duration_days: int = Field(default=30, ge=1, le=3650)
     is_active: bool = True
     sort_order: int = 0
@@ -292,8 +292,11 @@ class PromoCodeCreate(BaseModel):
     name: str | None = Field(default=None, max_length=255)
     description: str | None = Field(default=None, max_length=500)
     discount_type: str = Field(default="percent", max_length=20)
-    discount_value: int = Field(..., ge=1)
+    discount_value: int = Field(default=0, ge=0)
+    school_id: UUID | None = None
+    group_id: UUID | None = None
     max_redemptions: int | None = Field(default=None, ge=1)
+    max_uses: int | None = Field(default=None, ge=1)
     starts_at: datetime | None = None
     expires_at: datetime | None = None
     is_active: bool = True
@@ -306,8 +309,11 @@ class PromoCodeUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=255)
     description: str | None = Field(default=None, max_length=500)
     discount_type: str | None = Field(default=None, max_length=20)
-    discount_value: int | None = Field(default=None, ge=1)
+    discount_value: int | None = Field(default=None, ge=0)
+    school_id: UUID | None = None
+    group_id: UUID | None = None
     max_redemptions: int | None = Field(default=None, ge=1)
+    max_uses: int | None = Field(default=None, ge=1)
     starts_at: datetime | None = None
     expires_at: datetime | None = None
     is_active: bool | None = None
@@ -322,8 +328,12 @@ class PromoCodeResponse(BaseModel):
     description: str | None
     discount_type: str
     discount_value: int
+    school_id: UUID | None = None
+    group_id: UUID | None = None
     max_redemptions: int | None
+    max_uses: int | None = None
     redeemed_count: int
+    current_uses: int = 0
     starts_at: datetime | None
     expires_at: datetime | None
     is_active: bool

@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from api.auth.router import decode_access_token, get_current_user
+from api.auth.router import get_current_user, resolve_user_from_access_token
 from api.driving_schools.schemas import (
     DrivingSchoolAdminResponse,
     DrivingSchoolCatalogItemResponse,
@@ -150,17 +150,7 @@ async def _get_optional_user(request: Request, db: AsyncSession) -> User | None:
     if not token:
         return None
 
-    user_id = decode_access_token(token)
-    if not user_id:
-        return None
-
-    try:
-        user_uuid = UUID(str(user_id))
-    except ValueError:
-        return None
-
-    result = await db.execute(select(User).where(User.id == user_uuid))
-    return result.scalar_one_or_none()
+    return await resolve_user_from_access_token(token, db=db, include_subscription=False)
 
 
 async def _get_my_school(current_user: User, db: AsyncSession) -> DrivingSchool | None:

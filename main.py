@@ -9,7 +9,6 @@ from pathlib import Path
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from api.admin.router import router as admin_router
 from api.analytics.admin_router import router as admin_analytics_router
@@ -20,7 +19,10 @@ from api.auth.router import router as auth_router
 from api.feedback.router import router as feedback_router
 from api.notifications.router import router as notifications_router
 from api.payments.router import router as payments_router
+from api.promocode_router import router as promocode_router
 from api.lessons.router import router as lessons_router
+from api.learning.router import router as learning_router
+from api.school_router import router as school_router
 from api.driving_schools.router import router as driving_schools_router
 from api.driving_schools.admin_router import router as admin_driving_schools_router
 from api.driving_instructors.router import router as driving_instructors_router
@@ -30,20 +32,19 @@ from api.users.router import router as users_router
 from api.violations.router import router as violations_router
 from core.config import settings
 from core.logging import setup_logging
+from core.monitoring import init_monitoring
 from database.session import engine
 from middleware.error_handler import global_exception_handler, http_exception_handler
+from middleware.request_context import RequestContextMiddleware
 from middleware.rate_limit import RateLimitMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from ml.model_registry import get_inference_engine
-
+import models  # noqa: F401 - ensure ORM metadata is registered
 
 from sqlalchemy import text
 
 UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-
-import asyncio
-from services.payments.reconciliation import start_reconciliation_loop
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -53,6 +54,7 @@ async def lifespan(app: FastAPI):
     """
     # Startup: Configure logging and test DB
     setup_logging()
+    init_monitoring()
     print("Starting AUTOTEST application...")
     
     try:
@@ -62,23 +64,26 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[ERROR] Database connection failed: {e}")
         raise
-        
-    reconciliation_task = asyncio.create_task(start_reconciliation_loop())
+
+    # Phase 2.5: Trigger retrain check on startup (non-blocking background task)
+    import asyncio
+    async def _startup_retrain_check():
+        try:
+            from ml.retrain_scheduler import check_retrain_needed
+            result = await check_retrain_needed()
+            print(f"[ML] Retrain scheduler: {result}")
+        except Exception as exc:
+            print(f"[ML] Retrain scheduler startup check failed (non-blocking): {exc}")
+
+    asyncio.ensure_future(_startup_retrain_check())
     
     yield  # Application runs here
     
     # Shutdown: Dispose engine
     print("Shutting down AUTOTEST application...")
-    
-    reconciliation_task.cancel()
-    try:
-        await reconciliation_task
-    except asyncio.CancelledError:
-        pass
-        
+
     await engine.dispose()
     print("[OK] Database engine disposed")
-
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -91,6 +96,7 @@ app = FastAPI(
 
 # Rate Limiting Middleware
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(RequestContextMiddleware)
 
 # CORS Middleware must be the outermost middleware so even error responses
 # (including rate-limit and unhandled exceptions) include CORS headers.
@@ -98,12 +104,16 @@ origins = settings.ALLOWED_ORIGINS
 if isinstance(origins, str):
     origins = [o.strip() for o in origins.split(",") if o.strip()]
 
-# Hard requirements for frontend hosts (production + local dev).
-# Keep these explicit so dashboard analytics requests always pass CORS checks.
-required_origins = {
-    "http://165.232.160.172:3000",
-    "http://localhost:3000",
-}
+# Local development defaults are added only outside production. Production
+# deployments must use explicit ALLOWED_ORIGINS configuration.
+required_origins = (
+    {
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    }
+    if settings.DEBUG or settings.ENVIRONMENT == "testing"
+    else set()
+)
 
 origin_set = {origin.strip() for origin in origins if origin and origin.strip()}
 origin_set.update(required_origins)
@@ -137,8 +147,10 @@ api_router.include_router(users_router)
 api_router.include_router(tests_router)
 api_router.include_router(violations_router)
 api_router.include_router(lessons_router)
+api_router.include_router(learning_router)
 api_router.include_router(feedback_router)
 api_router.include_router(notifications_router)
+api_router.include_router(school_router)
 api_router.include_router(driving_schools_router)
 api_router.include_router(admin_driving_schools_router)
 api_router.include_router(driving_instructors_router)
@@ -154,12 +166,15 @@ app.include_router(legacy_analytics_router)
 app.include_router(user_analytics_router)
 app.include_router(admin_analytics_router)
 app.include_router(payments_router)
+app.include_router(promocode_router)
 app.include_router(users_router)
 app.include_router(tests_router)
 app.include_router(violations_router)
 app.include_router(lessons_router)
+app.include_router(learning_router)
 app.include_router(feedback_router)
 app.include_router(notifications_router)
+app.include_router(school_router)
 app.include_router(driving_schools_router)
 app.include_router(admin_driving_schools_router)
 app.include_router(driving_instructors_router)
@@ -199,13 +214,14 @@ async def health_check():
         
     return health_status
 
-@app.post("/debug/request")
-async def debug_request(request: Request):
-    """Diagnostic endpoint to see what the frontend is actually sending."""
-    body = await request.body()
-    return {
-        "method": request.method,
-        "url": str(request.url),
-        "headers": dict(request.headers),
-        "body_decoded": body.decode(),
-    }
+if settings.DEBUG:
+    @app.post("/debug/request")
+    async def debug_request(request: Request):
+        """Diagnostic endpoint to inspect development request payloads."""
+        body = await request.body()
+        return {
+            "method": request.method,
+            "url": str(request.url),
+            "headers": dict(request.headers),
+            "body_decoded": body.decode(),
+        }

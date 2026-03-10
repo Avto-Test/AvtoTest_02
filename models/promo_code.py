@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -15,6 +15,7 @@ from database.base import Base
 from models.promo_code_plan import PromoCodePlan  # noqa: F401
 
 if TYPE_CHECKING:
+    from models.driving_school import DrivingSchool
     from models.promo_redemption import PromoRedemption
     from models.subscription_plan import SubscriptionPlan
 
@@ -46,8 +47,25 @@ class PromoCode(Base):
         Integer,
         nullable=False,
     )
+    school_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "driving_schools.id",
+            ondelete="SET NULL",
+            name="fk_promo_codes_school_id_driving_schools",
+            use_alter=True,
+        ),
+        nullable=True,
+        index=True,
+    )
+    group_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=True,
+    )
     max_redemptions: Mapped[int | None] = mapped_column(Integer, nullable=True)
     redeemed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_uses: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    current_uses: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -68,6 +86,10 @@ class PromoCode(Base):
         back_populates="promo_code",
         cascade="all, delete-orphan",
     )
+    school: Mapped["DrivingSchool | None"] = relationship(
+        "DrivingSchool",
+        foreign_keys=[school_id],
+    )
     applicable_plans: Mapped[list["SubscriptionPlan"]] = relationship(
         "SubscriptionPlan",
         secondary="promo_code_plans",
@@ -77,6 +99,12 @@ class PromoCode(Base):
     @property
     def applicable_plan_ids(self) -> list[uuid.UUID]:
         return [plan.id for plan in self.applicable_plans]
+
+    @property
+    def discount_percent(self) -> int | None:
+        if self.discount_type != "percent" or self.discount_value <= 0:
+            return None
+        return self.discount_value
 
     def __repr__(self) -> str:
         return f"<PromoCode(id={self.id}, code={self.code})>"

@@ -5,12 +5,13 @@ Endpoints for browsing and viewing tests
 
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
+import json
 import logging
 from math import exp
 from uuid import UUID
 import random
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import Float, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,6 +31,7 @@ from models.user_adaptive_profile import UserAdaptiveProfile
 from models.user_question_history import UserQuestionHistory
 from models.user_skill import UserSkill
 from core.config import settings
+from core.errors import get_request_id
 from analytics.pass_probability import calculate_pass_probability
 
 router = APIRouter(prefix="/tests", tags=["tests"])
@@ -43,6 +45,27 @@ QUESTION_COUNT_TO_MINUTES = {
     50: 62,
 }
 FREE_RANDOM_QUESTION_COUNT = 20
+
+
+def _log_test_event(
+    level: int,
+    *,
+    event: str,
+    attempt_id: str,
+    user_id: str,
+    test_id: str,
+    mode: str,
+    total_questions: int,
+) -> None:
+    payload = {
+        "event": event,
+        "attempt_id": attempt_id,
+        "user_id": user_id,
+        "test_id": test_id,
+        "mode": mode,
+        "total_questions": total_questions,
+    }
+    logger.log(level, "exam_event %s", json.dumps(payload, sort_keys=True))
 
 
 def _sanitize_option_text(text_value: str) -> str:
@@ -312,6 +335,7 @@ async def _get_or_create_adaptive_profile(current_user: User, db: AsyncSession) 
 
 @router.post("/adaptive/start", response_model=AdaptiveStartResponse)
 async def start_adaptive_test(
+    request: Request,
     payload: AdaptiveStartRequest | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -778,7 +802,11 @@ async def start_adaptive_test(
             for key in category_weights.keys()
         }
         difficulty_trend = round(last_chunk_avg - first_chunk_avg, 2)
-        probability_prediction = await calculate_pass_probability(current_user.id, db)
+        probability_prediction = await calculate_pass_probability(
+            current_user.id,
+            db,
+            request_id=get_request_id(request),
+        )
         pass_probability_prediction = round(probability_prediction.pass_probability, 4)
         logger.info(
             "TEST_GENERATION | selected_questions=%s | difficulty_distribution=%s | category_distribution=%s | "
@@ -857,6 +885,15 @@ async def start_adaptive_test(
     db.add(attempt)
     await db.commit()
     await db.refresh(attempt)
+    _log_test_event(
+        logging.INFO,
+        event="exam_started",
+        attempt_id=str(attempt.id),
+        user_id=str(current_user.id),
+        test_id=str(attempt.test_id),
+        mode=attempt.mode,
+        total_questions=len(questions),
+    )
 
     return AdaptiveStartResponse(
         id=attempt.id,
@@ -936,6 +973,15 @@ async def start_free_random_test(
     db.add(attempt)
     await db.commit()
     await db.refresh(attempt)
+    _log_test_event(
+        logging.INFO,
+        event="exam_started",
+        attempt_id=str(attempt.id),
+        user_id=str(current_user.id),
+        test_id=str(attempt.test_id),
+        mode=attempt.mode,
+        total_questions=len(questions),
+    )
 
     refreshed_usage = await _get_free_attempt_status(current_user, db)
 
@@ -958,6 +1004,7 @@ async def start_free_random_test(
 @router.get("/{test_id}", response_model=PublicTestDetail)
 async def get_test_detail(
     test_id: UUID,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -980,6 +1027,12 @@ async def get_test_detail(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Test not found",
+        )
+
+    if test.is_premium and not (current_user.is_premium or current_user.is_admin):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Premium subscription required to access this test.",
         )
 
     return {

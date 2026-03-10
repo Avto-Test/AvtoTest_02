@@ -6,7 +6,7 @@ SQLAlchemy model for guest attempt answers
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, ForeignKey
+from sqlalchemy import Boolean, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -20,6 +20,10 @@ class GuestAttemptAnswer(Base):
     """Guest answer record for an attempt."""
 
     __tablename__ = "guest_attempt_answers"
+    __table_args__ = (
+        UniqueConstraint("attempt_id", "question_id", name="uq_guest_attempt_answers_attempt_question"),
+        Index("ix_guest_attempt_answers_attempt_question", "attempt_id", "question_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

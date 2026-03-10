@@ -81,6 +81,15 @@ async def _ensure_test_database_exists() -> None:
             await connection.execute(f'CREATE DATABASE "{escaped_database}"')
     finally:
         await connection.close()
+async def _reset_test_schema() -> None:
+    async with engine.begin() as conn:
+        if conn.dialect.name == "postgresql":
+            await conn.exec_driver_sql("DROP SCHEMA IF EXISTS public CASCADE")
+            await conn.exec_driver_sql("CREATE SCHEMA public")
+        else:
+            await conn.run_sync(Base.metadata.drop_all)
+
+        await conn.run_sync(Base.metadata.create_all)
 
 # Use NullPool to avoid asyncio loop issues with the connection pool
 engine = create_async_engine(TEST_DATABASE_URL, echo=False, poolclass=NullPool)
@@ -109,12 +118,14 @@ def reset_rate_limiter():
 async def init_db() -> AsyncGenerator:
     """Initialize database metadata."""
     await _ensure_test_database_exists()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
+    await _reset_test_schema()
     yield
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        if conn.dialect.name == "postgresql":
+            await conn.exec_driver_sql("DROP SCHEMA IF EXISTS public CASCADE")
+            await conn.exec_driver_sql("CREATE SCHEMA public")
+        else:
+            await conn.run_sync(Base.metadata.drop_all)
 
 
 @pytest.fixture
@@ -188,6 +199,7 @@ async def premium_user(db_session: AsyncSession) -> User:
     sub = Subscription(
         user_id=user.id,
         plan="premium",
+        status="active",
         expires_at=datetime.now(timezone.utc) + timedelta(days=30)
     )
     db_session.add(sub)

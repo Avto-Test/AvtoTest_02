@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.auth.router import decode_access_token
+from api.auth.router import resolve_user_from_access_token
 from database.session import get_db
 from models.user import User
 from models.user_notification import UserNotification
@@ -43,15 +43,7 @@ async def _get_user_from_request(request: Request, db: AsyncSession) -> User | N
     if not token:
         return None
 
-    user_id = decode_access_token(token)
-    if not user_id:
-        return None
-    try:
-        user_uuid = UUID(str(user_id))
-    except ValueError:
-        return None
-    result = await db.execute(select(User).where(User.id == user_uuid))
-    return result.scalar_one_or_none()
+    return await resolve_user_from_access_token(token, db=db, include_subscription=False)
 
 
 @router.post("/log")

@@ -15,8 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.admin.router import get_current_admin
 from api.analytics.schemas import DashboardResponse, UserAnalyticsSummary
 from api.analytics.user_router import get_dashboard, get_user_summary
-from api.auth.router import get_current_user
-from core.security import decode_access_token
+from api.auth.router import get_current_user, resolve_user_from_access_token
 from database.session import get_db
 from models.analytics_event import AnalyticsEvent
 from models.user import User
@@ -75,17 +74,7 @@ async def _resolve_optional_user_id(
     if not token:
         return None
 
-    user_id_raw = decode_access_token(token)
-    if not user_id_raw:
-        return None
-
-    try:
-        user_id = UUID(user_id_raw)
-    except ValueError:
-        return None
-
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
+    user = await resolve_user_from_access_token(token, db=db, include_subscription=False)
     if not user or not user.is_active:
         return None
     return user.id

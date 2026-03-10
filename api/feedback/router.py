@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from api.admin.router import get_current_admin
 from api.auth.router import get_current_user
 from api.feedback.schemas import FeedbackAdminUpdate, FeedbackCreate, FeedbackResponse
 from database.session import get_db
@@ -43,18 +44,6 @@ def _serialize_feedback(item: Feedback) -> FeedbackResponse:
         updated_at=item.updated_at,
         user_email=item.user.email if getattr(item, "user", None) else None,
     )
-
-
-async def get_current_admin(
-    current_user: User = Depends(get_current_user),
-) -> User:
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
-        )
-    return current_user
-
 
 @router.post("", response_model=FeedbackResponse, status_code=status.HTTP_201_CREATED)
 async def create_feedback(

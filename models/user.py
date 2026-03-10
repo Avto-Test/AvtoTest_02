@@ -18,7 +18,10 @@ if TYPE_CHECKING:
     from models.feedback import Feedback
     from models.payment import Payment
     from models.promo_redemption import PromoRedemption
+    from models.refresh_session import RefreshSession
+    from models.school_membership import SchoolMembership
     from models.subscription import Subscription
+    from models.user_role import UserRole
     from models.user_adaptive_profile import UserAdaptiveProfile
     from models.user_notification import UserNotification
     from models.verification_token import VerificationToken
@@ -121,6 +124,21 @@ class User(Base):
     )
     notifications: Mapped[list["UserNotification"]] = relationship(
         "UserNotification",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    refresh_sessions: Mapped[list["RefreshSession"]] = relationship(
+        "RefreshSession",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    user_roles: Mapped[list["UserRole"]] = relationship(
+        "UserRole",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    school_memberships: Mapped[list["SchoolMembership"]] = relationship(
+        "SchoolMembership",
         back_populates="user",
         cascade="all, delete-orphan",
     )

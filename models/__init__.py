@@ -8,12 +8,21 @@ from models.attempt import Attempt
 from models.attempt_answer import AttemptAnswer
 from models.payment import Payment
 from models.question import Question
+from models.question_difficulty import QuestionDifficulty
 from models.question_category import QuestionCategory
+from models.permission import Permission
+from models.refresh_session import RefreshSession
+from models.review_queue import ReviewQueue
+from models.role import Role
+from models.role_permission import RolePermission
+from models.school_membership import SchoolMembership
 from models.subscription import Subscription
 from models.test import Test
 from models.user import User
+from models.user_role import UserRole
 from models.user_adaptive_profile import UserAdaptiveProfile
 from models.user_notification import UserNotification
+from models.user_topic_stats import UserTopicStats
 from models.user_training_history import UserTrainingHistory
 from models.user_question_history import UserQuestionHistory
 from models.inference_snapshot import InferenceSnapshot
@@ -48,7 +57,14 @@ __all__ = [
     "VerificationToken",
     "Test",
     "Question",
+    "QuestionDifficulty",
     "QuestionCategory",
+    "Permission",
+    "RefreshSession",
+    "ReviewQueue",
+    "Role",
+    "RolePermission",
+    "SchoolMembership",
     "AnswerOption",
     "AnalyticsEvent",
     "Attempt",
@@ -71,6 +87,8 @@ __all__ = [
     "Feedback",
     "UserAdaptiveProfile",
     "UserNotification",
+    "UserRole",
+    "UserTopicStats",
     "DrivingSchool",
     "DrivingSchoolCourse",
     "DrivingSchoolMedia",

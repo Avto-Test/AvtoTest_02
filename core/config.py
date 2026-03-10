@@ -15,8 +15,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "http://165.232.160.172:3000",
-    "https://165.232.160.172:3000",
 ]
 
 
@@ -49,8 +47,8 @@ class Settings(BaseSettings):
     # SECRET_KEY must be a long random string in production.
     # It is MANDATORY if DEBUG=False.
     SECRET_KEY: str = "" 
-    # Match the frontend's persisted 7-day session until refresh tokens exist.
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 20
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 14
     ALGORITHM: str = "HS256"
     
     # Database
@@ -58,6 +56,12 @@ class Settings(BaseSettings):
     
     # Logging
     LOG_LEVEL: str = "INFO"
+
+    # Monitoring
+    SENTRY_DSN: str = ""
+    SENTRY_ENVIRONMENT: str = ""
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.0
+    SENTRY_RELEASE: str = ""
     
     # CORS
     ALLOWED_ORIGINS: Union[list[str], str] = DEFAULT_ALLOWED_ORIGINS
@@ -185,11 +189,28 @@ class Settings(BaseSettings):
         if not self.RESEND_KEY and self.RESEND_API_KEY:
             self.RESEND_KEY = self.RESEND_API_KEY
 
+        if not self.SENTRY_ENVIRONMENT:
+            self.SENTRY_ENVIRONMENT = self.ENVIRONMENT
+
         if not self.DEBUG:
             if not self.SECRET_KEY:
                 raise ValueError("SECRET_KEY must be set when DEBUG is False (Production Mode)")
             if self.SECRET_KEY == "your-secret-key-change-in-production":
                 raise ValueError("Insecure SECRET_KEY detected in Production Mode")
+            if "*" in self.ALLOWED_ORIGINS:
+                raise ValueError("Wildcard ALLOWED_ORIGINS is not allowed in Production Mode")
+            insecure_origins = [
+                origin
+                for origin in self.ALLOWED_ORIGINS
+                if origin.startswith("http://")
+                and "localhost" not in origin
+                and "127.0.0.1" not in origin
+            ]
+            if insecure_origins:
+                raise ValueError(
+                    "Insecure ALLOWED_ORIGINS detected in Production Mode: "
+                    + ", ".join(insecure_origins)
+                )
 
             if not self.TSPAY_ACCESS_TOKEN and not self.TSPAY_MERCHANT_KEY and not self.TSPAY_API_KEY:
                 import logging

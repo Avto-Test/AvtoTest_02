@@ -4,8 +4,10 @@ AUTOTEST Authentication Tests
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from models.pending_registration import PendingRegistration
 from models.user import User
 
 @pytest.mark.asyncio
@@ -17,18 +19,21 @@ async def test_register_success(client: AsyncClient, db_session: AsyncSession):
     })
     assert response.status_code == 201
     data = response.json()
-    # Registration endpoint returns MessageResponse, not UserResponse
     assert "message" in data
 
-    # Verify user was created in DB
-    result = await db_session.execute(select(User).where(User.email == "newuser@example.com"))
-    user = result.scalar_one_or_none()
-    assert user is not None
-    # When ENABLE_EMAIL_VERIFICATION is False, user is immediately verified
     from core.config import settings
     if settings.ENABLE_EMAIL_VERIFICATION:
-        assert user.is_verified is False
+        pending_result = await db_session.execute(
+            select(PendingRegistration).where(PendingRegistration.email == "newuser@example.com")
+        )
+        pending = pending_result.scalar_one_or_none()
+        user_result = await db_session.execute(select(User).where(User.email == "newuser@example.com"))
+        assert pending is not None
+        assert user_result.scalar_one_or_none() is None
     else:
+        result = await db_session.execute(select(User).where(User.email == "newuser@example.com"))
+        user = result.scalar_one_or_none()
+        assert user is not None
         assert user.is_verified is True
 
 
@@ -40,12 +45,11 @@ async def test_register_duplicate_email(client: AsyncClient, normal_user: User):
         "full_name": "Duplicate User"
     })
     assert response.status_code == 400
-    assert "already registered" in response.json()["detail"]
+    assert "allaqachon" in response.json()["detail"]
 
 
 @pytest.mark.asyncio
 async def test_login_success(client: AsyncClient, normal_user: User):
-    # Login endpoint uses JSON body (UserLogin schema), not OAuth2 form data
     response = await client.post("/auth/login", json={
         "email": normal_user.email,
         "password": "password123"
@@ -53,51 +57,59 @@ async def test_login_success(client: AsyncClient, normal_user: User):
     assert response.status_code == 200
     data = response.json()
     assert "access_token" in data
+    assert "refresh_token" in data
     assert data["token_type"] == "bearer"
 
 
 @pytest.mark.asyncio
 async def test_login_wrong_password(client: AsyncClient, normal_user: User):
-    # Login endpoint uses JSON body (UserLogin schema), not OAuth2 form data
     response = await client.post("/auth/login", json={
         "email": normal_user.email,
         "password": "wrongpassword"
     })
     assert response.status_code == 401
-    assert "Incorrect email or password" in response.json()["detail"]
+    assert "noto'g'ri" in response.json()["detail"]
 
 
 @pytest.mark.asyncio
 async def test_verify_email_flow(client: AsyncClient, db_session: AsyncSession):
     from core.config import settings
-    from models.verification_token import VerificationToken
+
     email = "verify@example.com"
     await client.post("/auth/register", json={
         "email": email,
         "password": "password123"
     })
 
-    result = await db_session.execute(select(User).where(User.email == email))
-    user = result.scalar_one()
-
     if not settings.ENABLE_EMAIL_VERIFICATION:
+        result = await db_session.execute(select(User).where(User.email == email))
+        user = result.scalar_one()
         # Verification bypassed: user is already verified, no token created
         assert user.is_verified is True
         return
 
-    # ENABLE_EMAIL_VERIFICATION=True path:
-    result = await db_session.execute(select(VerificationToken).where(VerificationToken.user_id == user.id))
-    token = result.scalar_one()
+    result = await db_session.execute(
+        select(PendingRegistration).where(PendingRegistration.email == email)
+    )
+    pending = result.scalar_one()
 
     response = await client.post("/auth/verify", json={
         "email": email,
-        "code": token.code
+        "code": pending.code
     })
     assert response.status_code == 200
-    assert response.json()["message"] == "Email verified successfully"
+    assert "access_token" in response.json()
+    assert "refresh_token" in response.json()
 
+    user_result = await db_session.execute(select(User).where(User.email == email))
+    user = user_result.scalar_one()
     await db_session.refresh(user)
     assert user.is_verified is True
+
+    pending_after_result = await db_session.execute(
+        select(PendingRegistration).where(PendingRegistration.email == email)
+    )
+    assert pending_after_result.scalar_one_or_none() is None
 
 
 @pytest.mark.asyncio

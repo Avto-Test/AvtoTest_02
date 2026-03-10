@@ -3,8 +3,11 @@ AUTOTEST User Analytics Router
 Analytics endpoints for authenticated users
 """
 
+import logging
+
 from fastapi import APIRouter, Depends
-from sqlalchemy import desc, func, select, case, text
+from sqlalchemy import desc, func, select, case, text, literal
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from datetime import datetime, timezone, timedelta
@@ -50,6 +53,34 @@ from ml.features import get_user_feature_vector
 from ml.model_registry import get_inference_engine
 
 router = APIRouter(prefix="/analytics/me", tags=["analytics"])
+logger = logging.getLogger(__name__)
+
+
+def _ensure_utc(dt: datetime | None) -> datetime | None:
+    """Normalize DB datetimes to UTC-aware to prevent naive/aware comparison crashes."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _is_due(next_review_at: datetime | None, now_utc: datetime) -> bool:
+    review_at = _ensure_utc(next_review_at)
+    return review_at is not None and review_at <= now_utc
+
+
+def _safe_float(value: object, default: float = 0.0) -> float:
+    """Null/NaN-safe float conversion for analytics calculations."""
+    try:
+        if value is None:
+            return default
+        numeric = float(value)
+        if not (numeric == numeric):  # NaN guard
+            return default
+        return numeric
+    except (TypeError, ValueError):
+        return default
 
 
 def _compute_focus_topics(
@@ -76,9 +107,9 @@ def _compute_focus_topics(
     for skill in user_skills:
         key = normalize_learning_key(skill.topic)
         due_boost = 0.0
-        if skill.next_review_at and skill.next_review_at <= now_utc:
+        if _is_due(skill.next_review_at, now_utc):
             due_boost = 0.25
-        skill_gap = max(0.0, 1 - float(skill.bkt_knowledge_prob))
+        skill_gap = max(0.0, 1 - _safe_float(skill.bkt_knowledge_prob, 0.0))
         skill_priority = min(1.0, 0.5 * skill_gap + due_boost)
         topic_priority[key] = max(topic_priority.get(key, 0.0), skill_priority)
 
@@ -181,12 +212,13 @@ async def get_review_queue(
     """Get topics due for spaced repetition review."""
     
     now_utc = datetime.now(timezone.utc)
+    now_cmp = now_utc.replace(tzinfo=None)
     
     stmt = (
         select(UserSkill)
         .where(
             UserSkill.user_id == current_user.id,
-            UserSkill.next_review_at <= now_utc
+            UserSkill.next_review_at <= now_cmp
         )
         .order_by(UserSkill.next_review_at.asc())
     )
@@ -198,14 +230,15 @@ async def get_review_queue(
         # Retention Decay logic (Phase 9)
         ret = 1.0
         if s.last_practice_at:
-            days = (now_utc - s.last_practice_at).days
+            last_practice = _ensure_utc(s.last_practice_at)
+            days = (now_utc - last_practice).days if last_practice else 0
             ret = max(0.2, min(1.0, exp(-0.015 * days)))
             
         due_topics.append(DueTopic(
             topic=s.topic,
             next_review_at=s.next_review_at.isoformat() if s.next_review_at else now_utc.isoformat(),
             retention_score=round(ret, 2),
-            bkt_prob=round(s.bkt_knowledge_prob, 2)
+            bkt_prob=round(_safe_float(s.bkt_knowledge_prob, 0.0), 2)
         ))
     
     return ReviewQueueResponse(
@@ -245,16 +278,15 @@ async def get_dashboard(
             return "Yo'l harakati qoidalari"
         return "Yo'l harakati qoidalari"
 
-    # 1) General attempts and score trend
-    stmt_general = (
+    # 1) General attempts and score trend.
+    # Production safety: if some optional columns are missing in a legacy DB,
+    # fallback to a compatible projection instead of returning HTTP 500.
+    base_attempt_stmt = (
         select(
-            Attempt.id,
-            Attempt.score,
-            Attempt.question_count,
-            Attempt.finished_at,
-            Attempt.mode,
-            Attempt.avg_response_time,
-            Attempt.response_time_variance,
+            Attempt.id.label("id"),
+            Attempt.score.label("score"),
+            Attempt.question_count.label("question_count"),
+            Attempt.finished_at.label("finished_at"),
         )
         .where(
             Attempt.user_id == current_user.id,
@@ -262,8 +294,28 @@ async def get_dashboard(
         )
         .order_by(Attempt.finished_at.desc())
     )
-    res_general = await db.execute(stmt_general)
-    rows_general = res_general.all()
+
+    try:
+        stmt_general = base_attempt_stmt.add_columns(
+            Attempt.mode.label("mode"),
+            Attempt.avg_response_time.label("avg_response_time"),
+            Attempt.response_time_variance.label("response_time_variance"),
+        )
+        res_general = await db.execute(stmt_general)
+        rows_general = res_general.all()
+    except SQLAlchemyError as exc:
+        logger.warning(
+            "Dashboard query fallback for user_id=%s due to legacy attempt schema: %s",
+            current_user.id,
+            exc,
+        )
+        stmt_general_legacy = base_attempt_stmt.add_columns(
+            literal("adaptive").label("mode"),
+            literal(0.0).label("avg_response_time"),
+            literal(0.0).label("response_time_variance"),
+        )
+        res_general = await db.execute(stmt_general_legacy)
+        rows_general = res_general.all()
 
     total_attempts = len(rows_general)
     score_pcts = [_attempt_pct(row) for row in rows_general]
@@ -372,14 +424,31 @@ async def get_dashboard(
 
     # 3) Skills / retention
     now_utc = datetime.now(timezone.utc)
-    stmt_skills = select(UserSkill).where(UserSkill.user_id == current_user.id)
-    res_skills = await db.execute(stmt_skills)
-    user_skills = res_skills.scalars().all()
+    try:
+        stmt_skills = select(UserSkill).where(UserSkill.user_id == current_user.id)
+        res_skills = await db.execute(stmt_skills)
+        user_skills = res_skills.scalars().all()
+    except SQLAlchemyError as exc:
+        logger.warning(
+            "Dashboard skills fallback for user_id=%s due to legacy user_skills schema: %s",
+            current_user.id,
+            exc,
+        )
+        user_skills = []
 
-    total_due = sum(1 for s in user_skills if s.next_review_at and s.next_review_at <= now_utc)
-    skill_vector = [TopicSkill(topic=s.topic, skill=round(s.skill_score * 100, 1)) for s in user_skills]
-    knowledge_mastery = [KnowledgeMastery(topic=s.topic, probability=round(s.bkt_knowledge_prob * 100, 1)) for s in user_skills]
-    retention_vector = [TopicRetention(topic=s.topic, retention=round(float(s.retention_score), 2)) for s in user_skills]
+    total_due = sum(1 for s in user_skills if _is_due(s.next_review_at, now_utc))
+    skill_vector = [
+        TopicSkill(topic=s.topic, skill=round(_safe_float(s.skill_score, 0.0) * 100, 1))
+        for s in user_skills
+    ]
+    knowledge_mastery = [
+        KnowledgeMastery(topic=s.topic, probability=round(_safe_float(s.bkt_knowledge_prob, 0.0) * 100, 1))
+        for s in user_skills
+    ]
+    retention_vector = [
+        TopicRetention(topic=s.topic, retention=round(_safe_float(s.retention_score, 0.0), 2))
+        for s in user_skills
+    ]
 
     # 4) Lesson recommendations
     focus_topics = _compute_focus_topics(topic_stats_for_focus, user_skills)
@@ -505,8 +574,10 @@ async def get_dashboard(
 
     last_row = rows_general[0] if rows_general else None
     pressure_resilience = 1.0
-    if last_row and last_row.avg_response_time and last_row.response_time_variance and last_row.avg_response_time > 0:
-        norm_var = last_row.response_time_variance / (last_row.avg_response_time ** 2)
+    last_avg_response_time = _safe_float(getattr(last_row, "avg_response_time", 0.0), 0.0) if last_row else 0.0
+    last_response_time_variance = _safe_float(getattr(last_row, "response_time_variance", 0.0), 0.0) if last_row else 0.0
+    if last_row and last_avg_response_time > 0 and last_response_time_variance > 0:
+        norm_var = last_response_time_variance / (last_avg_response_time ** 2)
         pressure_resilience = max(0.0, min(1.0, 1.0 - norm_var))
 
     retention_percent_values = []
@@ -529,21 +600,45 @@ async def get_dashboard(
     elif len(score_pcts) == 1:
         trend_score = score_pcts[0]
 
-    hard_stmt = (
-        select(
-            func.count(AttemptAnswer.id).label("total"),
-            func.sum(case((AttemptAnswer.is_correct == True, 1), else_=0)).label("correct"),
+    try:
+        hard_stmt = (
+            select(
+                func.count(AttemptAnswer.id).label("total"),
+                func.sum(case((AttemptAnswer.is_correct == True, 1), else_=0)).label("correct"),
+            )
+            .join(Attempt, AttemptAnswer.attempt_id == Attempt.id)
+            .join(Question, AttemptAnswer.question_id == Question.id)
+            .where(
+                Attempt.user_id == current_user.id,
+                Attempt.finished_at.is_not(None),
+                ((Question.difficulty_percent.is_not(None)) & (Question.difficulty_percent <= 33))
+                | ((Question.difficulty_percent.is_(None)) & (Question.difficulty == "hard")),
+            )
         )
-        .join(Attempt, AttemptAnswer.attempt_id == Attempt.id)
-        .join(Question, AttemptAnswer.question_id == Question.id)
-        .where(
-            Attempt.user_id == current_user.id,
-            Attempt.finished_at.is_not(None),
-            ((Question.difficulty_percent.is_not(None)) & (Question.difficulty_percent <= 33))
-            | ((Question.difficulty_percent.is_(None)) & (Question.difficulty == "hard")),
+        hard_row = (await db.execute(hard_stmt)).one()
+    except SQLAlchemyError as exc:
+        logger.warning(
+            "Dashboard hard-question fallback for user_id=%s due to legacy question schema: %s",
+            current_user.id,
+            exc,
         )
-    )
-    hard_row = (await db.execute(hard_stmt)).one()
+        try:
+            hard_stmt = (
+                select(
+                    func.count(AttemptAnswer.id).label("total"),
+                    func.sum(case((AttemptAnswer.is_correct == True, 1), else_=0)).label("correct"),
+                )
+                .join(Attempt, AttemptAnswer.attempt_id == Attempt.id)
+                .join(Question, AttemptAnswer.question_id == Question.id)
+                .where(
+                    Attempt.user_id == current_user.id,
+                    Attempt.finished_at.is_not(None),
+                    Question.difficulty == "hard",
+                )
+            )
+            hard_row = (await db.execute(hard_stmt)).one()
+        except SQLAlchemyError:
+            hard_row = type("HardRow", (), {"total": 0, "correct": 0})()
     hard_total = int(hard_row.total or 0)
     hard_correct = int(hard_row.correct or 0)
     difficulty_performance = max(0.0, min(1.0, (hard_correct / hard_total) if hard_total else 0.0))
@@ -588,6 +683,39 @@ async def get_dashboard(
     readiness_score = round((accuracy_score * 0.5 + category_balance_score * 0.3 + trend_score * 0.2), 1)
     adaptive_intelligence_strength = round((mastery_score * 0.4 + knowledge_stability_score * 0.6), 1)
 
+    # 8) ML inference — Phase 2.5
+    # safe_ml_inference never raises; returns None if model missing or feature extraction fails.
+    from ml.model_registry import safe_ml_inference, get_inference_engine
+
+    ml_prob_raw: float | None = await safe_ml_inference(db, str(current_user.id))
+
+    # Compute final blended probability
+    rule_prob_0_1 = pass_probability_norm  # already 0.0–1.0
+    if ml_prob_raw is not None:
+        engine_inst = get_inference_engine()
+        auc_score = engine_inst.auc_score if engine_inst.status == "active" else 0.0
+        ml_model_version = engine_inst.version
+
+        if auc_score >= 0.85:
+            ml_weight = 0.75
+        elif auc_score >= 0.75:
+            ml_weight = 0.60
+        else:
+            ml_weight = 0.40
+
+        final_0_1 = ml_weight * ml_prob_raw + (1.0 - ml_weight) * rule_prob_0_1
+        final_0_1 = max(0.0, min(1.0, final_0_1))
+        ml_status_value = "ml_active"
+        pass_probability_ml_display = round(ml_prob_raw * 100.0, 1)
+    else:
+        final_0_1 = rule_prob_0_1
+        ml_model_version = "v2-transparent"
+        ml_status_value = "rule_only"
+        pass_probability_ml_display = None
+
+    pass_probability_final_display = round(final_0_1 * 100.0, 1) if total_attempts > 0 else 0.0
+    pass_probability = pass_probability_final_display
+
     if pass_probability >= 90:
         pass_prediction_label = "Imtihonga tayyor"
     elif pass_probability >= 75:
@@ -605,7 +733,7 @@ async def get_dashboard(
         cognitive_stability = "Past"
 
     pass_probability_breakdown = PassProbabilityBreakdown(
-        explanation="O‘tish ehtimoli sizning test natijalaringiz, savollarni o‘zlashtirish darajasi va so‘nggi rivojlanish trendi asosida hisoblanadi.",
+        explanation="O'tish ehtimoli sizning test natijalaringiz, savollarni o'zlashtirish darajasi va so'nggi rivojlanish trendi asosida hisoblanadi.",
         factors=factor_models,
     )
 
@@ -624,15 +752,15 @@ async def get_dashboard(
             pass_prediction_label=pass_prediction_label,
             adaptive_intelligence_strength=adaptive_intelligence_strength,
             total_due=total_due,
-            avg_response_time=last_row.avg_response_time if last_row else 0.0,
+            avg_response_time=last_avg_response_time,
             cognitive_stability=cognitive_stability,
             pressure_resilience=round(pressure_resilience * 100, 1),
-            pass_probability_ml=None,
+            pass_probability_ml=pass_probability_ml_display,
             pass_probability_rule=weighted_total,
-            pass_probability_final=pass_probability,
+            pass_probability_final=pass_probability_final_display,
             confidence_score=round(confidence_score, 2),
-            model_version="v2-transparent",
-            ml_status="rule_only",
+            model_version=ml_model_version,
+            ml_status=ml_status_value,
         ),
         recommendation=recommendation,
         recent_scores=[int(round(v)) for v in recent_scores],
@@ -646,6 +774,7 @@ async def get_dashboard(
         question_bank_mastery=question_bank_mastery,
         pass_probability_breakdown=pass_probability_breakdown,
     )
+
 
 
 @router.get("/intelligence-history", response_model=list[IntelligenceSnapshot])
