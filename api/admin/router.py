@@ -44,9 +44,10 @@ from api.admin.schemas import (
     TestResponse,
     TestUpdate,
 )
-from api.auth.router import get_current_user
+from core.rbac import RBACContext, SUPER_ADMIN_ROLE, require_role
 from database.session import get_db
 from models.answer_option import AnswerOption
+from models.driving_school import DrivingSchool
 from models.question import Question
 from models.question_category import QuestionCategory
 from models.lesson import Lesson
@@ -105,13 +106,13 @@ def _lesson_content_type_from_extension(extension: str) -> str:
 
 
 async def get_current_admin(
-    current_user: User = Depends(get_current_user),
+    context: RBACContext = Depends(require_role(SUPER_ADMIN_ROLE)),
 ) -> User:
     """
     Dependency to verify the current user is an admin.
     
     Args:
-        current_user: The authenticated user
+        context: The resolved RBAC context
     
     Returns:
         The admin User object
@@ -119,12 +120,7 @@ async def get_current_admin(
     Raises:
         HTTPException: If user is not an admin
     """
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
-        )
-    return current_user
+    return context.user
 
 
 async def _set_promo_applicable_plans(
@@ -150,6 +146,29 @@ async def _set_promo_applicable_plans(
             detail=f"Unknown plan IDs: {', '.join(str(pid) for pid in missing_ids)}",
         )
     promo.applicable_plans = plans
+
+
+async def _validate_promo_school_link(
+    db: AsyncSession,
+    *,
+    school_id: UUID | None,
+    group_id: UUID | None,
+) -> None:
+    if group_id is not None and school_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="group_id requires school_id",
+        )
+
+    if school_id is None:
+        return
+
+    result = await db.execute(select(DrivingSchool.id).where(DrivingSchool.id == school_id))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Driving school not found",
+        )
 
 
 async def _get_or_create_question_bank_test(db: AsyncSession) -> Test:
@@ -1131,13 +1150,21 @@ async def create_promo_code(
     _admin: User = Depends(get_current_admin),
 ) -> PromoCode:
     code = payload.code.strip().upper()
+    await _validate_promo_school_link(
+        db,
+        school_id=payload.school_id,
+        group_id=payload.group_id,
+    )
     promo = PromoCode(
         code=code,
         name=payload.name,
         description=payload.description,
         discount_type=payload.discount_type,
         discount_value=payload.discount_value,
+        school_id=payload.school_id,
+        group_id=payload.group_id,
         max_redemptions=payload.max_redemptions,
+        max_uses=payload.max_uses if payload.max_uses is not None else payload.max_redemptions,
         starts_at=payload.starts_at,
         expires_at=payload.expires_at,
         is_active=payload.is_active,
@@ -1210,8 +1237,28 @@ async def update_promo_code(
         promo.discount_type = payload.discount_type
     if "discount_value" in fields_set and payload.discount_value is not None:
         promo.discount_value = payload.discount_value
+    if "school_id" in fields_set:
+        await _validate_promo_school_link(
+            db,
+            school_id=payload.school_id,
+            group_id=payload.group_id if "group_id" in fields_set else promo.group_id,
+        )
+        promo.school_id = payload.school_id
+    if "group_id" in fields_set:
+        await _validate_promo_school_link(
+            db,
+            school_id=payload.school_id if "school_id" in fields_set else promo.school_id,
+            group_id=payload.group_id,
+        )
+        promo.group_id = payload.group_id
     if "max_redemptions" in fields_set:
         promo.max_redemptions = payload.max_redemptions
+        if "max_uses" not in fields_set:
+            promo.max_uses = payload.max_redemptions
+    if "max_uses" in fields_set:
+        promo.max_uses = payload.max_uses
+        if "max_redemptions" not in fields_set:
+            promo.max_redemptions = payload.max_uses
     if "starts_at" in fields_set:
         promo.starts_at = payload.starts_at
     if "expires_at" in fields_set:

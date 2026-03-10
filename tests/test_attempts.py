@@ -48,7 +48,10 @@ async def test_attempt_lifecycle(client: AsyncClient, normal_user_token: str, ad
         headers={"Authorization": f"Bearer {normal_user_token}"}
     )
     assert ans_resp.status_code == 200
-    assert ans_resp.json()["is_correct"] is True
+    answer_payload = ans_resp.json()
+    assert answer_payload["accepted"] is True
+    assert "is_correct" not in answer_payload
+    assert "correct_option_id" not in answer_payload
     
     # 3. Finish Attempt
     finish_resp = await client.post(

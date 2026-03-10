@@ -1,20 +1,20 @@
 """
 AUTOTEST Auth Router
-Authentication endpoints for register, login, and verification
+Authentication endpoints for register, login, verification, and session rotation.
 """
 
-import logging
 import asyncio
+import json
+import logging
 import random
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from api.auth.schemas import (
     ForgotPasswordRequest,
@@ -31,12 +31,16 @@ from core.config import settings
 from core.email import send_password_reset_email, send_verification_email
 from core.security import (
     create_access_token,
-    decode_access_token,
+    decode_access_token as decode_access_token,
+    decode_access_token_payload,
+    generate_refresh_token,
     get_password_hash_async,
+    hash_refresh_token,
     verify_password_async,
 )
 from database.session import get_db
 from models.pending_registration import PendingRegistration
+from models.refresh_session import RefreshSession
 from models.user import User
 from models.verification_token import VerificationToken
 from services.subscriptions.lifecycle import enforce_subscription_status
@@ -45,15 +49,14 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 logger = logging.getLogger(__name__)
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+ACCESS_COOKIE_NAME = "access_token"
+REFRESH_COOKIE_NAME = "refresh_token"
 
-# Verification code expiration (15 minutes)
 VERIFICATION_CODE_EXPIRE_MINUTES = 15
 PASSWORD_RESET_CODE_EXPIRE_MINUTES = 15
-
+PENDING_REGISTRATION_EXPIRE_MINUTES = 15
 TOKEN_TYPE_EMAIL_VERIFICATION = "email_verification"
 TOKEN_TYPE_PASSWORD_RESET = "password_reset"
-PENDING_REGISTRATION_EXPIRE_MINUTES = 15
 
 
 def generate_verification_code() -> str:
@@ -61,13 +64,81 @@ def generate_verification_code() -> str:
     return str(random.randint(100000, 999999))
 
 
+def _credentials_exception() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Autentifikatsiya ma'lumotlari tasdiqlanmadi",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _resolve_access_token(request: Request) -> str | None:
+    auth_header = request.headers.get("authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[len("Bearer ") :].strip()
+        if token:
+            return token
+
+    cookie_token = request.cookies.get(ACCESS_COOKIE_NAME)
+    return cookie_token.strip() if cookie_token else None
+
+
+def _resolve_refresh_token(request: Request) -> str | None:
+    cookie_token = request.cookies.get(REFRESH_COOKIE_NAME)
+    if cookie_token and cookie_token.strip():
+        return cookie_token.strip()
+    return None
+
+
+def _get_request_ip(request: Request) -> str | None:
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    if forwarded_for:
+        first_hop = forwarded_for.split(",")[0].strip()
+        if first_hop:
+            return first_hop[:64]
+
+    if request.client and request.client.host:
+        return request.client.host[:64]
+    return None
+
+
+def _get_request_user_agent(request: Request) -> str | None:
+    user_agent = request.headers.get("user-agent", "").strip()
+    return user_agent[:512] if user_agent else None
+
+
+def _log_auth_event(
+    level: int,
+    *,
+    event: str,
+    user_id: str | None = None,
+    email: str | None = None,
+    session_id: str | None = None,
+    family_id: str | None = None,
+    ip_address: str | None = None,
+    error: str | None = None,
+) -> None:
+    payload: dict[str, str] = {"event": event}
+    if user_id:
+        payload["user_id"] = user_id
+    if email:
+        payload["email"] = email
+    if session_id:
+        payload["session_id"] = session_id
+    if family_id:
+        payload["family_id"] = family_id
+    if ip_address:
+        payload["ip_address"] = ip_address
+    if error:
+        payload["error"] = error
+    logger.log(level, "auth_event %s", json.dumps(payload, sort_keys=True))
+
+
 async def _send_email_with_timeout(
     sender: Callable[..., bool],
     *args: Any,
 ) -> bool:
-    """
-    Run email sender in thread with hard timeout to avoid API hangs.
-    """
+    """Run email sender in thread with hard timeout to avoid API hangs."""
     timeout_seconds = max(float(settings.EMAIL_TIMEOUT_SECONDS or 0), 3.0) + 2.0
     try:
         return await asyncio.wait_for(
@@ -150,50 +221,168 @@ async def _create_or_refresh_pending_registration(
     return code
 
 
+async def _create_refresh_session(
+    *,
+    db: AsyncSession,
+    user: User,
+    request: Request,
+    family_id: UUID | None = None,
+) -> tuple[str, RefreshSession]:
+    refresh_token = generate_refresh_token()
+    refresh_session = RefreshSession(
+        user_id=user.id,
+        family_id=family_id or uuid4(),
+        token_hash=hash_refresh_token(refresh_token),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+        user_agent=_get_request_user_agent(request),
+        ip_address=_get_request_ip(request),
+    )
+    db.add(refresh_session)
+    await db.flush()
+    return refresh_token, refresh_session
+
+
+def _build_token_response(*, user_id: UUID, refresh_token: str, session_id: UUID) -> Token:
+    access_ttl = max(int(settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60), 60)
+    refresh_ttl = max(int(settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60), 3600)
+    return Token(
+        access_token=create_access_token(user_id=user_id, session_id=session_id),
+        refresh_token=refresh_token,
+        token_type="bearer",
+        access_token_expires_in=access_ttl,
+        refresh_token_expires_in=refresh_ttl,
+    )
+
+
+async def _issue_auth_tokens(
+    *,
+    db: AsyncSession,
+    user: User,
+    request: Request,
+    family_id: UUID | None = None,
+) -> tuple[Token, RefreshSession]:
+    refresh_token, refresh_session = await _create_refresh_session(
+        db=db,
+        user=user,
+        request=request,
+        family_id=family_id,
+    )
+    return (
+        _build_token_response(
+            user_id=user.id,
+            refresh_token=refresh_token,
+            session_id=refresh_session.id,
+        ),
+        refresh_session,
+    )
+
+
+async def _revoke_session(
+    session: RefreshSession,
+    *,
+    reason: str,
+    revoked_at: datetime | None = None,
+) -> None:
+    session.revoked_at = revoked_at or datetime.now(timezone.utc)
+    session.revoked_reason = reason
+
+
+async def _revoke_family_sessions(
+    *,
+    db: AsyncSession,
+    family_id: UUID,
+    reason: str,
+) -> None:
+    result = await db.execute(
+        select(RefreshSession).where(
+            RefreshSession.family_id == family_id,
+            RefreshSession.revoked_at.is_(None),
+        )
+    )
+    revoked_at = datetime.now(timezone.utc)
+    for session in result.scalars().all():
+        await _revoke_session(session, reason=reason, revoked_at=revoked_at)
+
+
+async def _revoke_user_refresh_sessions(
+    *,
+    db: AsyncSession,
+    user_id: UUID,
+    reason: str,
+) -> None:
+    result = await db.execute(
+        select(RefreshSession).where(
+            RefreshSession.user_id == user_id,
+            RefreshSession.revoked_at.is_(None),
+        )
+    )
+    revoked_at = datetime.now(timezone.utc)
+    for session in result.scalars().all():
+        await _revoke_session(session, reason=reason, revoked_at=revoked_at)
+
+
+async def resolve_user_from_access_token(
+    token: str,
+    *,
+    db: AsyncSession,
+    include_subscription: bool = True,
+) -> User | None:
+    payload = decode_access_token_payload(token)
+    if payload is None:
+        return None
+
+    user_id = payload.get("sub")
+    if not isinstance(user_id, str):
+        return None
+
+    try:
+        user_uuid = UUID(user_id)
+    except ValueError:
+        return None
+
+    session_id_raw = payload.get("sid")
+    if session_id_raw is not None:
+        try:
+            session_uuid = UUID(str(session_id_raw))
+        except ValueError:
+            return None
+
+        session_result = await db.execute(
+            select(RefreshSession).where(
+                RefreshSession.id == session_uuid,
+                RefreshSession.user_id == user_uuid,
+            )
+        )
+        refresh_session = session_result.scalar_one_or_none()
+        now = datetime.now(timezone.utc)
+        if (
+            refresh_session is None
+            or refresh_session.revoked_at is not None
+            or refresh_session.expires_at <= now
+        ):
+            return None
+
+    stmt = select(User).where(User.id == user_uuid)
+    if include_subscription:
+        stmt = stmt.options(selectinload(User.subscription))
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """
-    Dependency to get the current authenticated user from JWT token.
-    
-    Args:
-        token: JWT token from Authorization header
-        db: Database session
-    
-    Returns:
-        The authenticated User object
-    
-    Raises:
-        HTTPException: If token is invalid or user not found
-    """
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Autentifikatsiya ma'lumotlari tasdiqlanmadi",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    
+    """Resolve the authenticated user from a bearer token or access cookie."""
+    token = _resolve_access_token(request)
+    credentials_exception = _credentials_exception()
+    if not token:
+        raise credentials_exception
+
     try:
-        user_id = decode_access_token(token)
-        if user_id is None:
-            raise credentials_exception
-            
-        try:
-            user_uuid = UUID(user_id)
-        except ValueError:
-            raise credentials_exception
-            
-        # Use selectinload to eagerly load subscription for is_premium property
-        result = await db.execute(
-            select(User)
-            .where(User.id == user_uuid)
-            .options(selectinload(User.subscription))
-        )
-        user = result.scalar_one_or_none()
-        
+        user = await resolve_user_from_access_token(token, db=db, include_subscription=True)
         if user is None:
             raise credentials_exception
-            
         if not user.is_active:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -201,12 +390,11 @@ async def get_current_user(
             )
 
         await enforce_subscription_status(user=user, db=db)
-            
         return user
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Unexpected error in get_current_user: {e}")
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.error("Unexpected error in get_current_user: %s", exc)
         raise credentials_exception
 
 
@@ -214,10 +402,7 @@ async def get_current_user(
 async def get_my_profile_via_auth(
     current_user: User = Depends(get_current_user),
 ) -> User:
-    """
-    Backward-compatible profile endpoint.
-    Some frontend flows still query /auth/me.
-    """
+    """Backward-compatible profile endpoint."""
     return current_user
 
 
@@ -226,19 +411,7 @@ async def register(
     user_data: UserCreate,
     db: AsyncSession = Depends(get_db),
 ) -> MessageResponse:
-    """
-    Register a new user and send verification email.
-    
-    Args:
-        user_data: User registration data (email, password)
-        db: Database session
-    
-    Returns:
-        Message indicating verification email sent
-    
-    Raises:
-        HTTPException: If email already registered
-    """
+    """Register a new user and send verification email."""
     normalized_email = user_data.email.strip().lower()
     result = await db.execute(select(User).where(User.email == normalized_email))
     existing_user = result.scalar_one_or_none()
@@ -249,8 +422,7 @@ async def register(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Bu email allaqachon ro'yxatdan o'tgan",
             )
-        
-        # Legacy fallback: update password and trigger re-verification for unverified users.
+
         hashed_password = await get_password_hash_async(user_data.password)
         code = await _create_token(
             db=db,
@@ -258,23 +430,22 @@ async def register(
             token_type=TOKEN_TYPE_EMAIL_VERIFICATION,
             expires_minutes=VERIFICATION_CODE_EXPIRE_MINUTES,
         )
-        
+
         email_sent = await _send_email_with_timeout(send_verification_email, normalized_email, code)
         if not email_sent:
             logger.error("Failed to send verification email during re-registration for %s", normalized_email)
-            # Allow to proceed so the user can request a resend later on the verification screen.
-        
-        # Only modify user state and commit if email was accepted by the worker/timeout helper
+
         existing_user.hashed_password = hashed_password
-        existing_user.is_active = False 
+        existing_user.is_active = False
         await db.commit()
-        
-        if email_sent:
-            msg = "Tasdiqlash kodi emailingizga yuborildi"
-        else:
-            msg = "Akkaunt yaratildi. Tasdiqlash kodini qayta yuboring."
-            
-        return MessageResponse(message=msg)
+
+        return MessageResponse(
+            message=(
+                "Tasdiqlash kodi emailingizga yuborildi"
+                if email_sent
+                else "Akkaunt yaratildi. Tasdiqlash kodini qayta yuboring."
+            )
+        )
 
     hashed_password = await get_password_hash_async(user_data.password)
 
@@ -288,17 +459,15 @@ async def register(
         email_sent = await _send_email_with_timeout(send_verification_email, normalized_email, code)
         if not email_sent:
             logger.error("Failed to send verification email during registration for %s", normalized_email)
-            # We do not rollback here, because we want the pending registration to be committed
-            # so the user can use the 'Resend code' functionality.
 
         await db.commit()
-        
-        if email_sent:
-            msg = "Tasdiqlash kodi emailingizga yuborildi"
-        else:
-            msg = "Akkaunt yaratildi. Tasdiqlash kodini qayta yuboring."
-            
-        return MessageResponse(message=msg)
+        return MessageResponse(
+            message=(
+                "Tasdiqlash kodi emailingizga yuborildi"
+                if email_sent
+                else "Akkaunt yaratildi. Tasdiqlash kodini qayta yuboring."
+            )
+        )
 
     new_user = User(
         email=normalized_email,
@@ -314,24 +483,13 @@ async def register(
 @router.post("/login", response_model=Token)
 async def login(
     user_data: UserLogin,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> Token:
-    """
-    Login with email and password.
-    
-    Args:
-        user_data: User login data (email, password)
-        db: Database session
-    
-    Returns:
-        JWT access token
-    
-    Raises:
-        HTTPException: If credentials are invalid
-    """
+    """Login with email and password and issue a rotated session pair."""
     normalized_email = user_data.email.strip().lower()
+    request_ip = _get_request_ip(request)
 
-    # Find user by email
     result = await db.execute(select(User).where(User.email == normalized_email))
     user = result.scalar_one_or_none()
 
@@ -340,13 +498,25 @@ async def login(
             select(PendingRegistration).where(PendingRegistration.email == normalized_email)
         )
         pending = pending_result.scalar_one_or_none()
-        # If a pending registration exists, account is not yet created/verified.
-        # Keep returning 403 so frontend can route users to verification flow.
         if pending is not None:
+            _log_auth_event(
+                logging.WARNING,
+                event="login_failed",
+                email=normalized_email,
+                ip_address=request_ip,
+                error="email_unverified",
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Email tasdiqlanmagan",
             )
+        _log_auth_event(
+            logging.WARNING,
+            event="login_failed",
+            email=normalized_email,
+            ip_address=request_ip,
+            error="invalid_credentials",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email yoki parol noto'g'ri",
@@ -354,50 +524,147 @@ async def login(
         )
 
     if not await verify_password_async(user_data.password, user.hashed_password):
+        _log_auth_event(
+            logging.WARNING,
+            event="login_failed",
+            user_id=str(user.id),
+            email=normalized_email,
+            ip_address=request_ip,
+            error="invalid_credentials",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email yoki parol noto'g'ri",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Legacy safety: historical accounts created before strict verification rollout
-    # should remain accessible. New flow stores unverified users in PendingRegistration
-    # and does not create User rows until code confirmation.
     if (not user.is_verified) or (not user.is_active):
         user.is_verified = True
         user.is_active = True
+
+    token_pair, refresh_session = await _issue_auth_tokens(db=db, user=user, request=request)
+    await db.commit()
+    _log_auth_event(
+        logging.INFO,
+        event="login_success",
+        user_id=str(user.id),
+        email=normalized_email,
+        session_id=str(refresh_session.id),
+        family_id=str(refresh_session.family_id),
+        ip_address=request_ip,
+    )
+    return token_pair
+
+
+@router.post("/refresh", response_model=Token)
+async def refresh_session(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> Token:
+    """Rotate refresh tokens and detect reuse attempts."""
+    refresh_token = _resolve_refresh_token(request)
+    if not refresh_token:
+        raise _credentials_exception()
+
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        select(RefreshSession)
+        .where(RefreshSession.token_hash == hash_refresh_token(refresh_token))
+        .options(selectinload(RefreshSession.user))
+    )
+    refresh_session = result.scalar_one_or_none()
+    if refresh_session is None:
+        raise _credentials_exception()
+
+    if refresh_session.revoked_at is not None:
+        if refresh_session.revoked_reason == "rotated":
+            _log_auth_event(
+                logging.WARNING,
+                event="refresh_reuse_detected",
+                user_id=str(refresh_session.user_id),
+                session_id=str(refresh_session.id),
+                family_id=str(refresh_session.family_id),
+                ip_address=_get_request_ip(request),
+                error="rotated_token_reused",
+            )
+            await _revoke_family_sessions(
+                db=db,
+                family_id=refresh_session.family_id,
+                reason="reuse_detected",
+            )
+            await db.commit()
+        raise _credentials_exception()
+
+    if refresh_session.expires_at <= now:
+        await _revoke_session(refresh_session, reason="expired", revoked_at=now)
         await db.commit()
-        await db.refresh(user)
-    
-    # Generate access token
-    access_token = create_access_token(user_id=user.id)
-    
-    return Token(access_token=access_token)
+        raise _credentials_exception()
+
+    user = refresh_session.user
+    if user is None or not user.is_active:
+        await _revoke_session(refresh_session, reason="user_inactive", revoked_at=now)
+        await db.commit()
+        raise _credentials_exception()
+
+    refresh_session.last_used_at = now
+    token_pair, rotated_session = await _issue_auth_tokens(
+        db=db,
+        user=user,
+        request=request,
+        family_id=refresh_session.family_id,
+    )
+    await _revoke_session(refresh_session, reason="rotated", revoked_at=now)
+    refresh_session.replaced_by_session_id = rotated_session.id
+    await db.commit()
+    _log_auth_event(
+        logging.INFO,
+        event="refresh_rotation",
+        user_id=str(user.id),
+        session_id=str(rotated_session.id),
+        family_id=str(rotated_session.family_id),
+        ip_address=_get_request_ip(request),
+    )
+    return token_pair
+
+
+@router.post("/logout", response_model=MessageResponse)
+async def logout(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> MessageResponse:
+    """Invalidate the presented refresh token."""
+    refresh_token = _resolve_refresh_token(request)
+    if refresh_token:
+        result = await db.execute(
+            select(RefreshSession).where(RefreshSession.token_hash == hash_refresh_token(refresh_token))
+        )
+        refresh_session = result.scalar_one_or_none()
+        if refresh_session is not None and refresh_session.revoked_at is None:
+            await _revoke_session(refresh_session, reason="logout")
+            await db.commit()
+            _log_auth_event(
+                logging.INFO,
+                event="logout_success",
+                user_id=str(refresh_session.user_id),
+                session_id=str(refresh_session.id),
+                family_id=str(refresh_session.family_id),
+                ip_address=_get_request_ip(request),
+            )
+
+    return MessageResponse(message="Sessiya yopildi")
 
 
 @router.post("/verify", response_model=Token)
 async def verify_email(
     verify_data: VerifyEmail,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> Token:
-    """
-    Verify email with code.
-    
-    Args:
-        verify_data: Email and verification code
-        db: Database session
-    
-    Returns:
-        JWT access token on successful verification
-    
-    Raises:
-        HTTPException: If code is invalid or expired
-    """
+    """Verify email with code and create a hardened session pair."""
     normalized_email = verify_data.email.strip().lower()
     normalized_code = verify_data.code.strip()
     now = datetime.now(timezone.utc)
 
-    # New flow: pending registration -> create real account only after verification.
     pending_result = await db.execute(
         select(PendingRegistration).where(PendingRegistration.email == normalized_email)
     )
@@ -435,12 +702,10 @@ async def verify_email(
             user.is_active = True
 
         await db.delete(pending)
+        token_pair, _ = await _issue_auth_tokens(db=db, user=user, request=request)
         await db.commit()
+        return token_pair
 
-        access_token = create_access_token(user_id=user.id)
-        return Token(access_token=access_token)
-
-    # Legacy fallback for historical unverified users.
     result = await db.execute(select(User).where(User.email == normalized_email))
     user = result.scalar_one_or_none()
 
@@ -476,10 +741,9 @@ async def verify_email(
     await db.delete(token)
     user.is_verified = True
     user.is_active = True
+    token_pair, _ = await _issue_auth_tokens(db=db, user=user, request=request)
     await db.commit()
-
-    access_token = create_access_token(user_id=user.id)
-    return Token(access_token=access_token)
+    return token_pair
 
 
 @router.post("/resend-verification", response_model=MessageResponse)
@@ -515,7 +779,6 @@ async def resend_verification(
     result = await db.execute(select(User).where(User.email == normalized_email))
     user = result.scalar_one_or_none()
     if user is None:
-        # Prevent account enumeration
         return MessageResponse(message="Agar hisob mavjud bo'lsa, tasdiqlash kodi yuborildi")
     if user.is_verified:
         return MessageResponse(message="Email allaqachon tasdiqlangan")
@@ -593,6 +856,7 @@ async def reset_password(
     user.hashed_password = await get_password_hash_async(payload.new_password)
     user.is_active = True
     await db.delete(reset_token)
+    await _revoke_user_refresh_sessions(db=db, user_id=user.id, reason="password_reset")
     await db.commit()
 
     return MessageResponse(message="Parol muvaffaqiyatli yangilandi")

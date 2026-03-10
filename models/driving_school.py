@@ -156,7 +156,10 @@ class DrivingSchool(Base):
         cascade="all, delete-orphan",
     )
     owner_user: Mapped["User | None"] = relationship("User")
-    promo_code: Mapped["PromoCode | None"] = relationship("PromoCode")
+    promo_code: Mapped["PromoCode | None"] = relationship(
+        "PromoCode",
+        foreign_keys=[promo_code_id],
+    )
 
     def __repr__(self) -> str:
         return f"<DrivingSchool(id={self.id}, slug={self.slug}, name={self.name})>"

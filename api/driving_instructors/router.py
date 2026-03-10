@@ -16,7 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from api.auth.router import decode_access_token, get_current_user
+from api.auth.router import get_current_user, resolve_user_from_access_token
 from api.driving_instructors.schemas import (
     DrivingInstructorAdminResponse,
     DrivingInstructorApplicationCreate,
@@ -106,15 +106,7 @@ async def _get_optional_user(request: Request, db: AsyncSession) -> User | None:
         token = request.cookies.get("access_token")
     if not token:
         return None
-    user_id = decode_access_token(token)
-    if not user_id:
-        return None
-    try:
-        uid = UUID(str(user_id))
-    except ValueError:
-        return None
-    result = await db.execute(select(User).where(User.id == uid))
-    return result.scalar_one_or_none()
+    return await resolve_user_from_access_token(token, db=db, include_subscription=False)
 
 
 async def _get_instructor_by_slug_or_404(slug: str, db: AsyncSession) -> DrivingInstructor:

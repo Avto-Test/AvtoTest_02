@@ -15,6 +15,7 @@ from uuid import UUID
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.logger import log_info
 from models.attempt import Attempt
 from models.attempt_answer import AttemptAnswer
 from models.question import Question
@@ -64,7 +65,12 @@ def calculate_pass_probability_from_signals(
     return _clamp(probability, 0.05, 0.95)
 
 
-async def calculate_pass_probability(user_id: UUID, db: AsyncSession) -> PassProbabilityResult:
+async def calculate_pass_probability(
+    user_id: UUID,
+    db: AsyncSession,
+    *,
+    request_id: str | None = None,
+) -> PassProbabilityResult:
     """
     Calculate user pass probability with a lightweight logistic model.
 
@@ -192,7 +198,7 @@ async def calculate_pass_probability(user_id: UUID, db: AsyncSession) -> PassPro
         learning_trend=learning_trend,
     )
 
-    return PassProbabilityResult(
+    result = PassProbabilityResult(
         pass_probability=round(probability, 4),
         signals=PassProbabilitySignals(
             recent_accuracy=round(recent_accuracy, 4),
@@ -203,3 +209,17 @@ async def calculate_pass_probability(user_id: UUID, db: AsyncSession) -> PassPro
             learning_trend=round(learning_trend, 4),
         ),
     )
+
+    if request_id is not None:
+        log_info(
+            "ml",
+            "prediction_generated",
+            request_id,
+            user_id=user_id,
+            metadata={
+                "probability": result.pass_probability,
+                "topics_count": len(skill_rows),
+            },
+        )
+
+    return result

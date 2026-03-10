@@ -4,7 +4,9 @@ API endpoints for test attempts
 """
 
 from datetime import datetime, timezone, timedelta as dt_timedelta
+import json
 from math import exp, sqrt
+import logging
 import random
 import uuid
 
@@ -31,6 +33,7 @@ from api.attempts.schemas import (
 from api.auth.router import get_current_user
 from database.session import get_db
 from models.answer_option import AnswerOption
+from models.analytics_event import AnalyticsEvent
 from models.attempt import Attempt
 from models.attempt_answer import AttemptAnswer
 from models.guest_attempt import GuestAttempt
@@ -40,11 +43,14 @@ from models.test import Test
 from models.user import User
 from models.user_adaptive_profile import UserAdaptiveProfile
 from models.user_question_history import UserQuestionHistory
+from core.logging import get_logger
+from services.learning.progress_tracking import LearningAnswerRecord, apply_learning_progress_updates
 
 router = APIRouter(prefix="/attempts", tags=["attempts"])
+logger = get_logger(__name__)
 
 # Limits
-FREE_MAX_ATTEMPTS_PER_DAY = 2
+FREE_MAX_ATTEMPTS_PER_DAY = 3
 GUEST_MAX_ATTEMPTS = 2
 GUEST_COOKIE_NAME = "guest_id"
 GUEST_COOKIE_MAX_AGE = 60 * 60 * 24 * 30
@@ -55,6 +61,37 @@ QUESTION_COUNT_TO_MINUTES = {
     40: 50,
     50: 62,
 }
+
+
+def _log_attempt_event(
+    level: int,
+    *,
+    event: str,
+    attempt_id: str,
+    user_id: str | None = None,
+    test_id: str | None = None,
+    mode: str | None = None,
+    score: int | None = None,
+    total_questions: int | None = None,
+    passed: bool | None = None,
+) -> None:
+    payload: dict[str, object] = {
+        "event": event,
+        "attempt_id": attempt_id,
+    }
+    if user_id is not None:
+        payload["user_id"] = user_id
+    if test_id is not None:
+        payload["test_id"] = test_id
+    if mode is not None:
+        payload["mode"] = mode
+    if score is not None:
+        payload["score"] = score
+    if total_questions is not None:
+        payload["total_questions"] = total_questions
+    if passed is not None:
+        payload["passed"] = passed
+    logger.log(level, "exam_event %s", json.dumps(payload, sort_keys=True, default=str))
 
 
 def _sanitize_option_text(text_value: str) -> str:
@@ -247,6 +284,15 @@ async def start_attempt(
     db.add(attempt)
     await db.commit()
     await db.refresh(attempt)
+    _log_attempt_event(
+        logging.INFO,
+        event="exam_started",
+        attempt_id=str(attempt.id),
+        user_id=str(current_user.id),
+        test_id=str(attempt.test_id),
+        mode=attempt.mode,
+        total_questions=selected_count,
+    )
     
     return StartAttemptResponse(
         id=attempt.id,
@@ -286,6 +332,13 @@ async def start_guest_attempt(
     db.add(attempt)
     await db.commit()
     await db.refresh(attempt)
+    _log_attempt_event(
+        logging.INFO,
+        event="exam_started",
+        attempt_id=str(attempt.id),
+        test_id=str(attempt.test_id),
+        mode="guest",
+    )
 
     return AttemptResponse(
         id=attempt.id,
@@ -311,7 +364,7 @@ async def submit_answer(
         db: Database session
     
     Returns:
-        Created answer details with correctness
+        Created answer details acknowledgement
     
     Raises:
         HTTPException: If attempt/question/option not found or unauthorized
@@ -379,14 +432,6 @@ async def submit_answer(
             detail="Answer option not found for this question",
         )
 
-    correct_option_result = await db.execute(
-        select(AnswerOption.id).where(
-            AnswerOption.question_id == data.question_id,
-            AnswerOption.is_correct == True,
-        )
-    )
-    correct_option_id = correct_option_result.scalar_one_or_none()
-    
     # Check if answer already exists for this question
     result = await db.execute(
         select(AttemptAnswer).where(
@@ -407,8 +452,7 @@ async def submit_answer(
             id=existing_answer.id,
             question_id=existing_answer.question_id,
             selected_option_id=existing_answer.selected_option_id,
-            is_correct=existing_answer.is_correct,
-            correct_option_id=correct_option_id,
+            accepted=True,
         )
     
     # Create new answer
@@ -427,8 +471,7 @@ async def submit_answer(
         id=attempt_answer.id,
         question_id=attempt_answer.question_id,
         selected_option_id=attempt_answer.selected_option_id,
-        is_correct=attempt_answer.is_correct,
-        correct_option_id=correct_option_id,
+        accepted=True,
     )
 
 
@@ -469,14 +512,6 @@ async def submit_guest_answer(
     if option is None:
         raise HTTPException(status_code=400, detail="Answer option not found for this question")
 
-    correct_option_result = await db.execute(
-        select(AnswerOption.id).where(
-            AnswerOption.question_id == data.question_id,
-            AnswerOption.is_correct == True,
-        )
-    )
-    correct_option_id = correct_option_result.scalar_one_or_none()
-
     result = await db.execute(
         select(GuestAttemptAnswer).where(
             GuestAttemptAnswer.attempt_id == data.attempt_id,
@@ -493,8 +528,7 @@ async def submit_guest_answer(
             id=existing_answer.id,
             question_id=existing_answer.question_id,
             selected_option_id=existing_answer.selected_option_id,
-            is_correct=existing_answer.is_correct,
-            correct_option_id=correct_option_id,
+            accepted=True,
         )
 
     attempt_answer = GuestAttemptAnswer(
@@ -511,8 +545,7 @@ async def submit_guest_answer(
         id=attempt_answer.id,
         question_id=attempt_answer.question_id,
         selected_option_id=attempt_answer.selected_option_id,
-        is_correct=attempt_answer.is_correct,
-        correct_option_id=correct_option_id,
+        accepted=True,
     )
 
 
@@ -574,8 +607,60 @@ async def finish_attempt(
     
     # Finish attempt and calculate score
     attempt.finish()
+    question_ids = [answer.question_id for answer in attempt.attempt_answers]
+    question_rows = (
+        await db.execute(select(Question).where(Question.id.in_(question_ids)))
+    ).scalars().all() if question_ids else []
+    question_map = {question.id: question for question in question_rows}
+    answer_records = [
+        LearningAnswerRecord(
+            question_id=answer.question_id,
+            topic_id=question_map.get(answer.question_id).category_id if question_map.get(answer.question_id) else None,
+            is_correct=bool(answer.is_correct),
+            occurred_at=attempt.finished_at or datetime.now(timezone.utc),
+        )
+        for answer in attempt.attempt_answers
+    ]
+    await apply_learning_progress_updates(
+        db=db,
+        user_id=current_user.id,
+        answer_records=answer_records,
+    )
+    if attempt.mode == "learning":
+        db.add(
+            AnalyticsEvent(
+                user_id=current_user.id,
+                event_name="learning_session_completed",
+                metadata_json={
+                    "session_id": str(attempt.id),
+                    "score": attempt.score,
+                    "total_questions": total_questions,
+                },
+            )
+        )
+
+    # Phase 2.5: Inference snapshot capture (non-blocking)
+    try:
+        from ml.model_registry import capture_inference_snapshot
+        snapshot = await capture_inference_snapshot(db, attempt.id, str(current_user.id))
+        if snapshot:
+            db.add(snapshot)
+    except Exception as _snap_exc:
+        logger.warning("Inference snapshot failed for attempt %s (non-blocking): %s", attempt.id, _snap_exc)
+
     await db.commit()
     await db.refresh(attempt)
+
+    _log_attempt_event(
+        logging.INFO,
+        event="exam_submitted",
+        attempt_id=str(attempt.id),
+        user_id=str(current_user.id),
+        test_id=str(attempt.test_id),
+        mode=attempt.mode,
+        score=attempt.score,
+        total_questions=total_questions,
+    )
     
     return ScoreResponse(
         attempt_id=attempt.id,
@@ -619,6 +704,15 @@ async def finish_guest_attempt(
     attempt.finish()
     await db.commit()
     await db.refresh(attempt)
+    _log_attempt_event(
+        logging.INFO,
+        event="exam_submitted",
+        attempt_id=str(attempt.id),
+        test_id=str(attempt.test_id),
+        mode="guest",
+        score=attempt.score,
+        total_questions=total_questions,
+    )
 
     return ScoreResponse(
         attempt_id=attempt.id,
@@ -756,6 +850,7 @@ async def bulk_submit_attempt(
 
     # 4. Process answers in a transaction-safe way
     detailed_answers = []
+    learning_answer_records: list[LearningAnswerRecord] = []
     correct_count = 0
     topic_results = {}
     adaptive_profile: UserAdaptiveProfile | None = None
@@ -879,6 +974,14 @@ async def bulk_submit_attempt(
             is_correct=is_correct,
             dynamic_difficulty_score=question.dynamic_difficulty_score
         ))
+        learning_answer_records.append(
+            LearningAnswerRecord(
+                question_id=q_id,
+                topic_id=question.category_id,
+                is_correct=is_correct,
+                occurred_at=now,
+            )
+        )
 
     # 5. Score-based adaptive target update (faster than per-question +/-1).
     if adaptive_profile is not None and questions:
@@ -942,6 +1045,25 @@ async def bulk_submit_attempt(
     if time_is_up:
         passed = False
 
+    await apply_learning_progress_updates(
+        db=db,
+        user_id=current_user.id,
+        answer_records=learning_answer_records,
+    )
+    if attempt.mode == "learning":
+        db.add(
+            AnalyticsEvent(
+                user_id=current_user.id,
+                event_name="learning_session_completed",
+                metadata_json={
+                    "session_id": str(attempt.id),
+                    "score": attempt.score,
+                    "total_questions": len(questions),
+                    "passed": passed,
+                },
+            )
+        )
+
     # Phase 20: Snapshot-Based ML Inference Storage
     try:
         from ml.model_registry import capture_inference_snapshot
@@ -950,8 +1072,6 @@ async def bulk_submit_attempt(
             db.add(snapshot)
     except Exception as e:
         # Fallback: log and continue so attempt completion is not blocked
-        from core.config import settings
-        import logging
         logging.getLogger(__name__).error(f"Snapshot storage failed (non-blocking): {e}")
 
     await db.commit()
@@ -1151,7 +1271,6 @@ async def bulk_submit_attempt(
             else:
                 pass_prediction_label = "High Risk of Failing"
     except Exception as e:
-        import logging
         logging.getLogger(__name__).exception(f"Detailed Intelligence update failure: {e}")
         pass_prediction_label = None
 
@@ -1168,6 +1287,18 @@ async def bulk_submit_attempt(
     response_skill_messages = skill_messages if answers_unlocked else []
     response_fading_topics = fading_topics if answers_unlocked else []
     response_topic_stability = topic_stability if answers_unlocked else {}
+
+    _log_attempt_event(
+        logging.INFO,
+        event="exam_submitted",
+        attempt_id=str(attempt.id),
+        user_id=str(current_user.id),
+        test_id=str(attempt.test_id),
+        mode=attempt.mode,
+        score=attempt.score,
+        total_questions=len(questions),
+        passed=passed,
+    )
 
     return BulkSubmitResponse(
         score=attempt.score,

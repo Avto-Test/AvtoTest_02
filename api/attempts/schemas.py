@@ -79,8 +79,7 @@ class AnswerResponse(BaseModel):
     id: UUID
     question_id: UUID
     selected_option_id: UUID
-    is_correct: bool
-    correct_option_id: UUID | None = None
+    accepted: bool = True
 
     class Config:
         from_attributes = True

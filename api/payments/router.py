@@ -5,6 +5,7 @@ Production-grade subscription lifecycle endpoints using TSPay.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import timedelta
 from uuid import UUID
@@ -31,6 +32,8 @@ from api.payments.schemas import (
     WebhookResponse,
 )
 from core.config import settings
+from core.errors import get_request_id
+from core.logger import log_info
 from core.logging import get_logger
 from database.session import get_db
 from models.analytics_event import AnalyticsEvent
@@ -40,6 +43,11 @@ from models.promo_redemption import PromoRedemption
 from models.subscription import Subscription
 from models.subscription_plan import SubscriptionPlan
 from models.user import User
+from services.promocodes import (
+    PromoCodeServiceError,
+    record_promo_redemption as record_promo_redemption_service,
+    resolve_checkout_promo as resolve_checkout_promo_service,
+)
 from services.payments.tspay import TSPayProvider
 from services.subscriptions.lifecycle import _activate_subscription
 from services.payments.types import (
@@ -57,6 +65,31 @@ logger = get_logger(__name__)
 PAYMENT_PROVIDER = TSPayProvider()
 DEFAULT_PLAN_CODE = "premium"
 DEFAULT_PLAN_DURATION_DAYS = 30
+
+
+def _log_payment_event(
+    level: int,
+    *,
+    event: str,
+    payment: Payment,
+    user_id: UUID | None = None,
+    source: str | None = None,
+) -> None:
+    payload: dict[str, str] = {
+        "event": event,
+        "payment_id": str(payment.id),
+        "provider": payment.provider,
+        "status": payment.status,
+    }
+    if user_id is not None:
+        payload["user_id"] = str(user_id)
+    if payment.provider_session_id:
+        payload["provider_session_id"] = payment.provider_session_id
+    if payment.provider_payment_id:
+        payload["provider_payment_id"] = payment.provider_payment_id
+    if source:
+        payload["source"] = source
+    logger.log(level, "payment_event %s", json.dumps(payload, sort_keys=True))
 
 
 def _extract_signature(request: Request) -> str | None:
@@ -348,54 +381,17 @@ async def _resolve_checkout_promo(
     current_user_id: UUID | None,
     db: AsyncSession,
 ) -> PromoCode | None:
-    if promo_code is None:
-        return None
-
-    normalized_code = promo_code.strip().upper()
-    if not normalized_code:
-        return None
-
-    result = await db.execute(
-        select(PromoCode)
-        .where(func.upper(PromoCode.code) == normalized_code)
-        .options(selectinload(PromoCode.applicable_plans))
-    )
-    promo = result.scalar_one_or_none()
-    if promo is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Promo code not found.")
-
-    now = utc_now()
-    if not promo.is_active:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Promo code is inactive.")
-    if promo.starts_at is not None and promo.starts_at > now:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Promo code is not active yet.")
-    if promo.expires_at is not None and promo.expires_at <= now:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Promo code has expired.")
-    if promo.max_redemptions is not None and promo.redeemed_count >= promo.max_redemptions:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Promo redemption limit reached.")
-
-    if selected_plan is not None and promo.applicable_plans:
-        applicable_ids = {plan.id for plan in promo.applicable_plans}
-        if selected_plan.id not in applicable_ids:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Promo code is not applicable to the selected plan.",
-            )
-
-    if current_user_id is not None:
-        redemption_result = await db.execute(
-            select(PromoRedemption.id).where(
-                PromoRedemption.promo_code_id == promo.id,
-                PromoRedemption.user_id == current_user_id,
-            )
+    try:
+        resolution = await resolve_checkout_promo_service(
+            promo_code=promo_code,
+            selected_plan=selected_plan,
+            current_user_id=current_user_id,
+            db=db,
         )
-        if redemption_result.scalar_one_or_none() is not None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Promo code already used by this user.",
-            )
+    except PromoCodeServiceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
-    return promo
+    return resolution.promo if resolution is not None else None
 
 
 async def _resolve_webhook_user_id(
@@ -511,6 +507,13 @@ async def _emit_upgrade_success_event(
     payment: Payment,
     event: VerifiedWebhookEvent,
 ) -> None:
+    _log_payment_event(
+        20,
+        event="payment_completed",
+        payment=payment,
+        user_id=user_id,
+        source=event.event_type,
+    )
     db.add(
         AnalyticsEvent(
             user_id=user_id,
@@ -552,20 +555,19 @@ async def _record_promo_redemption(
     if already_redeemed is not None:
         return
 
-    db.add(
-        PromoRedemption(
-            promo_code_id=promo.id,
-            user_id=user_id,
-            payment_id=payment.id,
-        )
+    await record_promo_redemption_service(
+        promo=promo,
+        user_id=user_id,
+        payment_id=payment.id,
+        db=db,
     )
-    promo.redeemed_count += 1
 
 
 async def _create_session(
     current_user: User,
     db: AsyncSession,
     request_payload: CreateSessionRequest,
+    request_id: str,
 ) -> CreateSessionResponse:
     if not (PAYMENT_PROVIDER.access_token or "").strip():
         raise HTTPException(
@@ -680,6 +682,17 @@ async def _create_session(
     )
     await db.commit()
 
+    log_info(
+        "payments",
+        "payment_session_created",
+        request_id,
+        user_id=current_user.id,
+        metadata={
+            "plan_id": str(selected_plan.id) if selected_plan is not None else None,
+            "promo_code": promo.code if promo is not None else None,
+        },
+    )
+
     return CreateSessionResponse(
         checkout_url=session.checkout_url,
         session_id=session.session_id,
@@ -718,6 +731,7 @@ async def list_checkout_plans(
 
 @router.post("/api/payments/create-session", response_model=CreateSessionResponse)
 async def create_session(
+    request: Request,
     request_payload: CreateSessionRequest | None = Body(default=None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -726,7 +740,12 @@ async def create_session(
     Create a hosted TSPay checkout session for premium subscription upgrade.
     """
     payload = request_payload or CreateSessionRequest()
-    return await _create_session(current_user=current_user, db=db, request_payload=payload)
+    return await _create_session(
+        current_user=current_user,
+        db=db,
+        request_payload=payload,
+        request_id=get_request_id(request),
+    )
 
 
 @router.get("/api/payments/transactions/{cheque_id}", response_model=TransactionStatusResponse)
@@ -882,6 +901,13 @@ async def get_transaction_status(
             local_payment.status = "succeeded"
             local_payment.processed_at = now
             await db.commit()
+            _log_payment_event(
+                20,
+                event="payment_completed",
+                payment=local_payment,
+                user_id=local_payment.user_id,
+                source="status_check",
+            )
             payment_record_changed = False
     elif pay_status in {"canceled", "cancelled", "failed", "error"} and local_payment is not None:
         if local_payment.status not in {"succeeded", "failed", "canceled"}:
@@ -1015,14 +1041,12 @@ async def redeem_full_discount_promo(
     db.add(payment)
     await db.flush()
 
-    db.add(
-        PromoRedemption(
-            promo_code_id=promo.id,
-            user_id=current_user.id,
-            payment_id=payment.id,
-        )
+    await record_promo_redemption_service(
+        promo=promo,
+        user_id=current_user.id,
+        payment_id=payment.id,
+        db=db,
     )
-    promo.redeemed_count += 1
 
     subscription = await _activate_subscription(
         user_id=current_user.id,
@@ -1066,6 +1090,7 @@ async def redeem_full_discount_promo(
 
 @router.post("/payments/checkout", response_model=CheckoutResponse, include_in_schema=False)
 async def create_session_legacy(
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> CheckoutResponse:
@@ -1076,6 +1101,7 @@ async def create_session_legacy(
         current_user=current_user,
         db=db,
         request_payload=CreateSessionRequest(),
+        request_id=get_request_id(request),
     )
     return CheckoutResponse(
         checkout_url=response.checkout_url,
