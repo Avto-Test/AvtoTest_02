@@ -17,15 +17,29 @@ from models.inference_snapshot import InferenceSnapshot
 
 logger = logging.getLogger(__name__)
 
-# Strict feature names for hash verification (must match train_pass_model.py)
+# Strict feature names for hash verification — must match ml/features.py FEATURE_NAMES exactly.
+# Phase 2.5: migrated from UserSkill (legacy) to UserTopicStats + ReviewQueue.
 FEATURE_NAMES = [
-    "readiness_score", "avg_bkt_mastery", "avg_retention", "consolidation_factor",
-    "adaptive_consistency_score", "training_level_encoded", "pressure_resilience",
-    "avg_response_time", "response_time_variance", "total_attempts",
-    "last_5_score_mean", "last_5_score_std", "review_queue_size",
-    "avg_interval_days", "repetition_stability_score", "topic_entropy",
-    "weakest_topic_mastery", "strongest_topic_mastery", "time_since_last_attempt",
-    "overdue_ratio"
+    "readiness_score",
+    "avg_topic_accuracy",
+    "avg_retention_days",
+    "consolidation_factor",
+    "adaptive_consistency_score",
+    "training_level_encoded",
+    "pressure_resilience",
+    "avg_response_time",
+    "response_time_variance_log",
+    "total_attempts_log",
+    "last_5_score_mean",
+    "last_5_score_std",
+    "review_queue_size",
+    "avg_interval_days",
+    "avg_last_result_score",
+    "topic_entropy",
+    "weakest_topic_accuracy",
+    "strongest_topic_accuracy",
+    "time_since_last_attempt",
+    "overdue_ratio",
 ]
 
 def calculate_feature_hash(features: list):
