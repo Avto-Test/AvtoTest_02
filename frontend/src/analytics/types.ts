@@ -1,6 +1,8 @@
 export type RawOverview = {
   pass_probability_final?: number | null;
   pass_probability?: number | null;
+  pass_probability_ml?: number | null;
+  ml_status?: "rule_only" | "ml_active" | null;
   readiness_score?: number | null;
   best_score?: number | null;
   training_level?: string | null;
@@ -42,14 +44,14 @@ export type RawDashboardResponse = {
     action_label?: string | null;
   } | null;
   lesson_recommendations?:
-    | Array<{
-        lesson_id?: string | null;
-        title?: string | null;
-        reason?: string | null;
-        topic?: string | null;
-        content_type?: string | null;
-      }>
-    | null;
+  | Array<{
+    lesson_id?: string | null;
+    title?: string | null;
+    reason?: string | null;
+    topic?: string | null;
+    content_type?: string | null;
+  }>
+  | null;
   question_bank_mastery?: {
     total_questions?: number | null;
     seen_questions?: number | null;
@@ -60,14 +62,14 @@ export type RawDashboardResponse = {
   pass_probability_breakdown?: {
     explanation?: string | null;
     factors?:
-      | Array<{
-          key?: string | null;
-          label?: string | null;
-          weight?: number | null;
-          score?: number | null;
-          weighted_score?: number | null;
-        }>
-      | null;
+    | Array<{
+      key?: string | null;
+      label?: string | null;
+      weight?: number | null;
+      score?: number | null;
+      weighted_score?: number | null;
+    }>
+    | null;
   } | null;
   category_performance?: RawCategory[] | null;
   topic_breakdown?: RawCategory[] | null;
@@ -75,6 +77,7 @@ export type RawDashboardResponse = {
   difficulty_progression?: RawDifficultyPoint[] | null;
   weak_topics?: RawCategory[] | null;
   progress_trend?: Array<{ label?: string | null; value?: number | null }> | null;
+  test_activity?: Array<{ label?: string | null; tests_count?: number | null }> | null;
 };
 
 export type RawFunnelResponse = {
@@ -122,8 +125,15 @@ export type RecommendationInsight = {
   actionLabel: string | null;
 };
 
+export type ActivityPoint = {
+  label: string;
+  tests_count: number;
+};
+
 export type DashboardAnalyticsViewModel = {
   passProbability: number;
+  passProbabilityMl: number | null;
+  mlStatus: "rule_only" | "ml_active";
   readinessScore: number;
   bestScore: number;
   trainingLevel: string;
@@ -160,5 +170,6 @@ export type DashboardAnalyticsViewModel = {
       weightedScore: number;
     }>;
   };
+  testActivity: ActivityPoint[];
   isEmptyState: boolean;
 };

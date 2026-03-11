@@ -10,6 +10,7 @@ import type {
   RawFunnelResponse,
   RawSummaryResponse,
 } from "@/analytics/types";
+import { fetchWithSessionRefresh } from "@/lib/fetch-with-session";
 import { useAuth } from "@/store/useAuth";
 
 export type CategoryPoint = CategoryMetric;
@@ -25,7 +26,6 @@ type UseDashboardAnalyticsResult = {
 };
 
 export function useDashboardAnalytics(): UseDashboardAnalyticsResult {
-  const token = useAuth((state) => state.token);
   const user = useAuth((state) => state.user);
   const signOut = useAuth((state) => state.signOut);
   const [data, setData] = useState<DashboardAnalyticsViewModel | null>(null);
@@ -45,25 +45,18 @@ export function useDashboardAnalytics(): UseDashboardAnalyticsResult {
     setError(null);
 
     try {
-      const headers: HeadersInit = {
-        "Content-Type": "application/json",
-      };
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-      }
-
       const isAdmin = user?.is_admin === true;
       const [dashboardResult, summaryResult] = await Promise.allSettled([
-        fetch("/api/analytics/dashboard", {
+        fetchWithSessionRefresh("/api/analytics/dashboard", {
           method: "GET",
           credentials: "include",
-          headers,
+          headers: { "Content-Type": "application/json" },
           cache: "no-store",
         }),
-        fetch("/api/analytics/summary", {
+        fetchWithSessionRefresh("/api/analytics/summary", {
           method: "GET",
           credentials: "include",
-          headers,
+          headers: { "Content-Type": "application/json" },
           cache: "no-store",
         }),
       ]);
@@ -98,10 +91,10 @@ export function useDashboardAnalytics(): UseDashboardAnalyticsResult {
       let funnelPayload: RawFunnelResponse | null = null;
       if (isAdmin) {
         try {
-          const funnelResponse = await fetch("/api/analytics/funnel", {
+          const funnelResponse = await fetchWithSessionRefresh("/api/analytics/funnel", {
             method: "GET",
             credentials: "include",
-            headers,
+            headers: { "Content-Type": "application/json" },
             cache: "no-store",
           });
 
@@ -126,7 +119,7 @@ export function useDashboardAnalytics(): UseDashboardAnalyticsResult {
     } finally {
       setLoading(false);
     }
-  }, [token, user?.is_admin, redirectToLogin]);
+  }, [user?.is_admin, redirectToLogin]);
 
   useEffect(() => {
     void fetchData();

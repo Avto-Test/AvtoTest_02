@@ -5,7 +5,9 @@ import Link from 'next/link';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { DataTable, type Column } from '@/components/admin/DataTable';
 import { ConfirmDialog } from '@/components/admin/ConfirmDialog';
+import { SurfaceNav } from '@/components/intelligence/SurfaceNav';
 import { Button } from '@/components/ui/button';
+import { adminNav } from '@/config/navigation';
 import { AdminPromoCode } from '@/schemas/admin.schema';
 import { deletePromoCode, getErrorMessage, getPromoCodes } from '@/lib/admin';
 
@@ -127,6 +129,9 @@ export default function AdminPromosPage() {
             description="Promokodlarni yaratish, faollashtirish va tahrirlash"
         >
             <div className="space-y-4">
+                <div className="intelligence-panel p-6">
+                    <SurfaceNav items={adminNav} />
+                </div>
                 {error ? (
                     <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
                         {error}

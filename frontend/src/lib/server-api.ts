@@ -1,5 +1,10 @@
 import type { NextRequest } from "next/server";
 
+import {
+  AUTH_ACCESS_COOKIE,
+  AUTH_SESSION_MARKER,
+} from "@/lib/auth-session";
+
 const ABSOLUTE_HTTP_URL = /^https?:\/\//i;
 const DEFAULT_BACKEND_API_URL = "http://127.0.0.1:8000";
 
@@ -30,12 +35,12 @@ export function getRequestAuthToken(
   const authHeader = request.headers.get("authorization");
   if (authHeader?.startsWith("Bearer ")) {
     const token = authHeader.slice("Bearer ".length).trim();
-    if (token.length > 0) {
+    if (token.length > 0 && token !== AUTH_SESSION_MARKER) {
       return token;
     }
   }
 
-  const cookieToken = request.cookies.get("access_token")?.value;
+  const cookieToken = request.cookies.get(AUTH_ACCESS_COOKIE)?.value;
   return cookieToken && cookieToken.length > 0 ? cookieToken : null;
 }
 

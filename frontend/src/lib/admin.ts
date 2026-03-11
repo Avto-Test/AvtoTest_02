@@ -16,6 +16,9 @@ import {
     AdminLesson,
     AdminLessonUploadResponse,
     AdminQuestionCategory,
+    AdminSystemStats,
+    AdminMlStatus,
+    AdminNationalLearningInsights,
     PromoCodeFormData,
     QuestionCategoryFormData,
     SubscriptionPlanFormData,
@@ -303,6 +306,23 @@ export async function updatePromoCode(
 
 export async function deletePromoCode(promoId: string): Promise<void> {
     await api.delete(`/admin/promos/${promoId}`);
+}
+
+// ========== Platform Monitoring ==========
+
+export async function getAdminSystemStats(): Promise<AdminSystemStats> {
+    const response = await api.get<AdminSystemStats>('/admin/system/stats');
+    return response.data;
+}
+
+export async function getAdminMlStatus(): Promise<AdminMlStatus> {
+    const response = await api.get<AdminMlStatus>('/admin/ml/status');
+    return response.data;
+}
+
+export async function getAdminNationalLearningInsights(): Promise<AdminNationalLearningInsights> {
+    const response = await api.get<AdminNationalLearningInsights>('/admin/national/learning-insights');
+    return response.data;
 }
 
 // Re-export error helper

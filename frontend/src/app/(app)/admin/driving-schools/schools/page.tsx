@@ -4,6 +4,7 @@ import { ChangeEvent, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { DrivingSchoolAdminSubmenu } from '@/components/admin/driving-schools/DrivingSchoolAdminSubmenu';
+import { SurfaceNav } from '@/components/intelligence/SurfaceNav';
 import { drivingSchoolStatusView } from '@/components/admin/driving-schools/status';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -33,6 +34,7 @@ import {
   adminDrivingSchoolSchema,
 } from '@/schemas/drivingSchool.schema';
 import { cn } from '@/lib/utils';
+import { adminNav } from '@/config/navigation';
 
 type StatusFilter = 'all' | 'active' | 'inactive';
 
@@ -224,7 +226,12 @@ export default function AdminDrivingSchoolsListPage() {
   if (loading) {
     return (
       <AdminLayout title="Avtomaktablar">
-        <div>Yuklanmoqda...</div>
+        <div className="space-y-4">
+          <div className="intelligence-panel p-6">
+            <SurfaceNav items={adminNav} />
+          </div>
+          <div>Yuklanmoqda...</div>
+        </div>
       </AdminLayout>
     );
   }
@@ -235,6 +242,10 @@ export default function AdminDrivingSchoolsListPage() {
       description="Katalogdagi avtomaktablarni boshqarish, tahrirlash va media/kurs qo'shish"
       actions={<Button onClick={() => void loadData()}>Yangilash</Button>}
     >
+      <div className="mb-6 intelligence-panel p-6">
+        <SurfaceNav items={adminNav} />
+      </div>
+
       <DrivingSchoolAdminSubmenu />
 
       {error ? (
@@ -460,4 +471,3 @@ export default function AdminDrivingSchoolsListPage() {
     </AdminLayout>
   );
 }
-

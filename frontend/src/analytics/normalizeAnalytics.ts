@@ -80,6 +80,15 @@ function normalizePassBreakdown(payload: RawDashboardResponse): DashboardAnalyti
   };
 }
 
+function normalizeTestActivity(payload: RawDashboardResponse): DashboardAnalyticsViewModel["testActivity"] {
+  return (payload.test_activity ?? [])
+    .map((item) => ({
+      label: String(item?.label ?? "").trim(),
+      tests_count: Math.max(0, Math.round(toNumber(item?.tests_count, 0))),
+    }))
+    .filter((item) => item.label.length > 0);
+}
+
 export function normalizeAnalytics(
   payload: RawDashboardResponse,
   funnel?: RawFunnelResponse | null,
@@ -90,6 +99,12 @@ export function normalizeAnalytics(
   const passProbability = normalizePassProbability(
     toNumber(overview.pass_probability_final ?? overview.pass_probability, fallbackPass)
   );
+  const passProbabilityMl =
+    overview.pass_probability_ml != null
+      ? normalizePassProbability(toNumber(overview.pass_probability_ml, 0))
+      : null;
+  const mlStatus: "rule_only" | "ml_active" =
+    overview.ml_status === "ml_active" ? "ml_active" : "rule_only";
 
   const categoryMetrics = computeCategoryMetrics(payload).sort((left, right) => left.category.localeCompare(right.category));
   const weakTopicMetrics = sortCategoryMetricsByWeakness(categoryMetrics).slice(0, 6);
@@ -101,6 +116,7 @@ export function normalizeAnalytics(
   const lessonRecommendations = normalizeLessons(payload);
   const questionBankMastery = normalizeQuestionBankMastery(payload);
   const passBreakdown = normalizePassBreakdown(payload);
+  const testActivity = normalizeTestActivity(payload);
 
   const derivedAttemptsFromTrend = scoreTrend.length;
   const totalAttempts = Math.max(
@@ -119,6 +135,8 @@ export function normalizeAnalytics(
 
   return {
     passProbability,
+    passProbabilityMl,
+    mlStatus,
     readinessScore: normalizePercent(toNumber(overview.readiness_score, 0)),
     bestScore,
     trainingLevel: String(overview.training_level ?? overview.current_training_level ?? "beginner"),
@@ -134,6 +152,7 @@ export function normalizeAnalytics(
     lessonRecommendations,
     questionBankMastery,
     passBreakdown,
+    testActivity,
     isEmptyState,
   };
 }

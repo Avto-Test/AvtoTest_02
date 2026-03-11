@@ -329,6 +329,109 @@ textarea:-webkit-autofill:focus {
     @apply rounded-2xl border border-border/70 bg-card/72 shadow-[0_10px_24px_-20px_rgba(0,0,0,0.48)];
   }
 
+  .intelligence-page {
+    background:
+      radial-gradient(1100px 540px at 0% 0%, color-mix(in oklch, var(--primary) 22%, transparent), transparent 58%),
+      radial-gradient(900px 560px at 100% 2%, color-mix(in oklch, var(--brand) 18%, transparent), transparent 62%),
+      linear-gradient(180deg, color-mix(in oklch, var(--background) 86%, #061120 14%) 0%, color-mix(in oklch, var(--background) 95%, black 5%) 48%, var(--background) 100%);
+    min-height: calc(100vh - 64px);
+  }
+
+  .intelligence-hero {
+    --intelligence-accent: color-mix(in oklch, var(--brand) 72%, white 28%);
+    @apply relative overflow-hidden rounded-[2rem] border border-white/10 px-6 py-8 shadow-[0_24px_70px_-40px_rgba(0,0,0,0.75)] sm:px-8 sm:py-10;
+    background:
+      radial-gradient(540px 280px at 14% 18%, color-mix(in oklch, var(--intelligence-accent) 34%, transparent), transparent 62%),
+      radial-gradient(420px 260px at 88% 12%, color-mix(in oklch, var(--primary) 28%, transparent), transparent 60%),
+      linear-gradient(145deg, rgba(7, 11, 24, 0.92) 0%, rgba(13, 20, 38, 0.96) 42%, rgba(10, 18, 32, 0.98) 100%);
+  }
+
+  .intelligence-panel {
+    @apply relative overflow-hidden rounded-[1.75rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.08)_0%,rgba(255,255,255,0.03)_100%)] shadow-[0_24px_60px_-36px_rgba(0,0,0,0.8)] backdrop-blur;
+  }
+
+  .intelligence-panel::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(420px 160px at 0% 0%, rgba(56, 189, 248, 0.08), transparent 58%),
+      linear-gradient(180deg, rgba(255,255,255,0.02), transparent 42%);
+    pointer-events: none;
+  }
+
+  .intelligence-float-card {
+    @apply transition-transform duration-200 will-change-transform;
+  }
+
+  .intelligence-nav-shell {
+    @apply rounded-full border border-white/10 bg-white/6 px-1.5 py-1 backdrop-blur;
+  }
+
+  .intelligence-nav-link {
+    @apply inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium text-white/72 transition-colors;
+  }
+
+  .intelligence-nav-link-active {
+    @apply bg-white text-slate-950 shadow-sm;
+  }
+
+  .intelligence-podium-card {
+    @apply relative overflow-hidden rounded-[1.75rem] border border-white/10 bg-white/6 p-5 shadow-[0_18px_50px_-34px_rgba(0,0,0,0.7)];
+  }
+
+  .intelligence-podium-card::after {
+    content: "";
+    position: absolute;
+    inset: auto -10% -24% -10%;
+    height: 48%;
+    background: radial-gradient(circle at center, rgba(56, 189, 248, 0.14), transparent 72%);
+    pointer-events: none;
+  }
+
+  .marketing-demo-frame {
+    @apply relative overflow-hidden rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.08)_0%,rgba(255,255,255,0.03)_100%)] shadow-[0_30px_70px_-42px_rgba(0,0,0,0.75)] backdrop-blur;
+  }
+
+  .marketing-demo-header {
+    @apply flex items-center justify-between border-b border-white/10 px-5 py-4 text-sm text-white/68;
+    background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01));
+  }
+
+  .marketing-demo-grid {
+    @apply grid gap-4 p-5 lg:grid-cols-[1.1fr_0.9fr];
+  }
+
+  .marketing-demo-card {
+    @apply rounded-[1.5rem] border border-white/10 bg-black/18 p-4;
+  }
+
+  .stress-shell {
+    @apply relative overflow-hidden rounded-[1.75rem] border border-white/10 bg-white/6;
+  }
+
+  .stress-shell-danger {
+    border-color: rgba(248, 113, 113, 0.35);
+    box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.12), 0 24px 70px -42px rgba(239, 68, 68, 0.55);
+  }
+
+  .stress-timer-danger {
+    border-radius: 9999px;
+    box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.18);
+  }
+
+  .stress-timer-text {
+    color: rgba(254, 226, 226, 0.98);
+  }
+
+  .intelligence-eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.24em] text-white/46;
+  }
+
+  .intelligence-pill {
+    @apply inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/8 px-3 py-1 text-xs font-medium text-white/78;
+  }
+
   .section-spacing {
     @apply py-14 sm:py-16;
   }
@@ -358,6 +461,17 @@ textarea:-webkit-autofill:focus {
   }
 }
 
+@keyframes stressTimerPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.78;
+    transform: scale(1.015);
+  }
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .landing-fade-up {
     animation: landingFadeUp 520ms ease-out forwards;
@@ -366,10 +480,24 @@ textarea:-webkit-autofill:focus {
   .hero-emphasis {
     animation: heroEmphasis 7s ease-in-out infinite;
   }
+
+  .intelligence-float-card:hover {
+    transform: translateY(-4px);
+  }
+
+  .stress-timer-danger,
+  .stress-timer-text {
+    animation: stressTimerPulse 0.9s ease-in-out infinite;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .landing-fade-up {
     opacity: 1;
+  }
+
+  .stress-timer-danger,
+  .stress-timer-text {
+    animation: none;
   }
 }

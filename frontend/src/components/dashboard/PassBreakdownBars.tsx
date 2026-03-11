@@ -26,14 +26,14 @@ function PassBreakdownBarsComponent({ explanation, factors }: Props) {
   return (
     <section className="rounded-3xl border border-[#1F2A44] bg-gradient-to-br from-[#111a2f] to-[#0b1324] p-5 shadow-[0_10px_30px_rgba(0,0,0,0.22)]">
       <div className="mb-4">
-        <h3 className="text-lg font-semibold text-white">O'tish ehtimoli omillari</h3>
+        <h3 className="text-lg font-semibold text-white">{"O'tish ehtimoli omillari"}</h3>
         <p className="text-sm text-slate-300">{explanation}</p>
       </div>
 
       <div className="space-y-3">
         {factors.length === 0 ? (
           <p className="rounded-xl border border-[#22324e] bg-[#0f1b31] px-3 py-2 text-sm text-slate-300">
-            Omillar bo'yicha ma'lumot hali shakllanmagan.
+            {"Omillar bo'yicha ma'lumot hali shakllanmagan."}
           </p>
         ) : (
           factors.map((factor) => (
@@ -59,4 +59,3 @@ function PassBreakdownBarsComponent({ explanation, factors }: Props) {
 }
 
 export default memo(PassBreakdownBarsComponent);
-

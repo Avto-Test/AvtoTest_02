@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-    title: 'Dashboard - AUTOTEST',
-    description: 'Track your progress and access your tests.',
+    title: "Boshqaruv paneli - AUTOTEST",
+    description: "Natijalaringizni kuzating va testlar boshqaruviga o'ting.",
 };
 
 export default function DashboardLayout({

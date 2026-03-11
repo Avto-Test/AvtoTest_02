@@ -6,7 +6,6 @@ import { useAuthStore } from '@/store/auth';
 import { getUserTestAnalytics } from '@/lib/analytics';
 import { UserTestAnalytics } from '@/schemas/analytics.schema';
 import { TestPerformanceTable } from '@/components/dashboard';
-import { getErrorMessage } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 

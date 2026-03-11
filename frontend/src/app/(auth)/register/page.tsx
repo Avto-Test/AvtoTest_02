@@ -102,8 +102,9 @@ function RegisterPageContent() {
                 </div>
                 <h2 className="mb-2 text-2xl font-bold text-foreground">Emailingizni tekshiring</h2>
                 <p className="mb-8 text-muted-foreground">
-                    Tasdiqlash havolasi <span className="font-semibold text-foreground">{registeredEmail}</span> manziliga yuborildi.
-                    Kirish qutingizni (spam bolimini ham) tekshiring.
+                    {"Tasdiqlash havolasi "}
+                    <span className="font-semibold text-foreground">{registeredEmail}</span>
+                    {" manziliga yuborildi. Kirish qutingizni (spam bo'limini ham) tekshiring."}
                 </p>
                 <Button
                     asChild
@@ -111,7 +112,7 @@ function RegisterPageContent() {
                     className="h-11 w-full rounded-xl border-border font-semibold text-foreground hover:bg-muted"
                 >
                     <Link href="/verify" className="flex items-center justify-center gap-2">
-                        Emailni tasdiqlashga o'tish
+                        {"Emailni tasdiqlashga o'tish"}
                     </Link>
                 </Button>
                 <Button

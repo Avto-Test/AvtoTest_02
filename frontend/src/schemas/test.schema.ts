@@ -3,8 +3,6 @@
  * Type definitions for tests and attempts
  */
 
-import { z } from 'zod';
-
 export interface AnswerOption {
     id: string;
     text: string;

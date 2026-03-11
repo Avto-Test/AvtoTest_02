@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { DataTable, type Column } from '@/components/admin/DataTable';
+import { SurfaceNav } from '@/components/intelligence/SurfaceNav';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { adminNav } from '@/config/navigation';
 import {
     AdminUser,
     type AdminUserSubscriptionUpdate,
@@ -184,6 +186,9 @@ export default function AdminUsersPage() {
             description="Foydalanuvchilar ro'yxati va hisoblarini boshqarish"
         >
             <div className="space-y-4">
+                <div className="intelligence-panel p-6">
+                    <SurfaceNav items={adminNav} />
+                </div>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="space-y-1">
                         <div className="text-sm text-muted-foreground">

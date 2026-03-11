@@ -1,223 +1,232 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight, BrainCircuit, GraduationCap, ShieldCheck, Sparkles } from "lucide-react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/components/i18n-provider";
 
 interface LandingHeroProps {
-    isAuthenticated: boolean;
+  isAuthenticated: boolean;
 }
 
 type HeroCopy = {
-    badge: string;
-    titleLead: string;
-    titleAccent: string;
-    description: string;
-    primaryAuth: string;
-    primaryGuest: string;
-    secondary: string;
-    highlights: [string, string, string];
-    panelTitle: string;
-    panelLive: string;
-    signals: Array<{ label: string; value: string }>;
-    topicAccuracy: string;
-    last7Days: string;
-    topics: Array<{ label: string; value: string }>;
+  badge: string;
+  title: string;
+  description: string;
+  primary: string;
+  secondary: string;
+  signalLabel: string;
+  signals: Array<{ label: string; value: string }>;
+  demoLabel: string;
+  demoTitle: string;
+  demoDescription: string;
+  demoCards: Array<{ title: string; value: string; description: string }>;
 };
 
-const localized: Record<string, HeroCopy> = {
-    "uz-latn": {
-        badge: "Real imtihon uchun aqlli tayyorgarlik",
-        titleLead: "Haydovchilik imtihonini",
-        titleAccent: "ishonch bilan topshiring",
-        description:
-            "AUTOTEST har bir urinishdan signal olib, siz uchun eng muhim bo'lgan mavzularni ustuvor qiladi. Natija: tartibli tayyorgarlik, yuqori ehtimol, kamroq vaqt yo'qotish.",
-        primaryAuth: "Panelga o'tish",
-        primaryGuest: "Bepul boshlash",
-        secondary: "Analitika demosi",
-        highlights: ["Karta talab qilinmaydi", "Tez ro'yxatdan o'tish", "Ma'lumotlar himoyalangan"],
-        panelTitle: "Dashboard ko'rinishi",
-        panelLive: "Jonli signal",
-        signals: [
-            { label: "O'tish ehtimoli", value: "78%" },
-            { label: "Barqarorlik indeksi", value: "83%" },
-            { label: "Tayyorgarlik darajasi", value: "91" },
-        ],
-        topicAccuracy: "Mavzu bo'yicha aniqlik",
-        last7Days: "So'nggi 7 kun",
-        topics: [
-            { label: "Yo'l belgilari", value: "89%" },
-            { label: "Yo'l ustuvorligi", value: "84%" },
-            { label: "Xavfli vaziyatlar", value: "71%" },
-        ],
-    },
-    "uz-cyrl": {
-        badge: "Реал имтиҳон учун ақлли тайёргарлик",
-        titleLead: "Ҳайдовчилик имтиҳонини",
-        titleAccent: "ишонч билан топширинг",
-        description:
-            "AUTOTEST ҳар бир уринишдан сигнал олиб, сиз учун энг муҳим бўлган мавзуларни устувор қилади. Натижа: тартибли тайёргарлик, юқори эҳтимол, камроқ вақт йўқотиш.",
-        primaryAuth: "Панелга ўтиш",
-        primaryGuest: "Бепул бошлаш",
-        secondary: "Аналитика демоси",
-        highlights: ["Карта талаб қилинмайди", "Тез рўйхатдан ўтиш", "Маълумотлар ҳимояланган"],
-        panelTitle: "Дашборд кўриниши",
-        panelLive: "Жонли сигнал",
-        signals: [
-            { label: "Ўтиш эҳтимоли", value: "78%" },
-            { label: "Барқарорлик индекси", value: "83%" },
-            { label: "Тайёргарлик даражаси", value: "91" },
-        ],
-        topicAccuracy: "Мавзу бўйича аниқлик",
-        last7Days: "Сўнгги 7 кун",
-        topics: [
-            { label: "Йўл белгилари", value: "89%" },
-            { label: "Йўл устуворлиги", value: "84%" },
-            { label: "Хавфли вазиятлар", value: "71%" },
-        ],
-    },
-    ru: {
-        badge: "Умная подготовка к реальному экзамену",
-        titleLead: "Сдайте экзамен по вождению",
-        titleAccent: "уверенно и без лишнего стресса",
-        description:
-            "AUTOTEST анализирует каждый подход и выделяет самые важные темы именно для вас. Результат: структурная подготовка, выше шанс сдачи и меньше потерь времени.",
-        primaryAuth: "Перейти в панель",
-        primaryGuest: "Начать бесплатно",
-        secondary: "Демо аналитики",
-        highlights: ["Карта не требуется", "Быстрая регистрация", "Данные защищены"],
-        panelTitle: "Вид дашборда",
-        panelLive: "Живой сигнал",
-        signals: [
-            { label: "Вероятность сдачи", value: "78%" },
-            { label: "Индекс стабильности", value: "83%" },
-            { label: "Уровень готовности", value: "91" },
-        ],
-        topicAccuracy: "Точность по темам",
-        last7Days: "Последние 7 дней",
-        topics: [
-            { label: "Дорожные знаки", value: "89%" },
-            { label: "Приоритеты на дороге", value: "84%" },
-            { label: "Опасные ситуации", value: "71%" },
-        ],
-    },
-    en: {
-        badge: "Smart preparation for the real exam",
-        titleLead: "Pass your driving exam",
-        titleAccent: "with confidence",
-        description:
-            "AUTOTEST captures signals from every attempt and prioritizes the topics that matter most for you. Result: structured prep, higher pass probability, and less wasted time.",
-        primaryAuth: "Go to dashboard",
-        primaryGuest: "Start free",
-        secondary: "Analytics demo",
-        highlights: ["No card required", "Fast signup", "Data protected"],
-        panelTitle: "Dashboard preview",
-        panelLive: "Live signal",
-        signals: [
-            { label: "Pass probability", value: "78%" },
-            { label: "Stability index", value: "83%" },
-            { label: "Readiness score", value: "91" },
-        ],
-        topicAccuracy: "Topic accuracy",
-        last7Days: "Last 7 days",
-        topics: [
-            { label: "Road signs", value: "89%" },
-            { label: "Road priority", value: "84%" },
-            { label: "Risk situations", value: "71%" },
-        ],
-    },
+const copyByLocale: Record<string, HeroCopy> = {
+  "uz-latn": {
+    badge: "Haydovchilik imtihoniga tayyorgarlik",
+    title: "Imtihondan o'tish ehtimolingizni ko'rib, kerakli mavzularni mashq qiling",
+    description:
+      "AUTOTEST mashq testlari, tayyorgarlik darajasi, zaif mavzular, imtihon simulyatsiyasi va progressni bir joyda ko'rsatadi. Shunda imtihongacha aynan nimani qayta ishlash kerakligi aniq bo'ladi.",
+    primary: "Tayyorgarlikni boshlash",
+    secondary: "Qanday ishlashini ko'rish",
+    signalLabel: "Asosiy ko'rsatkichlar",
+    signals: [
+      { label: "Imtihondan o'tish ehtimoli", value: "82.4%" },
+      { label: "Tayyorgarlik darajasi", value: "84" },
+      { label: "Zaif mavzular", value: "3" },
+    ],
+    demoLabel: "Platforma ko'rinishi",
+    demoTitle: "Talaba, instruktor va o'quv markazi uchun tushunarli sahifalar",
+    demoDescription:
+      "Barcha sahifalar amaldagi backend bilan ishlaydi. Alohida demo API yoki sun'iy oqimlar yo'q, ko'rayotganingiz real platformaning o'zi.",
+    demoCards: [
+      { title: "Talabalar", value: "Mashq va tahlil", description: "Mashq testlari, tayyorgarlik darajasi, zaif mavzular va simulyatsiya." },
+      { title: "Instruktorlar", value: "Guruh nazorati", description: "Reyting, xavfdagi o'quvchilar va kerakli nudge'lar." },
+      { title: "O'quv markazlari", value: "Umumiy statistika", description: "Guruhlar bo'yicha tayyorgarlik, qamrov va instruktorga oid ko'rinish." },
+      { title: "Admin / ML", value: "Tizim kuzatuvi", description: "Model holati, drift va umumiy platforma ko'rsatkichlari." },
+    ],
+  },
+  en: {
+    badge: "AI learning platform",
+    title: "AI that predicts if you will pass the driving exam",
+    description:
+      "AUTOTEST unifies pass prediction, readiness scoring, weak-topic diagnosis, exam simulation, school analytics, and ML monitoring into one learning system.",
+    primary: "Open platform",
+    secondary: "See product demo",
+    signalLabel: "Live intelligence signals",
+    signals: [
+      { label: "Pass probability", value: "82.4%" },
+      { label: "Readiness score", value: "84" },
+      { label: "Weak topics", value: "3" },
+    ],
+    demoLabel: "Dashboard command center",
+    demoTitle: "One interface for students, instructors, schools, and admins",
+    demoDescription:
+      "Every surface is built on the current production backend: no fake flows, no parallel API layer, no hidden analytics.",
+    demoCards: [
+      { title: "Students", value: "Prediction + practice", description: "Readiness, AI coach, weak topics, XP, and simulation." },
+      { title: "Instructors", value: "Intervention-ready", description: "Groups, rankings, risk alerts, and nudges." },
+      { title: "Schools", value: "Aggregated intelligence", description: "Group readiness, branding, and enrollment visibility." },
+      { title: "Admin / ML", value: "Observed in production", description: "Drift status, national insights, and platform metrics." },
+    ],
+  },
+  "uz-cyrl": {
+    badge: "AI learning platform",
+    title: "AI that predicts if you will pass the driving exam",
+    description:
+      "AUTOTEST unifies pass prediction, readiness scoring, weak-topic diagnosis, exam simulation, school analytics, and ML monitoring into one learning system.",
+    primary: "Open platform",
+    secondary: "See product demo",
+    signalLabel: "Live intelligence signals",
+    signals: [
+      { label: "Pass probability", value: "82.4%" },
+      { label: "Readiness score", value: "84" },
+      { label: "Weak topics", value: "3" },
+    ],
+    demoLabel: "Dashboard command center",
+    demoTitle: "One interface for students, instructors, schools, and admins",
+    demoDescription:
+      "Every surface is built on the current production backend: no fake flows, no parallel API layer, no hidden analytics.",
+    demoCards: [
+      { title: "Students", value: "Prediction + practice", description: "Readiness, AI coach, weak topics, XP, and simulation." },
+      { title: "Instructors", value: "Intervention-ready", description: "Groups, rankings, risk alerts, and nudges." },
+      { title: "Schools", value: "Aggregated intelligence", description: "Group readiness, branding, and enrollment visibility." },
+      { title: "Admin / ML", value: "Observed in production", description: "Drift status, national insights, and platform metrics." },
+    ],
+  },
+  ru: {
+    badge: "AI learning platform",
+    title: "AI that predicts if you will pass the driving exam",
+    description:
+      "AUTOTEST unifies pass prediction, readiness scoring, weak-topic diagnosis, exam simulation, school analytics, and ML monitoring into one learning system.",
+    primary: "Open platform",
+    secondary: "See product demo",
+    signalLabel: "Live intelligence signals",
+    signals: [
+      { label: "Pass probability", value: "82.4%" },
+      { label: "Readiness score", value: "84" },
+      { label: "Weak topics", value: "3" },
+    ],
+    demoLabel: "Dashboard command center",
+    demoTitle: "One interface for students, instructors, schools, and admins",
+    demoDescription:
+      "Every surface is built on the current production backend: no fake flows, no parallel API layer, no hidden analytics.",
+    demoCards: [
+      { title: "Students", value: "Prediction + practice", description: "Readiness, AI coach, weak topics, XP, and simulation." },
+      { title: "Instructors", value: "Intervention-ready", description: "Groups, rankings, risk alerts, and nudges." },
+      { title: "Schools", value: "Aggregated intelligence", description: "Group readiness, branding, and enrollment visibility." },
+      { title: "Admin / ML", value: "Observed in production", description: "Drift status, national insights, and platform metrics." },
+    ],
+  },
 };
+
+const heroIcons = [ShieldCheck, GraduationCap, Sparkles];
 
 export function LandingHero({ isAuthenticated }: LandingHeroProps) {
-    const { locale } = useI18n();
-    const copy = localized[locale] ?? localized["uz-latn"];
+  const { locale } = useI18n();
+  const copy = copyByLocale[locale] ?? copyByLocale["uz-latn"];
+  const primaryHref = isAuthenticated ? "/dashboard" : "/register";
 
-    const primaryHref = isAuthenticated ? "/dashboard" : "/register";
-    const primaryLabel = isAuthenticated ? copy.primaryAuth : copy.primaryGuest;
+  return (
+    <section className="landing-fade-up relative overflow-hidden border-b border-border/70 section-spacing text-foreground">
+      <div className="absolute inset-0 -z-10">
+        <div className="absolute -left-20 top-0 h-96 w-96 rounded-full bg-cyan-400/14 blur-3xl" />
+        <div className="absolute right-0 top-0 h-96 w-96 rounded-full bg-emerald-400/12 blur-3xl" />
+        <div className="absolute bottom-0 left-1/2 h-48 w-[44rem] -translate-x-1/2 rounded-full bg-sky-500/12 blur-3xl" />
+      </div>
 
-    return (
-        <section className="landing-fade-up relative overflow-hidden border-b border-border/70 section-spacing text-foreground">
-            <div className="absolute inset-0 -z-10">
-                <div className="absolute -left-16 top-10 h-72 w-72 rounded-full bg-cyan-400/18 blur-3xl" />
-                <div className="absolute right-0 top-0 h-80 w-80 rounded-full bg-emerald-300/14 blur-3xl" />
-                <div className="absolute bottom-0 left-1/2 h-44 w-[40rem] -translate-x-1/2 bg-sky-300/14 blur-3xl" />
+      <div className="container-app">
+        <div className="grid gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
+          <div className="space-y-7">
+            <Badge variant="outline" className="w-fit border-border/80 bg-card/70 px-3 py-1 text-xs text-foreground">
+              <BrainCircuit className="mr-2 h-3.5 w-3.5" />
+              {copy.badge}
+            </Badge>
+
+            <div className="space-y-5">
+              <h1 className="max-w-4xl text-balance text-4xl font-semibold tracking-[-0.05em] text-foreground sm:text-6xl">
+                {copy.title}
+              </h1>
+              <p className="max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg">
+                {copy.description}
+              </p>
             </div>
 
-            <div className="container-app">
-                <div className="grid items-center gap-10 lg:grid-cols-[1.1fr_1fr]">
-                    <div className="hero-emphasis">
-                        <Badge variant="outline" className="mb-6 border-border/80 bg-card/70 px-3 py-1 text-xs text-foreground">
-                            <Sparkles className="size-3.5" />
-                            {copy.badge}
-                        </Badge>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Button asChild size="lg" className="h-11 rounded-full bg-gradient-to-r from-cyan-500 to-emerald-500 px-7 text-white hover:brightness-110">
+                <Link href={primaryHref}>
+                  {copy.primary}
+                  <ArrowRight className="ml-1 h-4 w-4" />
+                </Link>
+              </Button>
+              <Button asChild variant="outline" size="lg" className="h-11 rounded-full border-border/80 bg-card/65 px-7 text-foreground hover:bg-card">
+                <Link href="#product-demo">{copy.secondary}</Link>
+              </Button>
+            </div>
 
-                        <h1 className="text-balance text-4xl font-bold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
-                            {copy.titleLead}
-                            <span className="block bg-gradient-to-r from-cyan-400 to-emerald-400 bg-clip-text text-transparent"> {copy.titleAccent}</span>
-                        </h1>
-
-                        <p className="mt-6 max-w-2xl text-base text-muted-foreground sm:text-lg">
-                            {copy.description}
-                        </p>
-
-                        <div className="mt-10 flex flex-col gap-3 sm:flex-row">
-                            <Button asChild size="lg" className="h-11 px-7 bg-gradient-to-r from-emerald-500 to-cyan-500 text-white hover:brightness-110">
-                                <Link href={primaryHref}>
-                                    {primaryLabel}
-                                    <ArrowRight className="ml-1 size-4" />
-                                </Link>
-                            </Button>
-                            <Button
-                                asChild
-                                variant="outline"
-                                size="lg"
-                                className="h-11 border-border/80 bg-card/65 px-7 text-foreground hover:bg-card hover:text-foreground"
-                            >
-                                <Link href="#analytics-demo">{copy.secondary}</Link>
-                            </Button>
-                        </div>
-
-                        <div className="mt-5 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
-                            {copy.highlights.map((highlight) => (
-                                <span key={highlight}>{highlight}</span>
-                            ))}
-                        </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {copy.signals.map((signal, index) => {
+                const Icon = heroIcons[index] ?? Sparkles;
+                return (
+                  <div key={signal.label} className="surface-card-soft p-4">
+                    <div className="flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-muted-foreground">
+                      <Icon className="h-3.5 w-3.5 text-primary" />
+                      {signal.label}
                     </div>
+                    <p className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-foreground">
+                      {signal.value}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
 
-                    <div className="surface-card p-6 backdrop-blur-sm sm:p-7">
-                        <div className="flex items-center justify-between">
-                            <p className="text-sm font-medium text-foreground">{copy.panelTitle}</p>
-                            <p className="text-xs text-emerald-400">{copy.panelLive}</p>
-                        </div>
-
-                        <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                            {copy.signals.map((signal, index) => (
-                                <div key={`${signal.label}-${index}`} className="surface-card-soft p-3">
-                                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{signal.label}</p>
-                                    <p className="mt-1 text-2xl font-semibold tracking-tight text-foreground">{signal.value}</p>
-                                </div>
-                            ))}
-                        </div>
-
-                        <div className="surface-card-soft mt-5 p-4">
-                            <div className="mb-3 flex items-center justify-between">
-                                <p className="text-sm text-foreground">{copy.topicAccuracy}</p>
-                                <p className="text-xs text-muted-foreground">{copy.last7Days}</p>
-                            </div>
-                            <div className="space-y-2.5">
-                                {copy.topics.map((item) => (
-                                    <div key={item.label} className="flex items-center justify-between text-sm">
-                                        <span className="text-muted-foreground">{item.label}</span>
-                                        <span className="font-mono font-semibold text-foreground">{item.value}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
+          <div className="marketing-demo-frame">
+            <div className="marketing-demo-header">
+              <span>{copy.demoLabel}</span>
+              <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs text-cyan-50">
+                Production bilan ulangan
+              </span>
+            </div>
+            <div className="marketing-demo-grid">
+              <div className="space-y-4">
+                <div className="marketing-demo-card">
+                  <p className="text-xs uppercase tracking-[0.24em] text-white/45">Platform story</p>
+                  <h2 className="mt-3 text-2xl font-semibold tracking-[-0.04em] text-white">
+                    {copy.demoTitle}
+                  </h2>
+                  <p className="mt-3 text-sm leading-6 text-white/60">
+                    {copy.demoDescription}
+                  </p>
                 </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {copy.demoCards.slice(0, 2).map((item) => (
+                    <div key={item.title} className="marketing-demo-card">
+                      <p className="text-sm font-medium text-white">{item.title}</p>
+                      <p className="mt-3 text-xl font-semibold tracking-[-0.03em] text-cyan-100">{item.value}</p>
+                      <p className="mt-2 text-sm leading-6 text-white/56">{item.description}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-4">
+                {copy.demoCards.slice(2).map((item) => (
+                  <div key={item.title} className="marketing-demo-card h-full">
+                    <p className="text-sm font-medium text-white">{item.title}</p>
+                    <p className="mt-3 text-xl font-semibold tracking-[-0.03em] text-emerald-100">{item.value}</p>
+                    <p className="mt-2 text-sm leading-6 text-white/56">{item.description}</p>
+                  </div>
+                ))}
+              </div>
             </div>
-        </section>
-    );
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 }

@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ChevronLeft, Crown, Send, Timer } from "lucide-react";
@@ -22,8 +23,6 @@ type AttemptMode = "adaptive" | "free_random";
 interface AnswerFeedback {
   questionId: string;
   selectedOptionId: string;
-  correctOptionId: string | null;
-  isCorrect: boolean;
 }
 
 interface FreeCompletionState {
@@ -409,9 +408,8 @@ export default function TestAttemptPage() {
         };
         setResponseTimes(nextResponseTimes);
 
-        const response = await api.post<{
-          is_correct: boolean;
-          correct_option_id?: string | null;
+        await api.post<{
+          accepted: boolean;
           selected_option_id: string;
         }>("/attempts/answer", {
           attempt_id: attemptId,
@@ -423,8 +421,6 @@ export default function TestAttemptPage() {
         setAnswerFeedback({
           questionId,
           selectedOptionId: optionId,
-          correctOptionId: response.data.correct_option_id ?? null,
-          isCorrect: response.data.is_correct,
         });
         setPendingSelectionId(null);
 
@@ -617,14 +613,14 @@ export default function TestAttemptPage() {
           <div className="space-y-2">
             <h1 className="text-3xl font-bold text-foreground">Free test yakunlandi</h1>
             <p className="text-muted-foreground">
-              To'g'ri javoblar: {freeCompletion.score}/{freeCompletion.total}
+              {"To'g'ri javoblar: "} {freeCompletion.score}/{freeCompletion.total}
             </p>
           </div>
 
           <div className="rounded-2xl border border-border bg-background px-4 py-4">
             <div className="text-sm text-muted-foreground">Kunlik limit</div>
             <div className="mt-2 text-2xl font-semibold text-foreground">
-              {freeCompletion.attemptsUsedToday}/{freeCompletion.attemptsLimit} attempts used
+              {freeCompletion.attemptsUsedToday}/{freeCompletion.attemptsLimit} urinish ishlatilgan
             </div>
             {limitReached ? (
               <p className="mt-2 text-sm text-amber-300">Bugungi urinishlar soni tugadi</p>
@@ -754,9 +750,11 @@ export default function TestAttemptPage() {
 
             {currentQuestion.image_url ? (
               <div className="overflow-hidden rounded-2xl border border-border bg-card">
-                <img
+                <Image
                   src={currentQuestion.image_url}
                   alt="Question Illustration"
+                  width={1200}
+                  height={800}
                   className="mx-auto max-h-[400px] h-auto w-full object-contain"
                 />
               </div>
@@ -785,32 +783,18 @@ export default function TestAttemptPage() {
 
           <div className="grid gap-4">
             {currentQuestion.answer_options.map((option, idx) => {
-              const isSelected = selectedOptionId === option.id;
-              const isCorrectOption = answerFeedback?.correctOptionId === option.id;
-              const isWrongSelected = answerFeedback && isSelected && !answerFeedback.isCorrect;
-              const isRightSelected = answerFeedback && isSelected && answerFeedback.isCorrect;
-
-              let optionClass = "border-border bg-card hover:border-[#00B37E]/40 hover:bg-muted/50";
-              let badgeClass = "bg-muted text-muted-foreground group-hover:bg-[#00B37E]/10 group-hover:text-[#00B37E]";
+        let optionClass = "border-border bg-card hover:border-[#00B37E]/40 hover:bg-muted/50";
+        let badgeClass = "bg-muted text-muted-foreground group-hover:bg-[#00B37E]/10 group-hover:text-[#00B37E]";
 
               if (pendingSelectionId === option.id) {
                 optionClass = "border-[#00B37E] bg-[#00B37E]/5 ring-4 ring-[#00B37E]/5";
                 badgeClass = "bg-[#00B37E] text-white";
               }
 
-              if (isWrongSelected) {
-                optionClass = "border-red-500 bg-red-500/10 ring-4 ring-red-500/15 animate-pulse";
-                badgeClass = "bg-red-500 text-white";
-              } else if (isCorrectOption) {
-                optionClass = "border-emerald-500 bg-emerald-500/10 ring-4 ring-emerald-500/15";
-                badgeClass = "bg-emerald-500 text-white";
-              } else if (isRightSelected) {
-                optionClass = "border-emerald-500 bg-emerald-500/10 ring-4 ring-emerald-500/15";
-                badgeClass = "bg-emerald-500 text-white";
-              } else if (answers[currentQuestion.id] === option.id) {
-                optionClass = "border-[#00B37E] bg-[#00B37E]/5 ring-4 ring-[#00B37E]/5";
-                badgeClass = "bg-[#00B37E] text-white";
-              }
+        if (answers[currentQuestion.id] === option.id) {
+          optionClass = "border-[#00B37E] bg-[#00B37E]/5 ring-4 ring-[#00B37E]/5";
+          badgeClass = "bg-[#00B37E] text-white";
+        }
 
               return (
                 <button
@@ -837,9 +821,7 @@ export default function TestAttemptPage() {
       <footer className="flex h-16 shrink-0 items-center justify-between border-t border-border bg-card px-3 shadow-[0_-1px_3px_rgba(0,0,0,0.05)] sm:h-20 sm:px-6">
         <div className="text-sm text-muted-foreground">
           {answerFeedback
-            ? answerFeedback.isCorrect
-              ? "To'g'ri javob. Keyingi savolga o'tilmoqda..."
-              : "To'g'ri javob ko'rsatildi. Keyingi savolga o'tilmoqda..."
+            ? "Javob saqlandi. Keyingi savolga o'tilmoqda..."
             : "Javobni tanlang. Keyingi savol avtomatik ochiladi."}
         </div>
 

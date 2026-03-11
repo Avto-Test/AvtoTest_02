@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -624,9 +625,11 @@ export default function AdminQuestionsPage() {
                                     {isUploadingImage ? <span className="text-xs text-muted-foreground">Uploading...</span> : null}
                                 </div>
                                 {currentImageUrl ? (
-                                    <img
+                                    <Image
                                         src={currentImageUrl}
                                         alt="Uploaded question image preview"
+                                        width={960}
+                                        height={480}
                                         className="max-h-48 rounded-md border"
                                     />
                                 ) : null}

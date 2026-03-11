@@ -19,9 +19,7 @@ import {
     Activity,
     Timer,
     TrendingUp,
-    Target,
-    Zap,
-    AlertCircle
+    Zap
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -81,7 +79,7 @@ export function PerformanceDiagnostics({
                     </CardHeader>
                     <CardContent>
                         <ChartContainer>
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
                                 <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
                                     <XAxis

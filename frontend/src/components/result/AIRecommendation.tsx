@@ -6,7 +6,6 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
     Sparkles,
-    ArrowRight,
     ListRestart,
     Zap,
     AlertCircle,
@@ -18,13 +17,11 @@ import { cn } from "@/lib/utils";
 interface AIRecommendationProps {
     probability: number;
     weakestTopic?: string;
-    passed: boolean;
 }
 
 export function AIRecommendation({
     probability,
-    weakestTopic,
-    passed
+    weakestTopic
 }: AIRecommendationProps) {
 
     const advice = useMemo(() => {

@@ -50,12 +50,12 @@ function QuestionBankMasteryCardComponent({
     <section className="min-w-0 rounded-3xl border border-[#1F2A44] bg-gradient-to-b from-[#111a2f] to-[#0b1324] p-6 shadow-[0_10px_28px_rgba(0,0,0,0.22)]">
       <div className="mb-4">
         <h3 className="text-lg font-semibold text-white">Savollar bazasi</h3>
-        <p className="text-sm text-slate-300">Ko'proq savollar ko'rish bilimni mustahkamlaydi.</p>
+        <p className="text-sm text-slate-300">{"Ko'proq savollar ko'rish bilimni mustahkamlaydi."}</p>
       </div>
 
       <div className="rounded-2xl border border-[#22324e] bg-[#0f1b31]/90 p-4">
         <div className="mb-3 flex items-end justify-between gap-2">
-          <p className="text-sm text-slate-300">Ko'rilgan savollar</p>
+          <p className="text-sm text-slate-300">{"Ko'rilgan savollar"}</p>
           <p className="text-xl font-bold text-white">
             {stats.seen} <span className="text-sm font-medium text-slate-400">/ {stats.total}</span>
           </p>

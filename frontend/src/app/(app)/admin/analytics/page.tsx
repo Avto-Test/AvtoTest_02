@@ -13,6 +13,7 @@ import { SummaryCard } from '@/components/admin/SummaryCard';
 import { TrendIndicator, type FunnelTrendSignal } from '@/components/admin/TrendIndicator';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { fetchWithSessionRefresh } from '@/lib/fetch-with-session';
 import { useAuth } from '@/store/useAuth';
 import { Cell, Funnel, FunnelChart, LabelList, ResponsiveContainer, Tooltip } from 'recharts';
 
@@ -162,7 +163,6 @@ function formatRateDelta(value: number): DeltaDisplay {
 export default function AdminAnalyticsPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const token = useAuth((state) => state.token);
     const hydrated = useAuth((state) => state.hydrated);
     const signOut = useAuth((state) => state.signOut);
 
@@ -187,14 +187,11 @@ export default function AdminAnalyticsPage() {
         setError(null);
 
         try {
-            const headers: HeadersInit = {};
-            if (token) {
-                headers.Authorization = `Bearer ${token}`;
-            }
-
-            const response = await fetch(`/api/analytics/funnel?period=${selectedPeriod}`, {
+            const response = await fetchWithSessionRefresh(`/api/analytics/funnel?period=${selectedPeriod}`, {
                 method: 'GET',
-                headers,
+                headers: {
+                    'Content-Type': 'application/json',
+                },
                 credentials: 'include',
                 cache: 'no-store',
             });
@@ -230,7 +227,7 @@ export default function AdminAnalyticsPage() {
         } finally {
             setIsLoading(false);
         }
-    }, [hydrated, redirectToLogin, token]);
+    }, [hydrated, redirectToLogin]);
 
     useEffect(() => {
         if (!hydrated) {

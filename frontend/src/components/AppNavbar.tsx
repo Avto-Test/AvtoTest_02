@@ -102,21 +102,50 @@ export default function AppNavbar() {
     const panelLabel = useMemo(() => {
         if (!user) return "Panel";
         if (user.is_admin === true) return t("nav.admin", "Admin");
-        if (user.has_school_profile) return "Maktab paneli";
-        if (user.has_instructor_profile) return "Instruktor paneli";
-        return "Panel";
+        if (user.has_school_profile) return t("nav.school_panel", "Maktab paneli");
+        if (user.has_instructor_profile) return t("nav.instructor_panel", "Instruktor paneli");
+        return t("nav.panel", "Panel");
     }, [t, user]);
 
     const primaryLinks = useMemo(
         () => [
-            { href: "/driving-schools", label: t("nav.driving_schools", "Avtomaktablar") },
-            { href: "/driving-instructors", label: t("nav.driving_instructors", "Instruktorlar") },
+            { href: "/practice", label: t("nav.practice", "Mashq markazi") },
+            { href: "/simulation", label: t("nav.simulation", "Imtihon simulyatsiyasi") },
+            { href: "/leaderboard", label: t("nav.leaderboard", "Reyting jadvali") },
+            { href: "/analytics", label: t("nav.analytics", "Analitika") },
+            { href: "/achievements", label: t("nav.achievements", "Yutuqlar") },
             { href: "/lessons", label: t("nav.lessons") },
             { href: "/feedback", label: t("nav.feedback") },
-            { href: "/dashboard/history", label: t("nav.history") },
         ],
         [t]
     );
+
+    const contextualLinks = useMemo(() => {
+        if (!user) return [];
+        if (user.is_admin === true) {
+            return [
+                { href: "/admin/ml", label: t("nav.admin.ml", "ML kuzatuv") },
+                { href: "/admin/schools", label: t("nav.admin.schools", "Maktablar") },
+                { href: "/admin/users", label: t("admin.nav.users", "Foydalanuvchilar") },
+                { href: "/admin/promos", label: t("admin.nav.promos", "Promokodlar") },
+            ];
+        }
+        if (user.has_school_profile) {
+            return [
+                { href: "/school/groups", label: t("nav.school.groups", "Guruhlar") },
+                { href: "/school/instructors", label: t("nav.school.instructors", "Instruktorlar") },
+                { href: "/school/analytics", label: t("nav.school.analytics", "Maktab analitikasi") },
+            ];
+        }
+        if (user.has_instructor_profile) {
+            return [
+                { href: "/instructor/groups", label: t("nav.instructor.groups", "Guruhlar") },
+                { href: "/instructor/students", label: t("nav.instructor.students", "O'quvchilar") },
+                { href: "/instructor/analytics", label: t("nav.instructor.analytics", "Instruktor analitikasi") },
+            ];
+        }
+        return [];
+    }, [t, user]);
 
     if (!user) return null;
 
@@ -138,15 +167,15 @@ export default function AppNavbar() {
                         className="hidden items-center gap-2 rounded-md px-2 py-2 text-sm font-medium hover:bg-muted lg:inline-flex"
                     >
                         <Home className="h-4 w-4" />
-                        <span>Asosiy</span>
+                        <span>{t("nav.dashboard", "Boshqaruv")}</span>
                     </Link>
 
                     <Link
-                        href="/tests?mode=adaptive"
+                        href="/practice"
                         className="hidden h-10 items-center gap-2 whitespace-nowrap rounded-xl bg-gradient-to-r from-[#1d8dff] to-[#16c2b8] px-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 sm:px-4 lg:inline-flex"
                     >
                         <Play className="h-4 w-4" />
-                        <span>{t("nav.start_test")}</span>
+                        <span>{t("nav.practice", "Mashq markazi")}</span>
                     </Link>
 
                     <div className="hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto xl:flex">
@@ -159,12 +188,25 @@ export default function AppNavbar() {
                                 {link.label}
                             </Link>
                         ))}
+                        {contextualLinks.length > 0 ? (
+                            <div className="ml-2 flex items-center gap-1 border-l border-border pl-2">
+                                {contextualLinks.map((link) => (
+                                    <Link
+                                        key={link.href}
+                                        href={link.href}
+                                        className="shrink-0 rounded-md px-3 py-2 text-sm font-medium hover:bg-muted"
+                                    >
+                                        {link.label}
+                                    </Link>
+                                ))}
+                            </div>
+                        ) : null}
                         {user.plan === "free" ? (
                             <Link
                                 href="/upgrade"
                                 className="ml-2 shrink-0 rounded-md px-3 py-2 text-sm font-bold text-[#F59E0B] hover:bg-muted"
                             >
-                                Upgrade (Free)
+                                {t("nav.upgrade_free", "Yangilash (Free)")}
                             </Link>
                         ) : (
                             <span className="ml-2 inline-flex shrink-0 rounded-md bg-amber-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[#F59E0B]">
@@ -191,15 +233,15 @@ export default function AppNavbar() {
                                 type="button"
                                 onClick={() => setSupportOpen((prev) => !prev)}
                                 className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border hover:bg-muted"
-                                aria-label="Aloqa markazi"
-                                title="Aloqa markazi"
+                                aria-label={t("nav.contact", "Aloqa")}
+                                title={t("nav.contact", "Aloqa")}
                             >
                                 <Headset className="h-4 w-4" />
                             </button>
                             {supportOpen ? (
                                 <div className="absolute right-0 z-[60] mt-2 w-80 rounded-md border border-border bg-card shadow-xl">
                                     <div className="border-b border-border px-3 py-2">
-                                        <p className="text-sm font-semibold">Aloqa markazi</p>
+                                        <p className="text-sm font-semibold">{t("nav.contact", "Aloqa")}</p>
                                         <p className="mt-1 text-xs text-muted-foreground">
                                             Savol yoki muammo bo&apos;lsa biz bilan bog&apos;laning.
                                         </p>
@@ -246,7 +288,7 @@ export default function AppNavbar() {
                                 type="button"
                                 onClick={() => setNotificationsOpen((prev) => !prev)}
                                 className="relative inline-flex h-9 w-9 items-center justify-center rounded-md border border-border hover:bg-muted"
-                                aria-label="Bildirishnomalar"
+                                aria-label={t("nav.notifications", "Bildirishnomalar")}
                             >
                                 <Bell className="h-4 w-4" />
                                 {unreadCount > 0 ? (
@@ -320,7 +362,7 @@ export default function AppNavbar() {
                                 type="button"
                                 onClick={() => setProfileOpen((prev) => !prev)}
                                 className="inline-flex items-center gap-2 rounded-full border border-border px-2 py-1.5 hover:bg-muted"
-                                aria-label="Account menu"
+                                aria-label={t("nav.account_menu", "Hisob menyusi")}
                             >
                                 <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
                                     {userInitial}
@@ -337,8 +379,18 @@ export default function AppNavbar() {
                                         <p className="mt-1 truncate text-xs text-muted-foreground">{user.email}</p>
                                     </div>
                                     <div className="p-2">
-                                        <Link href="/dashboard" className="block rounded px-2 py-2 text-sm hover:bg-muted">Asosiy</Link>
+                                        <Link href="/dashboard" className="block rounded px-2 py-2 text-sm hover:bg-muted">{t("nav.dashboard", "Boshqaruv")}</Link>
                                         <Link href={panelLink} className="block rounded px-2 py-2 text-sm hover:bg-muted">{panelLabel}</Link>
+                                        <Link href="/practice" className="block rounded px-2 py-2 text-sm hover:bg-muted">{t("nav.practice", "Mashq markazi")}</Link>
+                                        <Link href="/simulation" className="block rounded px-2 py-2 text-sm hover:bg-muted">{t("nav.simulation", "Imtihon simulyatsiyasi")}</Link>
+                                        <Link href="/leaderboard" className="block rounded px-2 py-2 text-sm hover:bg-muted">{t("nav.leaderboard", "Reyting jadvali")}</Link>
+                                        <Link href="/analytics" className="block rounded px-2 py-2 text-sm hover:bg-muted">{t("nav.analytics", "Analitika")}</Link>
+                                        <Link href="/achievements" className="block rounded px-2 py-2 text-sm hover:bg-muted">{t("nav.achievements", "Yutuqlar")}</Link>
+                                        <Link href="/profile" className="block rounded px-2 py-2 text-sm hover:bg-muted">{t("nav.profile", "Profil")}</Link>
+                                        <Link href="/billing" className="block rounded px-2 py-2 text-sm hover:bg-muted">{t("nav.billing", "To'lovlar")}</Link>
+                                        {contextualLinks.map((link) => (
+                                            <Link key={link.href} href={link.href} className="block rounded px-2 py-2 text-sm hover:bg-muted">{link.label}</Link>
+                                        ))}
                                         <Link href="/dashboard/history" className="block rounded px-2 py-2 text-sm hover:bg-muted">{t("nav.history")}</Link>
                                         <Link href="/dashboard/settings" className="block rounded px-2 py-2 text-sm hover:bg-muted">{t("nav.settings")}</Link>
                                         <button
@@ -366,7 +418,7 @@ export default function AppNavbar() {
                     />
                     <div className="absolute inset-y-0 left-0 flex w-full max-w-sm flex-col border-r border-border bg-background p-4 shadow-2xl">
                         <div className="mb-4 flex items-center justify-between">
-                            <p className="text-base font-semibold">Menyu</p>
+                            <p className="text-base font-semibold">{t("nav.menu", "Menyu")}</p>
                             <button
                                 type="button"
                                 className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border"
@@ -382,16 +434,21 @@ export default function AppNavbar() {
                                 <LanguageSwitcher compact />
                                 <ThemeToggle />
                             </div>
-                            <Link href="/dashboard" onClick={() => setMobileNavOpen(false)} className="block rounded-md px-3 py-2 text-sm font-medium hover:bg-muted">Asosiy</Link>
-                            <Link href="/tests?mode=adaptive" onClick={() => setMobileNavOpen(false)} className="block rounded-md px-3 py-2 text-sm font-medium hover:bg-muted">{t("nav.start_test")}</Link>
+                            <Link href="/dashboard" onClick={() => setMobileNavOpen(false)} className="block rounded-md px-3 py-2 text-sm font-medium hover:bg-muted">{t("nav.dashboard", "Boshqaruv")}</Link>
+                            <Link href="/practice" onClick={() => setMobileNavOpen(false)} className="block rounded-md px-3 py-2 text-sm font-medium hover:bg-muted">{t("nav.practice", "Mashq markazi")}</Link>
                             {primaryLinks.map((link) => (
+                                <Link key={link.href} href={link.href} onClick={() => setMobileNavOpen(false)} className="block rounded-md px-3 py-2 text-sm font-medium hover:bg-muted">
+                                    {link.label}
+                                </Link>
+                            ))}
+                            {contextualLinks.map((link) => (
                                 <Link key={link.href} href={link.href} onClick={() => setMobileNavOpen(false)} className="block rounded-md px-3 py-2 text-sm font-medium hover:bg-muted">
                                     {link.label}
                                 </Link>
                             ))}
                             {user.plan === "free" ? (
                                 <Link href="/upgrade" onClick={() => setMobileNavOpen(false)} className="block rounded-md px-3 py-2 text-sm font-bold text-[#F59E0B] hover:bg-muted">
-                                    Upgrade (Free)
+                                    {t("nav.upgrade_free", "Yangilash (Free)")}
                                 </Link>
                             ) : (
                                 <div className="px-3 py-2">
@@ -409,7 +466,7 @@ export default function AppNavbar() {
                                     {t("nav.admin", "Admin")}
                                 </Link>
                             ) : null}
-                            <Link href="/contact" onClick={() => setMobileNavOpen(false)} className="block rounded-md px-3 py-2 text-sm font-medium hover:bg-muted">Aloqa</Link>
+                            <Link href="/contact" onClick={() => setMobileNavOpen(false)} className="block rounded-md px-3 py-2 text-sm font-medium hover:bg-muted">{t("nav.contact", "Aloqa")}</Link>
                         </div>
                     </div>
                 </div>

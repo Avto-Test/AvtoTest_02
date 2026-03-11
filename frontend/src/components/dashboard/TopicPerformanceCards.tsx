@@ -78,7 +78,6 @@ function AnimatedAccuracyRing({ accuracy, ringColor, softColor }: { accuracy: nu
 
     hasAnimated.current = true;
     if (accuracy === 0) {
-      setProgress(0);
       return;
     }
 
@@ -141,7 +140,7 @@ function TopicPerformanceCardsComponent({ data }: Props) {
         className="h-full rounded-3xl border border-[#1F2A44] bg-[#0B1324] p-6"
       >
         <h3 className="text-lg font-semibold text-white">Zaif mavzular</h3>
-        <p className="mt-2 text-sm text-slate-300">Analitika uchun hali yetarli ma'lumot yo'q.</p>
+        <p className="mt-2 text-sm text-slate-300">{"Analitika uchun hali yetarli ma'lumot yo'q."}</p>
       </section>
     );
   }

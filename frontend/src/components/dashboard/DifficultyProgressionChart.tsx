@@ -13,7 +13,7 @@ function DifficultyProgressionChartComponent({ data }: Props) {
     <div className="h-[330px] w-full rounded-3xl border border-[#1F2A44] bg-gradient-to-b from-[#111a2f] to-[#0b1324] p-5 shadow-[0_10px_28px_rgba(0,0,0,0.2)]">
       <div className="mb-3">
         <h3 className="text-lg font-semibold text-white">Qiyinlik dinamikasi</h3>
-        <p className="text-sm text-slate-300">Testlar davomida savollar murakkabligi qanday o'zgaryapti</p>
+        <p className="text-sm text-slate-300">{"Testlar davomida savollar murakkabligi qanday o'zgaryapti"}</p>
       </div>
       <div className="h-[238px] min-h-[220px] w-full min-w-0">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>

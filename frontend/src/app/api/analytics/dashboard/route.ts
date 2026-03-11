@@ -111,7 +111,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json(payload, { status: response.status });
-  } catch (error) {
+  } catch {
     return NextResponse.json(buildFallbackDashboardPayload(), {
       status: 200,
       headers: { "x-dashboard-fallback": "proxy-exception" },

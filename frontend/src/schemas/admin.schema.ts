@@ -237,3 +237,48 @@ export const promoCodeFormSchema = z.object({
 });
 
 export type PromoCodeFormData = z.infer<typeof promoCodeFormSchema>;
+
+// ========== Platform Monitoring ==========
+
+export interface AdminSystemStats {
+    users_total: number;
+    active_subscriptions: number;
+    tests_completed_today: number;
+    payments_successful: number;
+    rate_limit_events: number;
+    total_xp_awarded: number;
+    avg_xp_per_user: number;
+    total_coins_earned: number;
+    avg_coins_per_user: number;
+    top_user_xp_weekly: number;
+    total_achievements_awarded: number;
+}
+
+export interface AdminMlStatus {
+    current_model_version: string;
+    training_dataset_size: number;
+    training_timestamp: string | null;
+    drift_status: string;
+    last_training_time: string | null;
+}
+
+export interface AdminNationalFailedTopic {
+    topic: string;
+    failure_rate: number;
+    total_attempts: number;
+}
+
+export interface AdminRegionalBenchmark {
+    region: string;
+    city: string;
+    average_readiness: number;
+    pass_probability: number;
+    completion_rate: number;
+    learner_count: number;
+}
+
+export interface AdminNationalLearningInsights {
+    top_failed_topics: AdminNationalFailedTopic[];
+    regional_benchmarks: AdminRegionalBenchmark[];
+    national_readiness_average: number;
+}
