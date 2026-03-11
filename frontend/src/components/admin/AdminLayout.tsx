@@ -7,6 +7,9 @@ import { SidebarNav } from './SidebarNav';
 import { useAuth } from '@/store/useAuth';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/components/i18n-provider';
+import { SurfaceNav } from '@/components/intelligence/SurfaceNav';
+import { adminNav } from '@/config/navigation';
+import { NavigationShellProvider } from '@/components/shell/navigation-shell-context';
 
 interface AdminLayoutProps {
     children: ReactNode;
@@ -36,7 +39,7 @@ export function AdminLayout({ children, title, description, actions }: AdminLayo
     // Loading state
     if (isLoading || !isAuthenticated || !user?.is_admin) {
         return (
-            <div className="min-h-screen bg-background flex items-center justify-center">
+            <div className="flex min-h-screen items-center justify-center bg-background">
                 <div className="animate-pulse flex flex-col items-center gap-4">
                     <div className="w-12 h-12 rounded-lg bg-primary/20"></div>
                     <div className="h-4 w-32 bg-muted rounded"></div>
@@ -46,74 +49,58 @@ export function AdminLayout({ children, title, description, actions }: AdminLayo
     }
 
     return (
-        <div className="min-h-screen bg-background flex">
-            {/* Sidebar */}
-            <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:shrink-0 lg:sticky lg:top-0 lg:h-screen border-r border-border bg-card">
-                {/* Logo */}
-                <div className="flex h-16 items-center gap-2 border-b border-border px-4 sm:px-6">
-                    <Link href="/admin" className="flex items-center gap-2">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-                            <span className="text-sm font-bold text-primary-foreground">AT</span>
-                        </div>
-                        <span className="text-lg font-bold tracking-tight">
-                            Admin
-                        </span>
-                    </Link>
-                </div>
-
-                {/* Navigation */}
-                <div className="flex-1 overflow-y-auto py-4 px-4">
-                    <SidebarNav />
-                </div>
-
-                {/* Footer */}
-                <div className="p-4 border-t border-border">
-                    <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-medium">
-                            {user.email?.charAt(0).toUpperCase()}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{user.email}</p>
-                            <p className="text-xs text-muted-foreground">Admin</p>
-                        </div>
-                    </div>
-                    <Button variant="ghost" size="sm" className="w-full mt-3" asChild>
-                        <Link href="/dashboard">{`<- ${t("admin.exit")}`}</Link>
-                    </Button>
-                </div>
-            </aside>
-
-            {/* Main Content */}
-            <main className="flex-1 min-w-0 overflow-x-hidden">
-                {/* Mobile Header */}
-                <header className="lg:hidden sticky top-0 z-40 flex h-16 items-center gap-4 border-b border-border bg-background px-4">
-                    <Link href="/admin" className="flex items-center gap-2">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-                            <span className="text-sm font-bold text-primary-foreground">AT</span>
-                        </div>
-                        <span className="font-bold">Admin</span>
-                    </Link>
-                </header>
-
-                {/* Page Header */}
-                {(title || actions) && (
-                    <div className="border-b border-border bg-card">
-                        <div className="flex flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-6">
-                            <div>
-                                {title && <h1 className="text-2xl font-bold tracking-tight">{title}</h1>}
-                                {description && <p className="text-muted-foreground mt-1">{description}</p>}
+        <NavigationShellProvider>
+            <div className="flex min-h-screen bg-background">
+                <aside className="hidden w-72 shrink-0 border-r border-white/8 bg-[linear-gradient(180deg,rgba(7,11,24,0.94),rgba(10,17,30,0.98))] lg:flex lg:flex-col">
+                    <div className="border-b border-white/8 px-6 py-5">
+                        <Link href="/admin" className="flex items-center gap-3">
+                            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,rgba(56,189,248,0.95),rgba(99,102,241,0.95))] text-sm font-bold text-white">
+                                AT
                             </div>
-                            {actions && <div className="flex gap-2">{actions}</div>}
+                            <div>
+                                <p className="text-sm font-semibold text-white">AUTOTEST</p>
+                                <p className="text-xs text-white/55">Admin</p>
+                            </div>
+                        </Link>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto px-4 py-5">
+                        <SidebarNav />
+                    </div>
+
+                    <div className="border-t border-white/8 px-4 py-4">
+                        <div className="rounded-2xl border border-white/8 bg-white/6 p-4">
+                            <p className="truncate text-sm font-medium text-white">{user.email}</p>
+                            <p className="mt-1 text-xs text-white/50">Admin</p>
+                            <Button variant="ghost" size="sm" className="mt-3 w-full justify-start rounded-xl text-white hover:bg-white/10" asChild>
+                                <Link href="/dashboard">{`<- ${t("admin.exit")}`}</Link>
+                            </Button>
                         </div>
                     </div>
-                )}
+                </aside>
 
-                {/* Page Content */}
-                <div className="p-4 sm:p-6">
-                    {children}
-                </div>
-            </main>
-        </div>
+                <main className="min-w-0 flex-1 overflow-x-hidden">
+                    <header className="sticky top-0 z-30 border-b border-white/8 bg-background/85 backdrop-blur-xl">
+                        <div className="container-app py-4">
+                            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                                <div>
+                                    {title ? <h1 className="text-3xl font-semibold tracking-tight text-white">{title}</h1> : null}
+                                    {description ? <p className="mt-2 max-w-2xl text-sm leading-6 text-white/62">{description}</p> : null}
+                                </div>
+                                {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+                            </div>
+                            <div className="mt-4 lg:hidden">
+                                <SurfaceNav items={adminNav} scope="shell" />
+                            </div>
+                        </div>
+                    </header>
+
+                    <div className="container-app py-6">
+                        {children}
+                    </div>
+                </main>
+            </div>
+        </NavigationShellProvider>
     );
 }
 
