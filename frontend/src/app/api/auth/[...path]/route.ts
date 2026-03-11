@@ -49,7 +49,18 @@ function hasBackendTokenPayload(payload: unknown): payload is BackendTokenPayloa
 }
 
 function shouldUseSecureCookies(request: NextRequest): boolean {
-  return request.nextUrl.protocol === "https:" || process.env.NODE_ENV === "production";
+  const forwardedProto = request.headers
+    .get("x-forwarded-proto")
+    ?.split(",")[0]
+    ?.trim()
+    ?.toLowerCase();
+  const forwardedSsl = request.headers.get("x-forwarded-ssl")?.trim()?.toLowerCase();
+
+  return (
+    request.nextUrl.protocol === "https:" ||
+    forwardedProto === "https" ||
+    forwardedSsl === "on"
+  );
 }
 
 function setAuthCookies(

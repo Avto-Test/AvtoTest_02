@@ -51,7 +51,11 @@ function LoginPageContent() {
             const { access_token } = response.data;
 
             setToken(access_token);
-            await fetchUser();
+            const authenticated = await fetchUser();
+            if (!authenticated) {
+                toast.error("Sessiya ochilmadi. Qayta urinib ko'ring.");
+                return;
+            }
 
             toast.success("Xush kelibsiz!");
             router.push(next);

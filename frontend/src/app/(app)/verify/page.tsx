@@ -53,7 +53,11 @@ export default function VerifyPage() {
         try {
             const response = await verifyEmail(data);
             setToken(response.access_token);
-            await fetchUser();
+            const authenticated = await fetchUser();
+            if (!authenticated) {
+                setError("Sessiya ochilmadi. Qayta urinib ko'ring.");
+                return;
+            }
             if (typeof window !== 'undefined') {
                 sessionStorage.removeItem('verify_email');
             }
