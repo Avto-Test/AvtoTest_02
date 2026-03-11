@@ -18,8 +18,6 @@ import {
   IntelligenceProgressChart,
   IntelligenceTopicBarChart,
 } from "@/components/intelligence/IntelligenceCharts";
-import { SurfaceNav } from "@/components/intelligence/SurfaceNav";
-import { schoolNav } from "@/config/navigation";
 import { estimateReadinessFromStudentSignal, getSchoolDashboardBundle, type SchoolDashboardBundle } from "@/lib/intelligence";
 import { Badge } from "@/components/ui/badge";
 import { useI18n } from "@/components/i18n-provider";
@@ -75,10 +73,9 @@ export function SchoolGroupsSurface() {
   }
 
   if (!bundle || bundle.groups.length === 0) {
-    return (
+      return (
       <div className="intelligence-page">
         <div className="container-app space-y-6 py-8 sm:py-10">
-          <SurfaceNav items={schoolNav} />
           <IntelligencePanel eyebrow={t("school.groups.eyebrow", "Maktab guruhlari")} title={t("school.groups.empty_panel_title", "Hali guruh yo'q")}>
             <EmptyIntelligenceState title={t("school.groups.empty_title", "Maktab guruhlari yo'q")} description={t("school.groups.empty_description", "Maktab ierarxiyasi to'ldirilgach guruhlar shu yerda ko'rinadi.")} />
           </IntelligencePanel>
@@ -90,14 +87,13 @@ export function SchoolGroupsSurface() {
   return (
     <div className="intelligence-page">
       <div className="container-app space-y-6 py-8 sm:py-10">
-        <SurfaceNav items={schoolNav} />
         <IntelligenceHero
           eyebrow={t("school.groups.eyebrow", "Maktab guruhlari")}
-          title={`${bundle.summary.school_name} ${t("school.groups.title_suffix", "cohortlari bir qarashda.")}`}
-          description={t("school.groups.description", "Har bir guruh tayyorlik, yakunlash va zaif mavzu signallari bilan bog'langan holda qoladi.")}
+          title={`${bundle.summary.school_name} ${t("school.groups.title_suffix", "guruhlari bir qarashda.")}`}
+          description={t("school.groups.description", "Har bir guruh bo'yicha tayyorlik, yakunlash va imtihonga tayyor o'quvchilar ko'rsatiladi.")}
           actions={(
             <>
-              <IntelligenceActionButton href="/school/dashboard" label={t("school.groups.dashboard", "Maktab dashboardi")} />
+              <IntelligenceActionButton href="/school/dashboard" label={t("nav.dashboard", "Boshqaruv")} />
               <IntelligenceActionButton href="/school/instructors" label={t("nav.school.instructors", "Instruktorlar")} secondary />
             </>
           )}
@@ -179,11 +175,10 @@ export function SchoolInstructorsSurface() {
   return (
     <div className="intelligence-page">
       <div className="container-app space-y-6 py-8 sm:py-10">
-        <SurfaceNav items={schoolNav} />
         <IntelligenceHero
           eyebrow={t("school.instructors.eyebrow", "Maktab instruktorlari")}
-          title={t("school.instructors.title", "Instruktor natijalari agregat holatda qoladi.")}
-          description={t("school.instructors.description", "Bu yo'nalish o'quvchi darajasidagi maxfiy ma'lumotni ochmasdan mavjud guruh analitikasidan instruktor ko'rsatkichlarini hosil qiladi.")}
+          title={t("school.instructors.title", "Instruktorlar natijasini umumiy ko'rinishda baholang.")}
+          description={t("school.instructors.description", "Bu bo'lim har bir instruktorga biriktirilgan guruhlar natijasini jamlangan holda ko'rsatadi.")}
           actions={(
             <>
               <IntelligenceActionButton href="/school/groups" label={t("nav.school.groups", "Guruhlar")} />
@@ -269,11 +264,10 @@ export function SchoolAnalyticsSurface() {
   return (
     <div className="intelligence-page">
       <div className="container-app space-y-6 py-8 sm:py-10">
-        <SurfaceNav items={schoolNav} />
         <IntelligenceHero
           eyebrow={t("school.analytics.eyebrow", "Maktab analitikasi")}
-          title={t("school.analytics.title", "Jamlangan maktab natijalari, PII siz.")} 
-          description={t("school.analytics.description", "Guruh tayyorligi, o'quvchilar taqsimoti va instruktorga bog'langan natijalar maktab admini darajasida jamlangan holda qoladi.")}
+          title={t("school.analytics.title", "Maktab natijalari umumiy ko'rinishda.")} 
+          description={t("school.analytics.description", "Guruh tayyorligi, o'quvchilar taqsimoti va instruktorga bog'langan natijalar soddalashtirilgan holda ko'rsatiladi.")}
           actions={(
             <>
               <IntelligenceActionButton href="/school/dashboard" label={t("nav.dashboard", "Boshqaruv")} />

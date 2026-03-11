@@ -18,8 +18,6 @@ import {
   IntelligenceProgressChart,
   IntelligenceTopicBarChart,
 } from "@/components/intelligence/IntelligenceCharts";
-import { SurfaceNav } from "@/components/intelligence/SurfaceNav";
-import { instructorNav } from "@/config/navigation";
 import {
   getInstructorOperationsBundle,
   sendInstructorGroupNudge,
@@ -90,10 +88,9 @@ export function InstructorGroupsSurface() {
   }
 
   if (!bundle || bundle.groups.length === 0) {
-    return (
+      return (
       <div className="intelligence-page">
         <div className="container-app space-y-6 py-8 sm:py-10">
-          <SurfaceNav items={instructorNav} />
           <IntelligencePanel eyebrow={t("instructor.groups.eyebrow", "Instruktor guruhlari")} title={t("instructor.groups.empty_panel_title", "Hali guruh yo'q")}>
             <EmptyIntelligenceState
               title={t("instructor.groups.empty_title", "Guruhlar hali yo'q")}
@@ -108,14 +105,13 @@ export function InstructorGroupsSurface() {
   return (
     <div className="intelligence-page">
       <div className="container-app space-y-6 py-8 sm:py-10">
-        <SurfaceNav items={instructorNav} />
         <IntelligenceHero
           eyebrow={t("instructor.groups.eyebrow", "Instruktor guruhlari")}
-          title={t("instructor.groups.title", "Analitika yuzasidan chiqmasdan cohortlarni boshqaring.")}
-          description={t("instructor.groups.description", "Guruhlar o'z analitikasi, o'quvchilar ro'yxati, taklif havolalari va nudge amallari bilan bog'langan holda qoladi.")}
+          title={t("instructor.groups.title", "Guruhlarni bir joydan kuzating va boshqaring.")}
+          description={t("instructor.groups.description", "Har bir guruh bo'yicha tayyorlik, zaif mavzular va eslatma yuborish amallari shu yerda jamlanadi.")}
           actions={(
             <>
-              <IntelligenceActionButton href="/instructor/dashboard" label={t("instructor.groups.dashboard", "Instruktor dashboardi")} />
+              <IntelligenceActionButton href="/instructor/dashboard" label={t("nav.dashboard", "Boshqaruv")} />
               <IntelligenceActionButton href="/instructor/students" label={t("nav.instructor.students", "O'quvchilar")} secondary />
             </>
           )}
@@ -190,11 +186,10 @@ export function InstructorStudentsSurface() {
   return (
     <div className="intelligence-page">
       <div className="container-app space-y-6 py-8 sm:py-10">
-        <SurfaceNav items={instructorNav} />
         <IntelligenceHero
           eyebrow={t("instructor.students.eyebrow", "Instruktor o'quvchilari")}
-          title={t("instructor.students.title", "Har bir guruh bo'ylab o'quvchi progressi ko'rinib turadi.")}
-          description={t("instructor.students.description", "Bu roster faqat mavjud instruktor guruh endpointlaridan o'quvchi progressini yig'adi.")}
+          title={t("instructor.students.title", "Har bir o'quvchining holati aniq ko'rinadi.")}
+          description={t("instructor.students.description", "Bu ro'yxat guruhlar bo'yicha o'quvchi progressi, xavf holati va tayyorlik signalini ko'rsatadi.")}
           actions={(
             <>
               <IntelligenceActionButton href="/instructor/groups" label={t("nav.instructor.groups", "Guruhlar")} />
@@ -271,11 +266,10 @@ export function InstructorAnalyticsSurface() {
   return (
     <div className="intelligence-page">
       <div className="container-app space-y-6 py-8 sm:py-10">
-        <SurfaceNav items={instructorNav} />
         <IntelligenceHero
           eyebrow={t("instructor.analytics.eyebrow", "Instruktor analitikasi")}
-          title={t("instructor.analytics.title", "Guruh tayyorligi, xavf va zaif mavzu bosimi bir joyda turadi.")}
-          description={t("instructor.analytics.description", "Bu yo'nalish dashboardni chart markazli analitika bilan to'ldiradi.")}
+          title={t("instructor.analytics.title", "Guruh tayyorligi va zaif mavzularni solishtiring.")}
+          description={t("instructor.analytics.description", "Bu bo'lim instruktor uchun eng muhim signal: qaysi guruh ortda qolmoqda va qaysi mavzular ko'proq xato qilinmoqda.")} 
           actions={(
             <>
               <IntelligenceActionButton href="/instructor/dashboard" label={t("nav.dashboard", "Boshqaruv")} />

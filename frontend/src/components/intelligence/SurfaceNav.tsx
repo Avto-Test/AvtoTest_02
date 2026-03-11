@@ -6,20 +6,28 @@ import { usePathname } from "next/navigation";
 
 import { useI18n } from "@/components/i18n-provider";
 import type { SurfaceNavConfigItem } from "@/config/navigation";
+import { useNavigationShell } from "@/components/shell/navigation-shell-context";
 import { cn } from "@/lib/utils";
 
 type SurfaceNavProps = {
   items: SurfaceNavConfigItem[];
   className?: string;
+  scope?: "auto" | "shell";
 };
 
 export function SurfaceNav({
   items,
   className,
+  scope = "auto",
 }: SurfaceNavProps) {
   const pathname = usePathname();
   const reduceMotion = useReducedMotion();
   const { t } = useI18n();
+  const hasShell = useNavigationShell();
+
+  if (scope !== "shell" && hasShell) {
+    return null;
+  }
 
   return (
     <nav className={cn("intelligence-nav-shell inline-flex max-w-full flex-wrap gap-1", className)}>

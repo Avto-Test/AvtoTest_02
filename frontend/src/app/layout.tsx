@@ -57,7 +57,7 @@ export default function RootLayout({
     <html lang="uz-Latn" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased font-sans`}>
         <I18nProvider>
-          <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+          <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
             {children}
             <Toaster position="top-center" richColors />
           </ThemeProvider>

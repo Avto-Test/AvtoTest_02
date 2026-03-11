@@ -1,26 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
-import { Crown, Medal, Sparkles, Trophy } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Crown, Medal, Trophy } from "lucide-react";
 
-import {
-  AnimatedNumber,
-  EmptyIntelligenceState,
-  IntelligenceHero,
-  IntelligenceLoadingSkeleton,
-  IntelligenceMetricCard,
-  IntelligencePanel,
-} from "@/components/intelligence/IntelligencePrimitives";
-import { SurfaceNav } from "@/components/intelligence/SurfaceNav";
-import { Badge } from "@/components/ui/badge";
 import { useI18n } from "@/components/i18n-provider";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { studentNav } from "@/config/navigation";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  ChartCard,
+  LeaderboardTable,
+  PageContainer,
+  ProductCard,
+  ProductEmptyState,
+  ProductSkeletonCard,
+  ProductTableSkeleton,
+  SectionHeader,
+  StatCard,
+} from "@/components/ui/product-primitives";
 import {
   getLeaderboardBundle,
   type LeaderboardPeriod,
-  type LeaderboardEntryResponse,
 } from "@/lib/intelligence";
 import { useAuth } from "@/store/useAuth";
 
@@ -29,16 +27,6 @@ type LeaderboardSurfaceProps = {
 };
 
 const PERIODS: LeaderboardPeriod[] = ["daily", "weekly", "monthly"];
-
-function confidenceTone(rank: number | null): "success" | "warning" | "neutral" {
-  if (rank !== null && rank <= 10) {
-    return "success";
-  }
-  if (rank !== null && rank <= 50) {
-    return "warning";
-  }
-  return "neutral";
-}
 
 function buildLearnerLabel(
   userId: string,
@@ -49,29 +37,41 @@ function buildLearnerLabel(
   if (currentUserId && userId === currentUserId) {
     return viewerLabel;
   }
-  const compact = userId.replaceAll("-", "").slice(0, 6).toUpperCase();
-  return `${learnerPrefix} ${compact}`;
+  return `${learnerPrefix} ${userId.replaceAll("-", "").slice(0, 6).toUpperCase()}`;
 }
 
-function rankIcon(rank: number) {
+function periodTitle(period: LeaderboardPeriod): string {
+  if (period === "daily") {
+    return "Bugun";
+  }
+  if (period === "monthly") {
+    return "Oy";
+  }
+  return "Hafta";
+}
+
+function podiumIcon(rank: number) {
   if (rank === 1) {
-    return <Crown className="h-4 w-4 text-amber-300" />;
+    return <Crown className="h-5 w-5 text-amber-400" />;
   }
-  if (rank <= 3) {
-    return <Medal className="h-4 w-4 text-sky-300" />;
+  if (rank === 2) {
+    return <Medal className="h-5 w-5 text-slate-400" />;
   }
-  return <Trophy className="h-4 w-4 text-white/55" />;
+  return <Trophy className="h-5 w-5 text-orange-400" />;
 }
 
-export function LeaderboardSurface({
-  preview = false,
-}: LeaderboardSurfaceProps) {
+function PreviewSkeleton() {
+  return <ProductSkeletonCard className="min-h-[260px]" lines={5} />;
+}
+
+export function LeaderboardSurface({ preview = false }: LeaderboardSurfaceProps) {
   const { t } = useI18n();
   const { user, token, hydrated, fetchUser } = useAuth();
   const [period, setPeriod] = useState<LeaderboardPeriod>("weekly");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [bundle, setBundle] = useState<Awaited<ReturnType<typeof getLeaderboardBundle>> | null>(null);
+
   useEffect(() => {
     if (!hydrated) {
       return;
@@ -92,17 +92,14 @@ export function LeaderboardSurface({
       setError(null);
       try {
         const response = await getLeaderboardBundle(period);
-        if (!active) {
-          return;
+        if (active) {
+          setBundle(response);
         }
-        setBundle(response);
-      } catch (loadError) {
-        if (!active) {
-          return;
+      } catch {
+        if (active) {
+          setBundle(null);
+          setError(t("leaderboard.load_error", "Ma'lumot topilmadi."));
         }
-        console.error("Leaderboard load failed", loadError);
-        setError(t("leaderboard.load_error"));
-        setBundle(null);
       } finally {
         if (active) {
           setLoading(false);
@@ -116,335 +113,175 @@ export function LeaderboardSurface({
     };
   }, [hydrated, period, t, token]);
 
-  const visibleRows = useMemo(() => {
+  const rows = useMemo(() => {
     if (!bundle) {
       return [];
     }
-    return preview ? bundle.leaderboard.users.slice(0, 5) : bundle.leaderboard.users;
+    return preview ? bundle.leaderboard.users.slice(0, 5) : bundle.leaderboard.users.slice(0, 20);
   }, [bundle, preview]);
 
+  const resolveName = useCallback(
+    (userId: string) => buildLearnerLabel(userId, user?.id, t("leaderboard.you", "Siz"), t("leaderboard.learner_prefix", "O'quvchi")),
+    [t, user?.id],
+  );
+
   if (!hydrated || loading) {
-    return preview ? (
-      <div className="space-y-3">
-        <div className="intelligence-float-card h-24 rounded-[1.5rem] border border-white/10 bg-white/6 animate-pulse" />
-        <div className="intelligence-float-card h-64 rounded-[1.5rem] border border-white/10 bg-white/6 animate-pulse" />
-      </div>
-    ) : (
-      <IntelligenceLoadingSkeleton />
-    );
+    return preview ? <PreviewSkeleton /> : <PageContainer><ProductTableSkeleton rows={8} /></PageContainer>;
   }
-
-  if (error || !bundle) {
-    return (
-        <IntelligencePanel
-        eyebrow={t("leaderboard.panel_eyebrow")}
-        title={t("leaderboard.unavailable_title")}
-        description={error ?? t("leaderboard.unavailable_description")}
-      >
-        <EmptyIntelligenceState
-          title={t("leaderboard.empty_title")}
-          description={t("leaderboard.empty_description")}
-        />
-      </IntelligencePanel>
-    );
-  }
-
-  const myRank = bundle.me.rank;
-  const podiumRows = visibleRows.slice(0, 3);
 
   if (preview) {
-    return (
-      <IntelligencePanel
-        eyebrow={t("leaderboard.preview_eyebrow")}
-        title={t("leaderboard.preview_title")}
-        description={t("leaderboard.preview_description")}
-      >
-        <div className="grid gap-4 lg:grid-cols-[0.72fr_1.28fr]">
-          <div className="intelligence-float-card rounded-[1.5rem] border border-white/10 bg-white/6 p-4">
-            <p className="intelligence-eyebrow">{t("leaderboard.your_weekly_rank")}</p>
-            <p className="mt-2 text-3xl font-semibold text-white">
-              {myRank !== null ? `#${myRank}` : t("leaderboard.outside_top_50")}
-            </p>
-            <p className="mt-2 text-sm text-white/62">
-              {t("leaderboard.weekly_xp_gained")} <AnimatedNumber value={bundle.me.xp_gained} />
-            </p>
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <div className="rounded-2xl border border-white/8 bg-black/14 p-3">
-                <p className="intelligence-eyebrow">{t("leaderboard.coins")}</p>
-                <p className="mt-2 text-xl font-semibold text-white">
-                  <AnimatedNumber value={bundle.coins.coins_total} />
-                </p>
-              </div>
-              <div className="rounded-2xl border border-white/8 bg-black/14 p-3">
-                <p className="intelligence-eyebrow">{t("leaderboard.badges")}</p>
-                <p className="mt-2 text-xl font-semibold text-white">
-                  <AnimatedNumber value={bundle.achievements.length} />
-                </p>
-              </div>
-            </div>
-          </div>
+    if (!bundle || rows.length === 0) {
+      return (
+        <ChartCard
+          eyebrow={t("leaderboard.preview_eyebrow", "Reyting")}
+          title={t("leaderboard.preview_title", "Haftalik reyting")}
+          description={t("leaderboard.preview_description", "XP bo'yicha eng faol o'quvchilar.")}
+        >
+          <ProductEmptyState
+            title="Reyting ma'lumoti hali tayyor emas"
+            description="Haftalik snapshot yaratilgach eng faol o'quvchilar shu yerda ko'rinadi."
+          />
+        </ChartCard>
+      );
+    }
 
-          <div className="space-y-3">
-            {visibleRows.length === 0 ? (
-              <EmptyIntelligenceState
-                title={t("leaderboard.no_snapshot_title")}
-                description={t("leaderboard.no_snapshot_description")}
-              />
-            ) : (
-              visibleRows.map((entry) => (
-                <motion.div
-                  key={`${entry.rank}-${entry.user_id}`}
-                  layout
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.18, ease: "easeOut" }}
-                  className="intelligence-float-card flex items-center justify-between rounded-[1.35rem] border border-white/10 bg-white/6 px-4 py-3"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-black/18 text-white">
-                      {rankIcon(entry.rank)}
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-white">
-                        {buildLearnerLabel(
-                          entry.user_id,
-                          user?.id,
-                          t("leaderboard.you"),
-                          t("leaderboard.learner_prefix"),
-                        )}
-                      </p>
-                      <p className="mt-1 text-xs text-white/52">{t("leaderboard.rank_label")} #{entry.rank}</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-semibold text-white">
-                      <AnimatedNumber value={entry.xp_gained} /> XP
-                    </p>
-                    {user?.id === entry.user_id ? (
-                      <Badge className="mt-2 border-emerald-500/30 bg-emerald-500/15 text-emerald-100">
-                        {t("leaderboard.you")}
-                      </Badge>
-                    ) : null}
-                  </div>
-                </motion.div>
-              ))
-            )}
-          </div>
+    return (
+      <ChartCard
+        eyebrow={t("leaderboard.preview_eyebrow", "Reyting")}
+        title={t("leaderboard.preview_title", "Haftalik reyting")}
+        description={t("leaderboard.preview_description", "XP bo'yicha eng faol o'quvchilar.")}
+      >
+        <div className="space-y-3">
+          {rows.map((entry) => (
+            <div key={`${entry.rank}-${entry.user_id}`} className="product-subtle-card-plain flex items-center justify-between px-4 py-3">
+              <div className="flex items-center gap-3">
+                <div className="product-icon-shell h-10 w-10 bg-white text-slate-700">
+                  {podiumIcon(entry.rank)}
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-900">
+                    {resolveName(entry.user_id)}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">#{entry.rank}</p>
+                </div>
+              </div>
+              <p className="text-sm font-semibold text-slate-900">{entry.xp_gained} XP</p>
+            </div>
+          ))}
         </div>
-      </IntelligencePanel>
+      </ChartCard>
     );
   }
 
+  const unsupportedMessage =
+    !bundle || rows.length === 0
+      ? period === "daily"
+        ? "Kunlik reyting hozircha mavjud emas."
+        : period === "monthly"
+          ? "Oylik reyting hozircha mavjud emas."
+          : "Reyting ma'lumoti topilmadi."
+      : null;
+
+  const podium = rows.slice(0, 3);
+
   return (
-    <div className="intelligence-page">
-      <div className="container-app space-y-6 py-8 sm:py-10">
-        <SurfaceNav items={studentNav} />
-        <IntelligenceHero
-          eyebrow={t("leaderboard.hero_eyebrow")}
-          title={t("leaderboard.hero_title")}
-          description={t("leaderboard.hero_description")}
-          badge={`${t("leaderboard.current_period")}: ${t(`leaderboard.period.${period}`)}`}
-          badgeLabel={t("leaderboard.badge_label", "Joriy davr")}
-        >
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="intelligence-float-card rounded-[1.75rem] border border-white/14 bg-white/6 p-4">
-              <p className="text-[11px] uppercase tracking-[0.22em] text-white/52">{t("leaderboard.your_position")}</p>
-              <p className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-white">
-                {myRank !== null ? `#${myRank}` : t("leaderboard.outside_top_50")}
-              </p>
-              <p className="mt-2 text-sm text-white/64">
-                <AnimatedNumber value={bundle.me.xp_gained} /> {t("leaderboard.period_xp")}
-              </p>
-            </div>
-            <div className="intelligence-float-card rounded-[1.75rem] border border-white/14 bg-white/6 p-4">
-              <p className="text-[11px] uppercase tracking-[0.22em] text-white/52">{t("leaderboard.achievement_stack")}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {bundle.achievements.slice(0, 4).map((achievement) => (
-                  <span key={`${achievement.code}-${achievement.awarded_at}`} className="intelligence-pill">
-                    <Sparkles className="h-3.5 w-3.5" />
-                    {achievement.name}
-                  </span>
-                ))}
-              </div>
-            </div>
+    <PageContainer className="product-page-stack">
+      <ProductCard className="product-card-shell sm:p-8">
+        <SectionHeader
+          eyebrow={t("nav.leaderboard", "Reyting")}
+          title={t("leaderboard.hero_title", "XP bo'yicha sodda reyting")}
+          description={t("leaderboard.hero_description", "Bugun, hafta va oy kesimida o'rningizni ko'ring.")}
+        />
+      </ProductCard>
+
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <StatCard
+          label={t("leaderboard.rank_label", "O'rin")}
+          title={t("leaderboard.current_rank", "Joriy o'rin")}
+          value={bundle?.me.rank ? `#${bundle.me.rank}` : "-"}
+          description={t("leaderboard.current_rank_description", "Tanlangan davr bo'yicha joriy o'rningiz.")}
+          icon={Trophy}
+        />
+        <StatCard
+          label="XP"
+          title={t("leaderboard.your_xp", "Jami XP")}
+          value={bundle?.xp.xp_total ?? 0}
+          description={t("leaderboard.your_xp_description", "Hozirgacha yig'ilgan umumiy XP miqdori.")}
+          icon={Medal}
+        />
+        <StatCard
+          label={t("leaderboard.period_label", "Davr")}
+          title={t("leaderboard.period_xp_title", "Tanlangan davrdagi XP")}
+          value={bundle?.me.xp_gained ?? 0}
+          description={t("leaderboard.period_xp_description", "Aynan shu davrda to'plangan XP.")}
+          icon={Crown}
+        />
+      </div>
+
+      <ProductCard className="product-card-shell">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="product-meta-text">
+              Reyting davri
+            </p>
+            <h3 className="mt-2 text-2xl font-semibold text-slate-950">Top 3 va umumiy jadval</h3>
           </div>
-        </IntelligenceHero>
-
-        <div className="grid gap-4 md:grid-cols-3">
-          <IntelligenceMetricCard
-            eyebrow={t("leaderboard.weekly_summary")}
-            title={t("leaderboard.your_xp")}
-            numericValue={bundle.xp.xp_total}
-            description={t("leaderboard.your_xp_description")}
-            icon={Trophy}
-          />
-          <IntelligenceMetricCard
-            eyebrow={t("leaderboard.coin_economy")}
-            title={t("leaderboard.coin_balance")}
-            numericValue={bundle.coins.coins_total}
-            description={t("leaderboard.coin_balance_description")}
-            icon={Sparkles}
-            delay={0.04}
-          />
-          <IntelligenceMetricCard
-            eyebrow={t("leaderboard.standing")}
-            title={t("leaderboard.current_rank")}
-            value={myRank !== null ? `#${myRank}` : t("leaderboard.outside_top_50")}
-            description={t("leaderboard.current_rank_description")}
-            icon={Crown}
-            tone={confidenceTone(myRank)}
-            delay={0.08}
-          />
-        </div>
-
-        <div className="grid gap-6 xl:grid-cols-[1.02fr_0.98fr]">
-          <IntelligencePanel
-            eyebrow={t("leaderboard.global_board", "Global reyting")}
-            title={t("leaderboard.podium_title", "Haftaning top 3 o'quvchisi")}
-            description={t("leaderboard.podium_description", "Joriy snapshot bo'yicha eng yuqori XP to'plagan uchlik.")}
-          >
-            {podiumRows.length === 0 ? (
-              <EmptyIntelligenceState
-                title={t("leaderboard.no_snapshot_title")}
-                description={t("leaderboard.no_snapshot_description")}
-              />
-            ) : (
-              <div className="grid gap-4 md:grid-cols-3">
-                {podiumRows.map((entry, index) => (
-                  <motion.div
-                    key={`podium-${entry.user_id}`}
-                    layout
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.18, ease: "easeOut" }}
-                    className="intelligence-podium-card"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="intelligence-eyebrow">
-                          {index === 0 ? "Hafta yetakchisi" : `Top ${entry.rank}`}
-                        </p>
-                        <h3 className="mt-2 text-xl font-semibold text-white">
-                          {buildLearnerLabel(entry.user_id, user?.id, t("leaderboard.you"), t("leaderboard.learner_prefix"))}
-                        </h3>
-                      </div>
-                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-black/18 text-white">
-                        {rankIcon(entry.rank)}
-                      </div>
-                    </div>
-                    <p className="mt-6 text-3xl font-semibold tracking-[-0.04em] text-white">
-                      <AnimatedNumber value={entry.xp_gained} /> XP
-                    </p>
-                    <p className="mt-2 text-sm text-white/62">
-                      #{entry.rank} {t("leaderboard.rank_label").toLowerCase()} • {t(`leaderboard.period.${period}`)}
-                    </p>
-                  </motion.div>
-                ))}
-              </div>
-            )}
-          </IntelligencePanel>
-
-          <IntelligencePanel
-            eyebrow={t("leaderboard.group_board", "Guruh ko'rinishi")}
-            title={t("leaderboard.group_board_title", "Sizning natija holatingiz")}
-            description={t("leaderboard.group_board_description", "Talaba yuzasida global snapshotlar ko'rsatiladi. Guruh kesimidagi progress esa instruktor va maktab panellarida kuzatiladi.")}
-            delay={0.06}
-          >
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="rounded-[1.5rem] border border-white/10 bg-white/6 p-4">
-                <p className="intelligence-eyebrow">{t("leaderboard.group_board_signal", "Joriy holat")}</p>
-                <p className="mt-2 text-3xl font-semibold text-white">
-                  {myRank !== null ? `#${myRank}` : t("leaderboard.outside_top_50")}
-                </p>
-                <p className="mt-2 text-sm text-white/62">
-                  {t("leaderboard.group_board_note", "Sizning o'rningiz global snapshotdan olinadi, guruh bo'yicha qo'shimcha taqqoslov esa instruktor panelida saqlanadi.")}
-                </p>
-              </div>
-              <div className="rounded-[1.5rem] border border-white/10 bg-white/6 p-4">
-                <p className="intelligence-eyebrow">{t("leaderboard.xp_race", "XP poygasi")}</p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {bundle.achievements.slice(0, 4).map((achievement) => (
-                    <span key={`${achievement.code}-${achievement.awarded_at}`} className="intelligence-pill">
-                      <Sparkles className="h-3.5 w-3.5" />
-                      {achievement.name}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </IntelligencePanel>
-        </div>
-
-        <IntelligencePanel
-          eyebrow={t("leaderboard.panel_eyebrow")}
-          title={t("leaderboard.snapshots_title")}
-          description={t("leaderboard.snapshots_description")}
-        >
           <Tabs value={period} onValueChange={(value) => setPeriod(value as LeaderboardPeriod)}>
-            <TabsList className="mb-4 h-auto rounded-[1.25rem] bg-white/8 p-1">
+            <TabsList className="h-auto rounded-[var(--radius-soft)] bg-slate-100 p-1">
               {PERIODS.map((item) => (
-                <TabsTrigger
-                  key={item}
-                  value={item}
-                  className="rounded-[1rem] capitalize data-[state=active]:bg-white data-[state=active]:text-slate-950"
-                >
-                  {t(`leaderboard.period.${item}`)}
+                <TabsTrigger key={item} value={item} className="rounded-[var(--radius-soft)] data-[state=active]:bg-white data-[state=active]:text-slate-950">
+                  {periodTitle(item)}
                 </TabsTrigger>
               ))}
             </TabsList>
-
-            {PERIODS.map((item) => (
-              <TabsContent key={item} value={item} className="space-y-3">
-                {visibleRows.length === 0 ? (
-                  <EmptyIntelligenceState
-                    title={t("leaderboard.snapshot_unavailable_title")}
-                    description={t("leaderboard.snapshot_unavailable_description")}
-                  />
-                ) : (
-                  visibleRows.map((entry: LeaderboardEntryResponse) => (
-                    <motion.div
-                      key={`${item}-${entry.rank}-${entry.user_id}`}
-                      layout
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.18, ease: "easeOut" }}
-                      className="intelligence-float-card flex items-center justify-between rounded-[1.35rem] border border-white/10 bg-white/6 px-4 py-3"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-black/18 text-white">
-                          {rankIcon(entry.rank)}
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-white">
-                            {buildLearnerLabel(
-                              entry.user_id,
-                              user?.id,
-                              t("leaderboard.you"),
-                              t("leaderboard.learner_prefix"),
-                            )}
-                          </p>
-                          <p className="mt-1 text-xs text-white/54">{t("leaderboard.rank_label")} #{entry.rank}</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-semibold text-white">
-                          <AnimatedNumber value={entry.xp_gained} /> XP
-                        </p>
-                        <p className="mt-1 text-xs text-white/48">
-                          {entry.user_id === user?.id
-                            ? t("leaderboard.private_summary_note")
-                            : t("leaderboard.public_board_note")}
-                        </p>
-                      </div>
-                    </motion.div>
-                  ))
-                )}
-              </TabsContent>
-            ))}
           </Tabs>
-        </IntelligencePanel>
-      </div>
-    </div>
+        </div>
+
+        {unsupportedMessage ? (
+          <div className="mt-6">
+            <ProductEmptyState
+              title={error ? "Reytingni yuklab bo'lmadi" : unsupportedMessage}
+              description={
+                period === "daily"
+                  ? "Kunlik snapshot backendda hali tayyor emas. Hozircha haftalik yoki oylik reytingdan foydalaning."
+                  : "Reyting ma'lumoti tayyor bo'lgach shu yerda ko'rinadi."
+              }
+            />
+          </div>
+        ) : (
+          <>
+            <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {podium.map((entry, index) => (
+                <ProductCard key={`podium-${entry.user_id}`} className={index === 0 ? "product-card-shell border-amber-200 bg-amber-50/70" : "product-card-shell"}>
+                  <div>
+                    <div className="flex items-center gap-3">
+                      <div className="product-icon-shell bg-white">
+                  {podiumIcon(entry.rank)}
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-900">
+                    {resolveName(entry.user_id)}
+                  </p>
+                        <p className="mt-1 text-xs text-slate-500">{index === 0 ? "Chempion" : `${entry.rank}-o'rin`}</p>
+                      </div>
+                    </div>
+                    <p className="mt-5 text-3xl font-semibold text-slate-950">{entry.xp_gained} XP</p>
+                  </div>
+                </ProductCard>
+              ))}
+            </div>
+
+            <div className="mt-6">
+              <LeaderboardTable
+                rows={rows}
+                currentUserId={user?.id}
+                resolveName={resolveName}
+              />
+            </div>
+          </>
+        )}
+      </ProductCard>
+    </PageContainer>
   );
 }
 

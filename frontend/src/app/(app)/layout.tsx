@@ -1,8 +1,8 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import AppNavbar from "@/components/AppNavbar";
 import GlobalAuthGate from "@/components/GlobalAuthGate";
+import ProductShell from "@/components/shell/ProductShell";
 
 export default function AppLayout({
     children,
@@ -15,25 +15,21 @@ export default function AppLayout({
         pathname.startsWith("/verify")
         || pathname.startsWith("/forgot-password")
         || pathname.startsWith("/reset-password");
+    const isAdminRoute = pathname.startsWith("/admin");
 
     return (
         <GlobalAuthGate>
-            <div className="min-h-screen bg-background">
-                {!isExamMode && !isStandaloneAuthPage && <AppNavbar />}
-                <main className={!isExamMode && !isStandaloneAuthPage ? "py-4 sm:py-5 md:py-6" : ""}>
-                    <div
-                        className={
-                            isExamMode
-                                ? "h-full"
-                                : isStandaloneAuthPage
-                                    ? "mx-auto w-full max-w-md px-4 py-10"
-                                    : "container-app"
-                        }
-                    >
-                        {children}
-                    </div>
-                </main>
-            </div>
+            {isAdminRoute ? (
+                <div className="min-h-screen bg-background">{children}</div>
+            ) : isExamMode ? (
+                <div className="min-h-screen bg-background">{children}</div>
+            ) : isStandaloneAuthPage ? (
+                <div className="min-h-screen bg-background">
+                    <main className="mx-auto w-full max-w-md px-4 py-10">{children}</main>
+                </div>
+            ) : (
+                <ProductShell>{children}</ProductShell>
+            )}
         </GlobalAuthGate>
     );
 }
