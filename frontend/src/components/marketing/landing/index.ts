@@ -3,6 +3,8 @@ export { LandingSocialProof } from "./LandingSocialProof";
 export { LandingDifferentiation } from "./LandingDifferentiation";
 export { LandingFeatures } from "./LandingFeatures";
 export { LandingProductPreview } from "./LandingProductPreview";
+export { LandingAudience } from "./LandingAudience";
 export { LandingHowItWorks } from "./LandingHowItWorks";
 export { LandingPricing } from "./LandingPricing";
+export { LandingFaq } from "./LandingFaq";
 export { LandingCtaFooter } from "./LandingCtaFooter";

@@ -40,7 +40,7 @@ const navItems: NavItem[] = [
         ),
     },
     {
-        href: '/admin/driving-schools',
+        href: '/admin/schools',
         labelKey: 'admin.nav.driving_schools',
         icon: (
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -81,6 +81,15 @@ const navItems: NavItem[] = [
         icon: (
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M7 20V10m5 10V4m5 16v-6" />
+            </svg>
+        ),
+    },
+    {
+        href: '/admin/ml',
+        labelKey: 'admin.nav.ml',
+        icon: (
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.75h4.5v3h3v4.5h3v4.5h-3v4.5h-4.5v-3h-3v-4.5h-3v-4.5h3v-4.5h4.5z" />
             </svg>
         ),
     },

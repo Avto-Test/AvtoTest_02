@@ -38,8 +38,6 @@ function toPoint(cx: number, cy: number, radius: number, angle: number) {
 function makePetalPath(angle: number, accuracy: number): string {
   const valueRatio = Math.max(0.12, Math.min(1, accuracy / 100));
   const outerRadius = BASE_INNER_RADIUS + BASE_OUTER_RADIUS * valueRatio;
-  const left = toPoint(CENTER, CENTER, BASE_INNER_RADIUS * 0.95, angle - PETAL_WIDTH);
-  const right = toPoint(CENTER, CENTER, BASE_INNER_RADIUS * 0.95, angle + PETAL_WIDTH);
   const tip = toPoint(CENTER, CENTER, outerRadius, angle);
   const leftControl = toPoint(CENTER, CENTER, outerRadius * 0.58, angle - PETAL_WIDTH * 0.55);
   const rightControl = toPoint(CENTER, CENTER, outerRadius * 0.58, angle + PETAL_WIDTH * 0.55);
@@ -86,8 +84,8 @@ function CategoryPetalChartComponent({ data }: Props) {
   if (!normalized.length) {
     return (
       <section className="h-full rounded-3xl border border-[#1F2A44] bg-[#0B1324] p-6">
-        <h3 className="text-lg font-semibold text-white">Kategoriyalar bo'yicha bilim darajasi</h3>
-        <p className="mt-2 text-sm text-slate-300">Kategoriya tahlili uchun kamida bir nechta test natijasi kerak.</p>
+        <h3 className="text-lg font-semibold text-white">{"Kategoriyalar bo'yicha bilim darajasi"}</h3>
+        <p className="mt-2 text-sm text-slate-300">{"Kategoriya tahlili uchun kamida bir nechta test natijasi kerak."}</p>
       </section>
     );
   }
@@ -96,8 +94,8 @@ function CategoryPetalChartComponent({ data }: Props) {
     <section className="min-w-0 rounded-3xl border border-[#1F2A44] bg-gradient-to-b from-[#101a2e] to-[#0b1324] p-5 shadow-[0_10px_28px_rgba(0,0,0,0.22)]">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="text-lg font-semibold text-white">Kategoriyalar bo'yicha bilim darajasi</h3>
-          <p className="text-sm text-slate-300">Qaysi mavzularda kuchli yoki zaif ekaningiz</p>
+          <h3 className="text-lg font-semibold text-white">{"Kategoriyalar bo'yicha bilim darajasi"}</h3>
+          <p className="text-sm text-slate-300">{"Qaysi mavzularda kuchli yoki zaif ekaningiz"}</p>
         </div>
         {weakest ? (
           <span className="rounded-full border border-amber-300/35 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-200">
@@ -168,7 +166,7 @@ function CategoryPetalChartComponent({ data }: Props) {
 
           <circle cx={CENTER} cy={CENTER} r={58} fill="#0b1324" stroke="#22324e" strokeWidth="1.2" />
           <text x={CENTER} y={CENTER - 8} textAnchor="middle" fill="#94a3b8" fontSize="12">
-            O'rtacha
+            {"O'rtacha"}
           </text>
           <text x={CENTER} y={CENTER + 20} textAnchor="middle" fill="#ffffff" fontSize="28" fontWeight="700">
             {average}%

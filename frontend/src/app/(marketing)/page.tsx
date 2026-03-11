@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import {
+    LandingAudience,
     LandingCtaFooter,
     LandingDifferentiation,
+    LandingFaq,
     LandingFeatures,
     LandingHero,
     LandingHowItWorks,
@@ -65,8 +67,10 @@ export default async function HomePage() {
             <LandingDifferentiation />
             <LandingFeatures />
             <LandingProductPreview />
+            <LandingAudience />
             <LandingHowItWorks />
             <LandingPricing isAuthenticated={isAuthenticated} />
+            <LandingFaq />
             <LandingCtaFooter isAuthenticated={isAuthenticated} />
         </div>
     );

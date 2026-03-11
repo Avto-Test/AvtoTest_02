@@ -11,7 +11,6 @@ import {
     Brain,
     Activity,
     AlertTriangle,
-    ShieldCheck,
     Sparkles
 } from "lucide-react";
 import { MemoryStabilityBadge } from "@/components/dashboard";
@@ -26,7 +25,6 @@ interface ExecutiveSummaryProps {
     topicStability?: Record<string, string>;
     pressureMode?: boolean;
     driftStatus?: string;
-    isAdaptive?: boolean;
     trainingLevel?: string;
 }
 
@@ -40,7 +38,6 @@ export function ExecutiveSummary({
     topicStability,
     pressureMode,
     driftStatus,
-    isAdaptive,
     trainingLevel
 }: ExecutiveSummaryProps) {
     const [animatedProb, setAnimatedProb] = useState(0);

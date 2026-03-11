@@ -262,14 +262,14 @@ export default function TestsPage() {
                   <Sparkles className="h-5 w-5" />
                 </div>
                 <CardTitle>Bepul tasodifiy test rejimi</CardTitle>
-                <CardDescription>
-                  20 ta tasodifiy savol, kuniga 2 marta. Natijadan keyin to'liq hisobot ko'rsatilmaydi.
+              <CardDescription>
+                  {"20 ta tasodifiy savol, kuniga 2 marta. Natijadan keyin to'liq hisobot ko'rsatilmaydi."}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="text-sm text-muted-foreground">
-                  Tasodifiy savollar, tezkor javob ko'rsatish va keyingi savolga avtomatik o'tish. Batafsil hisobot yo'q.
-                </div>
+              <div className="text-sm text-muted-foreground">
+                  {"Tasodifiy savollar, tezkor javob ko'rsatish va keyingi savolga avtomatik o'tish. Batafsil hisobot yo'q."}
+              </div>
                 <Button onClick={handleFreeStart} disabled={statusLoading || freeStatus?.limit_reached} className="w-full">
                   Bepul testni boshlash
                 </Button>
@@ -286,18 +286,18 @@ export default function TestsPage() {
               <CardDescription>
                 {hasPremiumAccess
                   ? "Adaptiv algoritm, cheksiz urinishlar va to'liq analitika siz uchun ochiq."
-                  : "Adaptiv algoritm, cheksiz urinishlar va to'liq analitika faqat Premium'da ochiladi."}
+                  : "Adaptiv algoritm, cheksiz urinishlar va to'liq analitika faqat Premium tarifida ochiladi."}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="text-sm text-muted-foreground">
                 {hasPremiumAccess ? (
                   <>
-                    Tanlangan savollar soni: <strong>{questionCount}</strong> | Cheksiz testlar | To'liq analitika
+                    {"Tanlangan savollar soni: "} <strong>{questionCount}</strong> {" | Cheksiz testlar | To'liq analitika"}
                   </>
                 ) : (
                   <>
-                    Tanlangan savollar soni: <strong>{questionCount}</strong>
+                    {"Tanlangan savollar soni: "} <strong>{questionCount}</strong>
                   </>
                 )}
               </div>

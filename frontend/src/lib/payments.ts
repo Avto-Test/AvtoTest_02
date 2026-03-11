@@ -3,8 +3,7 @@
  * Functions for payment checkout session flow.
  */
 
-import Cookies from "js-cookie";
-import { useAuth } from "@/store/useAuth";
+import { fetchWithSessionRefresh } from "@/lib/fetch-with-session";
 
 import {
   CheckoutPlan,
@@ -25,16 +24,8 @@ type SearchParamReader = {
 };
 
 function getAuthHeaders(): Record<string, string> {
-  const token = useAuth.getState().token ?? Cookies.get("access_token");
-  if (!token) {
-    return {
-      "Content-Type": "application/json",
-    };
-  }
-
   return {
     "Content-Type": "application/json",
-    Authorization: `Bearer ${token}`,
   };
 }
 
@@ -169,7 +160,7 @@ export function normalizePaymentStatus(
 export async function createCheckoutSession(
   payload?: CreateCheckoutSessionPayload
 ): Promise<CheckoutResponse> {
-  const response = await fetch("/api/payments/create-session", {
+  const response = await fetchWithSessionRefresh("/api/payments/create-session", {
     method: "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify(payload ?? {}),
@@ -265,7 +256,7 @@ export async function getAvailableCheckoutPlans(): Promise<CheckoutPlan[]> {
 export async function getCheckoutQuote(
   payload?: CreateCheckoutSessionPayload
 ): Promise<CheckoutQuoteResponse> {
-  const response = await fetch("/api/payments/quote", {
+  const response = await fetchWithSessionRefresh("/api/payments/quote", {
     method: "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify(payload ?? {}),
@@ -307,7 +298,7 @@ export async function getCheckoutQuote(
 export async function redeemPromoGift(
   payload: RedeemPromoPayload
 ): Promise<RedeemPromoResponse> {
-  const response = await fetch("/api/payments/redeem-promo", {
+  const response = await fetchWithSessionRefresh("/api/payments/redeem-promo", {
     method: "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify(payload),
@@ -349,7 +340,7 @@ export async function getTransactionStatus(
     throw new Error("Transaction identifier is required.");
   }
 
-  const response = await fetch(
+  const response = await fetchWithSessionRefresh(
     `/api/payments/transactions/${encodeURIComponent(normalizedChequeId)}`,
     {
       method: "GET",

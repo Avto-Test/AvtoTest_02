@@ -46,7 +46,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
             locale,
             setLocale,
             t: (key: string, fallback?: string) => {
-                return translations[locale][key] ?? fallback ?? key;
+                return translations[locale][key] ?? translations[DEFAULT_LOCALE][key] ?? fallback ?? key;
             },
         };
     }, [locale]);

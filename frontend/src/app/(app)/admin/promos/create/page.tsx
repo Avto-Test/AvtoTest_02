@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,7 +31,7 @@ export default function CreatePromoPage() {
     const {
         register,
         handleSubmit,
-        watch,
+        control,
         setValue,
         formState: { errors },
     } = useForm<PromoCodeFormData>({
@@ -49,7 +49,7 @@ export default function CreatePromoPage() {
             applicable_plan_ids: [],
         },
     });
-    const selectedPlanIds = watch('applicable_plan_ids');
+    const selectedPlanIds = useWatch({ control, name: 'applicable_plan_ids' });
 
     useEffect(() => {
         async function loadPlans() {
@@ -72,7 +72,7 @@ export default function CreatePromoPage() {
         }
         setValue(
             'applicable_plan_ids',
-            current.filter((id) => id !== planId),
+            current.filter((id: string) => id !== planId),
             { shouldValidate: true },
         );
     };

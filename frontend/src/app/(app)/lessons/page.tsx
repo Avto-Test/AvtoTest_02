@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import PremiumLock from '@/components/PremiumLock';
@@ -63,7 +64,7 @@ function LessonPreview({ lesson }: { lesson: LessonItem }) {
 
         return (
             <video controls className="max-h-60 w-full rounded-md border" src={lesson.content_url}>
-                Brauzeringiz video ijrosini qo'llab-quvvatlamaydi.
+                {"Brauzeringiz video ijrosini qo'llab-quvvatlamaydi."}
             </video>
         );
     }
@@ -74,9 +75,11 @@ function LessonPreview({ lesson }: { lesson: LessonItem }) {
 
     if (lesson.content_type === 'image') {
         return (
-            <img
+            <Image
                 src={lesson.content_url}
                 alt={lesson.title}
+                width={1200}
+                height={720}
                 className="max-h-64 w-full rounded-md border object-cover"
             />
         );

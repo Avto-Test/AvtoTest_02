@@ -1,18 +1,21 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
+import { AUTH_ACCESS_COOKIE, AUTH_REFRESH_COOKIE } from '@/lib/auth-session';
 import { getServerApiBaseUrl } from '@/lib/server-api';
 
 interface MeResponse {
     is_admin?: boolean;
 }
 
-export async function middleware(request: NextRequest) {
-    const token = request.cookies.get('access_token')?.value;
+export async function proxy(request: NextRequest) {
+    const accessToken = request.cookies.get(AUTH_ACCESS_COOKIE)?.value;
+    const refreshToken = request.cookies.get(AUTH_REFRESH_COOKIE)?.value;
+    const hasSession = Boolean(accessToken || refreshToken);
     const { pathname } = request.nextUrl;
 
     // Protected routes (require auth)
-    const protectedRoutes = ['/dashboard', '/admin', '/profile', '/billing', '/analytics', '/upgrade', '/feedback'];
+    const protectedRoutes = ['/dashboard', '/admin', '/profile', '/billing', '/analytics', '/upgrade', '/feedback', '/practice', '/simulation', '/leaderboard', '/achievements', '/instructor', '/school'];
     const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route));
     const isAdminRoute = pathname.startsWith('/admin');
 
@@ -20,18 +23,18 @@ export async function middleware(request: NextRequest) {
     const authRoutes = ['/login', '/register', '/verify', '/forgot-password', '/reset-password'];
     const isAuthRoute = authRoutes.some(route => pathname.startsWith(route));
 
-    if (isProtectedRoute && !token) {
+    if (isProtectedRoute && !hasSession) {
         const loginUrl = new URL('/login', request.url);
         loginUrl.searchParams.set('from', pathname);
         return NextResponse.redirect(loginUrl);
     }
 
-    if (isAdminRoute && token) {
+    if (isAdminRoute && accessToken) {
         try {
             const response = await fetch(`${getServerApiBaseUrl()}/api/auth/me`, {
                 method: 'GET',
                 headers: {
-                    Authorization: `Bearer ${token}`,
+                    Authorization: `Bearer ${accessToken}`,
                     cookie: request.headers.get("cookie") ?? "",
                 },
                 cache: 'no-store',
@@ -58,7 +61,7 @@ export async function middleware(request: NextRequest) {
         }
     }
 
-    if (isAuthRoute && token) {
+    if (isAuthRoute && accessToken) {
         return NextResponse.redirect(new URL('/dashboard', request.url));
     }
 
@@ -74,6 +77,12 @@ export const config = {
         '/analytics/:path*',
         '/upgrade/:path*',
         '/feedback/:path*',
+        '/practice/:path*',
+        '/simulation/:path*',
+        '/leaderboard/:path*',
+        '/achievements/:path*',
+        '/instructor/:path*',
+        '/school/:path*',
         '/login',
         '/register',
         '/verify',

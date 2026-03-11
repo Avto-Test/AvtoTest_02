@@ -40,8 +40,9 @@ export default function SuccessContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { token, hydrated, fetchUser } = useAuth();
-  const [stage, setStage] = useState<SuccessStage>("checking");
-  const [chequeId, setChequeId] = useState<string | null>(null);
+  const resolvedChequeId = useMemo(() => resolveCheckoutSessionId(searchParams), [searchParams]);
+  const [stage, setStage] = useState<SuccessStage>(resolvedChequeId ? "checking" : "pending");
+  const [chequeId, setChequeId] = useState<string | null>(resolvedChequeId);
   const [pollCount, setPollCount] = useState(0);
 
   const fallbackRoute = useMemo(() => {
@@ -126,15 +127,10 @@ export default function SuccessContent() {
       }
     };
 
-    const resolvedChequeId = resolveCheckoutSessionId(searchParams);
     if (!resolvedChequeId) {
-      if (!cancelled) {
-        setStage("pending");
-      }
       return undefined;
     }
 
-    setChequeId(resolvedChequeId);
     void verifyPayment(0, resolvedChequeId);
 
     return () => {
@@ -143,7 +139,7 @@ export default function SuccessContent() {
         window.clearTimeout(timeoutId);
       }
     };
-  }, [fetchUser, hydrated, router, searchParams, token]);
+  }, [fetchUser, hydrated, resolvedChequeId, router, token]);
 
   if (stage === "checking") {
     return (

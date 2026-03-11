@@ -13,7 +13,7 @@ function ScoreTrendChartComponent({ data }: Props) {
     return (
       <section className="h-full rounded-3xl border border-[#1F2A44] bg-[#0B1324] p-6">
         <h3 className="text-lg font-semibold text-white">Rivojlanish trendi</h3>
-        <p className="mt-2 text-sm text-slate-300">Bir nechta test yechgandan keyin rivojlanish dinamikasi shu yerda chiqadi.</p>
+        <p className="mt-2 text-sm text-slate-300">{"Bir nechta test yechgandan keyin rivojlanish dinamikasi shu yerda chiqadi."}</p>
       </section>
     );
   }
@@ -24,7 +24,7 @@ function ScoreTrendChartComponent({ data }: Props) {
     <div className="min-w-0 rounded-3xl border border-[#1F2A44] bg-gradient-to-b from-[#111a2f] to-[#0b1324] p-5 shadow-[0_10px_28px_rgba(0,0,0,0.2)]">
       <div className="mb-3">
         <h3 className="text-lg font-semibold text-white">Rivojlanish trendi</h3>
-        <p className="text-sm text-slate-300">So'nggi testlar natijasidagi o'zgarish</p>
+        <p className="text-sm text-slate-300">{"So'nggi testlar natijasidagi o'zgarish"}</p>
       </div>
       <div className="h-[250px] min-h-[220px] min-w-0">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>

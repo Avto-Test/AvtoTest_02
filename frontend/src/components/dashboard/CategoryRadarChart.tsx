@@ -163,8 +163,8 @@ function CategoryRadarChartComponent({ data, trainTopic }: Props) {
       return null;
     }
 
-    const containerWidth = containerRef.current?.clientWidth ?? 460;
-    const containerHeight = containerRef.current?.clientHeight ?? 380;
+    const containerWidth = 460;
+    const containerHeight = 380;
     const tooltipWidth = 220;
     const tooltipHeight = tooltip.coverage === null ? 68 : 88;
 
@@ -210,8 +210,8 @@ function CategoryRadarChartComponent({ data, trainTopic }: Props) {
   if (!points.length) {
     return (
       <section className="h-full rounded-3xl border border-[#1F2A44] bg-[#0B1324] p-6">
-        <h3 className="text-lg font-semibold text-white">Kategoriyalar bo'yicha bilim darajasi</h3>
-        <p className="mt-2 text-sm text-slate-300">Analitika uchun hali yetarli ma'lumot yo'q.</p>
+        <h3 className="text-lg font-semibold text-white">{"Kategoriyalar bo'yicha bilim darajasi"}</h3>
+        <p className="mt-2 text-sm text-slate-300">{"Analitika uchun hali yetarli ma'lumot yo'q."}</p>
       </section>
     );
   }
@@ -219,7 +219,7 @@ function CategoryRadarChartComponent({ data, trainTopic }: Props) {
   return (
     <section className="min-w-0 rounded-3xl border border-[#1F2A44] bg-[linear-gradient(180deg,#101a2e_0%,#0b1324_100%)] p-5 shadow-[0_12px_32px_rgba(0,0,0,0.26)]">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-lg font-semibold text-white">Kategoriyalar bo'yicha bilim darajasi</h3>
+        <h3 className="text-lg font-semibold text-white">{"Kategoriyalar bo'yicha bilim darajasi"}</h3>
         {weakest ? (
           <span className="rounded-full border border-amber-300/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-200">
             Zaif: {truncateTopicLabel(weakest.category, 18)} ({Math.round(weakest.accuracy)}%)
@@ -362,7 +362,7 @@ function CategoryRadarChartComponent({ data, trainTopic }: Props) {
 
           <circle cx={CENTER} cy={CENTER} r={48} fill="rgba(11,19,36,0.92)" stroke="rgba(148,163,184,0.18)" />
           <text x={CENTER} y={CENTER - 12} textAnchor="middle" fontSize="10" fill="rgba(148,163,184,0.9)">
-            O'rtacha aniqlik
+            {"O'rtacha aniqlik"}
           </text>
           <text x={CENTER} y={CENTER + 22} textAnchor="middle" fontSize="34" fontWeight="700" fill="#f8fafc">
             {average}%

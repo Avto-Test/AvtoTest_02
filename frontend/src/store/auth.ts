@@ -1,87 +1,134 @@
 /**
  * AUTOTEST Auth Store
- * Zustand store for authentication state
+ * Legacy Zustand store kept for routes that still depend on initialize/isAuthenticated.
  */
 
-import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import Cookies from 'js-cookie';
-import { getMe, UserResponse } from '@/lib/auth';
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+
+import { AUTH_SESSION_MARKER } from "@/lib/auth-session";
+
+type UserResponse = {
+  id: string;
+  email: string;
+  full_name: string | null;
+  is_verified: boolean;
+  is_active: boolean;
+  is_admin: boolean;
+  is_premium: boolean;
+  created_at: string;
+};
 
 interface AuthState {
-    accessToken: string | null;
-    user: UserResponse | null;
-    isAuthenticated: boolean;
-    isLoading: boolean;
+  accessToken: string | null;
+  user: UserResponse | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  setToken: (token: string) => void;
+  setUser: (user: UserResponse) => void;
+  logout: () => void;
+  fetchUser: () => Promise<void>;
+  initialize: () => Promise<void>;
+}
 
-    // Actions
-    setToken: (token: string) => void;
-    setUser: (user: UserResponse) => void;
-    logout: () => void;
-    fetchUser: () => Promise<void>;
-    initialize: () => Promise<void>;
+function invalidateServerSession(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  void fetch("/api/auth/logout", {
+    method: "POST",
+    credentials: "include",
+    cache: "no-store",
+  }).catch(() => {
+    // Best-effort cleanup only.
+  });
 }
 
 export const useAuthStore = create<AuthState>()(
-    persist(
-        (set, get) => ({
-            accessToken: null,
-            user: null,
-            isAuthenticated: false,
-            isLoading: true,
+  persist(
+    (set, get) => ({
+      accessToken: null,
+      user: null,
+      isAuthenticated: false,
+      isLoading: true,
 
-            setToken: (token: string) => {
-                const isHttps =
-                    typeof window !== 'undefined'
-                        ? window.location.protocol === 'https:'
-                        : process.env.NODE_ENV === 'production';
-                Cookies.set('access_token', token, {
-                    expires: 7,
-                    secure: isHttps,
-                    sameSite: 'lax'
-                });
-                set({ accessToken: token, isAuthenticated: true });
-            },
+      setToken: () => {
+        set({ accessToken: AUTH_SESSION_MARKER, isAuthenticated: true });
+      },
 
-            setUser: (user: UserResponse) => {
-                set({ user });
-            },
+      setUser: (user: UserResponse) => {
+        set({ user });
+      },
 
-            logout: () => {
-                Cookies.remove('access_token');
-                set({
-                    accessToken: null,
-                    user: null,
-                    isAuthenticated: false
-                });
-            },
+      logout: () => {
+        invalidateServerSession();
+        set({
+          accessToken: null,
+          user: null,
+          isAuthenticated: false,
+          isLoading: false,
+        });
+      },
 
-            fetchUser: async () => {
-                try {
-                    const user = await getMe();
-                    set({ user, isAuthenticated: true, isLoading: false });
-                } catch {
-                    get().logout();
-                    set({ isLoading: false });
-                }
-            },
+      fetchUser: async () => {
+        try {
+          let response = await fetch("/api/auth/me", {
+            method: "GET",
+            credentials: "include",
+            cache: "no-store",
+          });
 
-            initialize: async () => {
-                const token = Cookies.get('access_token');
+          if (response.status === 401) {
+            const refreshResponse = await fetch("/api/auth/refresh", {
+              method: "POST",
+              credentials: "include",
+              cache: "no-store",
+            });
 
-                if (token) {
-                    set({ accessToken: token });
-                    await get().fetchUser();
-                } else {
-                    set({ isLoading: false });
-                }
-            },
-        }),
-        {
-            name: 'autotest-auth',
-            partialize: (state) => ({
-                accessToken: state.accessToken
-            }),
+            if (!refreshResponse.ok) {
+              set({
+                accessToken: null,
+                user: null,
+                isAuthenticated: false,
+                isLoading: false,
+              });
+              return;
+            }
+
+            response = await fetch("/api/auth/me", {
+              method: "GET",
+              credentials: "include",
+              cache: "no-store",
+            });
+          }
+
+          if (!response.ok) {
+            throw new Error(`Auth me failed: ${response.status}`);
+          }
+
+          const user = (await response.json()) as UserResponse;
+          set({
+            user,
+            accessToken: AUTH_SESSION_MARKER,
+            isAuthenticated: true,
+            isLoading: false,
+          });
+        } catch {
+          get().logout();
         }
-    )
+      },
+
+      initialize: async () => {
+        set({ isLoading: true });
+        await get().fetchUser();
+      },
+    }),
+    {
+      name: "autotest-auth",
+      partialize: (state) => ({
+        accessToken: state.accessToken,
+      }),
+    },
+  ),
 );
