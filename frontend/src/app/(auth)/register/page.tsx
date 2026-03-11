@@ -63,7 +63,11 @@ function RegisterPageContent() {
 
             if (response.data.access_token) {
                 setToken(response.data.access_token);
-                await fetchUser();
+                const authenticated = await fetchUser();
+                if (!authenticated) {
+                    toast.error("Sessiya ochilmadi. Qayta urinib ko'ring.");
+                    return;
+                }
                 toast.success("Akkount muvaffaqiyatli yaratildi!");
                 router.push(next);
                 return;

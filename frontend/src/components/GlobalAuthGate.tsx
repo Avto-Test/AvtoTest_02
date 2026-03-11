@@ -9,6 +9,7 @@ export default function GlobalAuthGate({ children }: { children: React.ReactNode
     const router = useRouter();
     const pathname = usePathname();
     const hasFetched = useRef(false);
+    const bootstrapAttempted = useRef(false);
     const isPublicAuthRoute =
         pathname.startsWith("/verify")
         || pathname.startsWith("/forgot-password")
@@ -35,37 +36,36 @@ export default function GlobalAuthGate({ children }: { children: React.ReactNode
         return () => window.removeEventListener("storage", handleStorageChange);
     }, [signOut]);
 
-    // 2. Handle Initialization (Bootstrap)
+    // 2. Bootstrap auth identity from the cookie-backed frontend session.
     useEffect(() => {
-        if (hydrated && token && !user && !loading && !hasFetched.current) {
+        if (hydrated && !isPublicAuthRoute && !user && !loading && !hasFetched.current && !bootstrapAttempted.current) {
+            bootstrapAttempted.current = true;
             hasFetched.current = true;
-            void fetchUser().catch(() => {
-                // Prevent infinite loader loop when bootstrap user fetch fails.
+            void fetchUser().finally(() => {
                 hasFetched.current = false;
-                signOut();
             });
         }
-    }, [hydrated, token, user, loading, fetchUser, signOut]);
+    }, [hydrated, user, loading, fetchUser, isPublicAuthRoute]);
 
     useEffect(() => {
         // Reset bootstrap flag when auth state changes, so fresh tokens can refetch user safely.
-        if (!token || user) {
-            hasFetched.current = false;
+        if (token || user || pathname.startsWith("/login") || isPublicAuthRoute) {
+            bootstrapAttempted.current = false;
         }
-    }, [token, user]);
+    }, [token, user, pathname, isPublicAuthRoute]);
 
     // 3. Handle Redirects (Only inside Protected Routes)
     // Note: This Gate is intended to wrap only (app) layouts.
     useEffect(() => {
-        if (hydrated && !token && !loading && !isPublicAuthRoute) {
+        if (hydrated && !token && !user && !loading && !isPublicAuthRoute) {
             const nextParam = encodeURIComponent(pathname);
-            router.push(`/login?next=${nextParam}`);
+            router.replace(`/login?next=${nextParam}`);
         }
-    }, [hydrated, token, loading, router, pathname, isPublicAuthRoute]);
+    }, [hydrated, token, user, loading, router, pathname, isPublicAuthRoute]);
 
     // Block rendering only while hydration/bootstrap auth identity is unresolved.
     // NOTE: do not block whole app for generic loading=true once user is already known.
-    if (!hydrated || (token && !user)) {
+    if (!hydrated || (loading && !user) || (token && !user)) {
         return <FullScreenLoader />;
     }
 

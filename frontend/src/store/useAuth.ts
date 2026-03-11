@@ -12,7 +12,7 @@ interface AuthState {
   setToken: (token: string | null) => void;
   setUser: (user: User | null) => void;
   signOut: () => void;
-  fetchUser: () => Promise<void>;
+  fetchUser: () => Promise<boolean>;
   markHydrated: () => void;
 }
 
@@ -59,15 +59,12 @@ export const useAuth = create<AuthState>()(
       setUser: (user) => set({ user }),
 
       signOut: () => {
-        set({ user: null, token: null });
+        set({ user: null, token: null, loading: false });
         invalidateServerSession();
         clearPersistedAuthStorage();
       },
 
       fetchUser: async () => {
-        const { token } = get();
-        if (!token) return;
-
         set({ loading: true });
         try {
           let response = await fetch("/api/auth/me", {
@@ -84,8 +81,9 @@ export const useAuth = create<AuthState>()(
             });
 
             if (!refreshResponse.ok) {
-              get().signOut();
-              return;
+              set({ user: null, token: null });
+              clearPersistedAuthStorage();
+              return false;
             }
 
             set({ token: AUTH_SESSION_MARKER });
@@ -97,8 +95,9 @@ export const useAuth = create<AuthState>()(
           }
 
           if (response.status === 401 || response.status === 403) {
-            get().signOut();
-            return;
+            set({ user: null, token: null });
+            clearPersistedAuthStorage();
+            return false;
           }
 
           if (!response.ok) {
@@ -109,6 +108,7 @@ export const useAuth = create<AuthState>()(
           const plan = rawUser.plan ?? (rawUser.is_premium ? "premium" : "free");
           const isAdmin = rawUser.is_admin === true;
           set({
+            token: AUTH_SESSION_MARKER,
             user: {
               ...rawUser,
               plan,
@@ -117,10 +117,14 @@ export const useAuth = create<AuthState>()(
               has_school_profile: rawUser.has_school_profile === true,
             } as User,
           });
+          return true;
         } catch (error) {
           if (process.env.NODE_ENV !== "production") {
             console.warn("fetchUser failed:", error);
           }
+          set({ user: null, token: null });
+          clearPersistedAuthStorage();
+          return false;
         } finally {
           set({ loading: false });
         }
