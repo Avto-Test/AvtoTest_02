@@ -11,6 +11,7 @@ from api.tests.schemas import PublicQuestion
 
 class CreateLearningSessionRequest(BaseModel):
     question_count: int = Field(default=20, ge=10, le=50)
+    topic_preferences: list[str] = Field(default_factory=list, max_length=6)
 
 
 class LearningSessionResponse(BaseModel):

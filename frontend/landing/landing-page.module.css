@@ -1,0 +1,339 @@
+.shell {
+  position: relative;
+  min-height: 100vh;
+  overflow-x: hidden;
+  isolation: isolate;
+
+  --background: var(--marketing-bg);
+  --foreground: var(--marketing-text);
+  --card: var(--marketing-card);
+  --card-foreground: var(--marketing-text);
+  --popover: var(--marketing-card);
+  --popover-foreground: var(--marketing-text);
+  --primary: var(--accent-brand);
+  --primary-foreground: var(--accent-brand-contrast);
+  --secondary: var(--marketing-bg-secondary);
+  --secondary-foreground: var(--marketing-text);
+  --muted: var(--marketing-bg-secondary);
+  --muted-foreground: var(--marketing-text-secondary);
+  --accent: var(--accent-green);
+  --accent-foreground: var(--accent-brand-contrast);
+  --destructive: var(--accent-red);
+  --destructive-foreground: var(--destructive-foreground);
+  --border: var(--marketing-border);
+  --input: var(--glass-border);
+  --ring: var(--accent-brand);
+  --chart-1: var(--accent-brand);
+  --chart-2: var(--accent-green);
+  --chart-3: var(--accent-red);
+  --chart-4: var(--accent-blue);
+  --chart-5: var(--accent-yellow);
+  --content-bg: var(--background);
+  --shadow-soft: var(--marketing-shadow-soft);
+  --shadow-elevated: var(--marketing-shadow-elevated);
+
+  background: var(--marketing-bg);
+  color: var(--foreground);
+}
+
+.shell::before,
+.shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.shell::before {
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--marketing-text-secondary) 18%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--marketing-text-secondary) 18%, transparent) 1px, transparent 1px);
+  background-size: 4rem 4rem;
+  mask-image: radial-gradient(circle at top, color-mix(in srgb, var(--marketing-text) 42%, transparent), transparent 78%);
+  opacity: 0.08;
+}
+
+.shell::after {
+  background: none;
+  opacity: 0;
+}
+
+.content {
+  position: relative;
+  z-index: 1;
+}
+
+:global(.landing-main) {
+  position: relative;
+  overflow: hidden;
+  background: var(--marketing-bg);
+}
+
+:global(.landing-main::before),
+:global(.landing-main::after) {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+:global(.landing-main::before) {
+  background: none;
+}
+
+:global(.landing-main::after) {
+  background: linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--marketing-bg) 18%, transparent) 100%);
+}
+
+:global(.landing-section) {
+  position: relative;
+  padding-block: clamp(5.75rem, 7vw, 6.5rem);
+  background: transparent;
+}
+
+:global(.landing-container) {
+  position: relative;
+  z-index: 1;
+  margin-inline: auto;
+  max-width: 80rem;
+}
+
+:global(.landing-section-plain) {
+  background: transparent;
+}
+
+:global(.landing-section-surface) {
+  background: var(--marketing-section-surface);
+}
+
+:global(.landing-section-muted) {
+  background: var(--marketing-section-muted);
+}
+
+:global(.landing-section-contrast) {
+  background: var(--marketing-section-contrast);
+}
+
+:global(.landing-glow-blue::after),
+:global(.landing-glow-green::after),
+:global(.landing-glow-danger::after) {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.35;
+}
+
+:global(.landing-glow-blue::after) {
+  background: radial-gradient(
+    ellipse at top right,
+    color-mix(in srgb, var(--marketing-text) 3%, transparent),
+    transparent 60%
+  );
+}
+
+:global(.landing-glow-green::after) {
+  background: radial-gradient(
+    ellipse at top left,
+    color-mix(in srgb, var(--marketing-text) 3%, transparent),
+    transparent 58%
+  );
+}
+
+:global(.landing-glow-danger::after) {
+  background: radial-gradient(
+    ellipse at top left,
+    color-mix(in srgb, var(--marketing-text) 2%, transparent),
+    transparent 58%
+  );
+}
+
+:global(.landing-main > .landing-section + .landing-section) {
+  margin-top: clamp(-1.75rem, -2vw, -1rem);
+  padding-top: clamp(6rem, 7.5vw, 6.75rem);
+}
+
+:global(.landing-main > .landing-section + .landing-section::before) {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: -4.75rem;
+  height: 7.25rem;
+  pointer-events: none;
+  background: var(--marketing-transition-fade);
+  filter: blur(24px);
+  opacity: 1;
+}
+
+:global(.landing-navbar-glass) {
+  background: var(--marketing-glass-bg);
+  border-bottom: 1px solid var(--marketing-border);
+  box-shadow: var(--marketing-shadow-soft);
+  backdrop-filter: blur(12px) saturate(140%);
+}
+
+:global(.landing-navbar-glass::before) {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--marketing-text) 8%, transparent), transparent 58%);
+}
+
+:global(.landing-hero-image) {
+  object-position: right center;
+  filter: brightness(0.84) saturate(0.96) contrast(1.02);
+  transform: scale(1.03);
+}
+
+:global(.landing-hero-overlay) {
+  background: var(--marketing-hero-overlay);
+}
+
+:global(.landing-hero-vignette) {
+  background: none;
+}
+
+:global(.landing-hero-title) {
+  color: var(--foreground);
+  text-shadow: 0 14px 38px color-mix(in srgb, var(--overlay-scrim) 84%, transparent);
+}
+
+:global(.landing-hero-lead) {
+  color: var(--marketing-text-secondary);
+  text-shadow: 0 10px 28px color-mix(in srgb, var(--overlay-scrim) 72%, transparent);
+}
+
+:global(.landing-panel) {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--marketing-card) 96%, transparent),
+      color-mix(in srgb, var(--marketing-bg-secondary) 92%, transparent)
+    ),
+    var(--marketing-card);
+  border: 1px solid var(--marketing-border);
+  box-shadow:
+    var(--marketing-shadow-soft),
+    inset 0 1px 0 color-mix(in srgb, var(--marketing-text) 5%, transparent);
+  backdrop-filter: blur(20px);
+}
+
+:global(.landing-panel-subtle) {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--marketing-card-subtle) 96%, transparent),
+      color-mix(in srgb, var(--marketing-bg-secondary) 88%, transparent)
+    ),
+    var(--marketing-card-subtle);
+  border: 1px solid var(--marketing-border);
+  box-shadow:
+    0 8px 22px color-mix(in srgb, var(--overlay-scrim) 82%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--marketing-text) 4%, transparent);
+  backdrop-filter: blur(16px);
+}
+
+:global(.landing-card-hover) {
+  transition:
+    transform 0.28s ease,
+    border-color 0.28s ease,
+    box-shadow 0.28s ease,
+    background-color 0.28s ease;
+}
+
+:global(.landing-card-hover:hover) {
+  transform: translateY(-6px);
+  border-color: color-mix(in srgb, var(--accent-brand) 18%, transparent);
+  box-shadow:
+    0 0 40px color-mix(in srgb, var(--accent-brand) 20%, transparent),
+    0 16px 40px color-mix(in srgb, var(--overlay-scrim) 88%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--marketing-text) 6%, transparent);
+}
+
+:global(.landing-problem-panel) {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--marketing-bg-secondary) 86%, var(--accent-red) 14%),
+      color-mix(in srgb, var(--marketing-bg) 90%, var(--accent-red) 10%)
+    ),
+    radial-gradient(circle at top left, color-mix(in srgb, var(--accent-red) 12%, transparent), transparent 56%);
+  border: 1px solid color-mix(in srgb, var(--accent-red) 16%, transparent);
+  box-shadow:
+    var(--marketing-shadow-soft),
+    inset 0 1px 0 color-mix(in srgb, var(--marketing-text) 4%, transparent);
+}
+
+:global(.landing-solution-panel) {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--marketing-bg-secondary) 86%, var(--accent-green) 14%),
+      color-mix(in srgb, var(--marketing-bg) 90%, var(--accent-green) 10%)
+    ),
+    radial-gradient(circle at top left, color-mix(in srgb, var(--accent-green) 14%, transparent), transparent 56%);
+  border: 1px solid color-mix(in srgb, var(--accent-green) 18%, transparent);
+  box-shadow:
+    var(--marketing-shadow-soft),
+    inset 0 1px 0 color-mix(in srgb, var(--marketing-text) 4%, transparent);
+}
+
+:global(.landing-button-primary) {
+  background: var(--primary-gradient);
+  color: var(--accent-brand-contrast);
+  box-shadow:
+    0 16px 34px -18px color-mix(in srgb, var(--accent-brand) 52%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--marketing-text) 8%, transparent);
+  transition:
+    transform 0.28s ease,
+    box-shadow 0.28s ease,
+    background-color 0.28s ease;
+}
+
+:global(.landing-button-primary:hover) {
+  transform: translateY(-1px);
+  box-shadow:
+    0 20px 40px -18px color-mix(in srgb, var(--accent-brand) 62%, transparent),
+    0 0 30px color-mix(in srgb, var(--accent-brand) 18%, transparent);
+}
+
+:global(.landing-button-secondary) {
+  background: color-mix(in srgb, var(--marketing-bg) 42%, transparent);
+  border: 1px solid color-mix(in srgb, var(--marketing-text) 8%, transparent);
+  color: var(--foreground);
+  backdrop-filter: blur(14px);
+  transition:
+    transform 0.28s ease,
+    border-color 0.28s ease,
+    background-color 0.28s ease;
+}
+
+:global(.landing-button-secondary:hover) {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent-brand) 20%, transparent);
+  background: color-mix(in srgb, var(--marketing-card-subtle) 92%, transparent);
+}
+
+:global(.landing-button-success) {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent-green) 98%, transparent),
+    color-mix(in srgb, var(--accent-brand-hover) 96%, transparent)
+  );
+  color: var(--accent-brand-contrast);
+  box-shadow:
+    0 16px 34px -18px color-mix(in srgb, var(--accent-green) 48%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--marketing-text) 8%, transparent);
+  transition:
+    transform 0.28s ease,
+    box-shadow 0.28s ease,
+    background-color 0.28s ease;
+}
+
+:global(.landing-button-success:hover) {
+  transform: translateY(-1px);
+  box-shadow:
+    0 18px 40px -18px color-mix(in srgb, var(--accent-green) 54%, transparent),
+    0 0 28px color-mix(in srgb, var(--accent-green) 14%, transparent);
+}

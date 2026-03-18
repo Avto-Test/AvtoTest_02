@@ -43,6 +43,7 @@ from models.pending_registration import PendingRegistration
 from models.refresh_session import RefreshSession
 from models.user import User
 from models.verification_token import VerificationToken
+from services.gamification.rewards import award_daily_login
 from services.subscriptions.lifecycle import enforce_subscription_status
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -62,6 +63,10 @@ TOKEN_TYPE_PASSWORD_RESET = "password_reset"
 def generate_verification_code() -> str:
     """Generate a 6-digit verification code."""
     return str(random.randint(100000, 999999))
+
+
+def _should_bypass_email_verification() -> bool:
+    return settings.is_development
 
 
 def _credentials_exception() -> HTTPException:
@@ -401,8 +406,11 @@ async def get_current_user(
 @router.get("/me", response_model=UserMeResponse)
 async def get_my_profile_via_auth(
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> User:
     """Backward-compatible profile endpoint."""
+    await award_daily_login(db, current_user.id)
+    await db.commit()
     return current_user
 
 
@@ -413,6 +421,7 @@ async def register(
 ) -> MessageResponse:
     """Register a new user and send verification email."""
     normalized_email = user_data.email.strip().lower()
+    bypass_email_verification = _should_bypass_email_verification()
     result = await db.execute(select(User).where(User.email == normalized_email))
     existing_user = result.scalar_one_or_none()
 
@@ -424,6 +433,14 @@ async def register(
             )
 
         hashed_password = await get_password_hash_async(user_data.password)
+        if bypass_email_verification:
+            existing_user.hashed_password = hashed_password
+            existing_user.is_verified = True
+            existing_user.is_active = True
+            await db.commit()
+            logger.info("[DEV MODE] Email verification skipped for %s", normalized_email)
+            return MessageResponse(message="Ro'yxatdan o'tish muvaffaqiyatli yakunlandi")
+
         code = await _create_token(
             db=db,
             user_id=existing_user.id,
@@ -448,6 +465,18 @@ async def register(
         )
 
     hashed_password = await get_password_hash_async(user_data.password)
+
+    if bypass_email_verification:
+        new_user = User(
+            email=normalized_email,
+            hashed_password=hashed_password,
+            is_verified=True,
+            is_active=True,
+        )
+        db.add(new_user)
+        await db.commit()
+        logger.info("[DEV MODE] Email verification skipped for %s", normalized_email)
+        return MessageResponse(message="Ro'yxatdan o'tish muvaffaqiyatli yakunlandi")
 
     if settings.ENABLE_EMAIL_VERIFICATION:
         code = await _create_or_refresh_pending_registration(
@@ -538,9 +567,41 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    if (not user.is_verified) or (not user.is_active):
-        user.is_verified = True
-        user.is_active = True
+    if not user.is_verified:
+        if _should_bypass_email_verification():
+            user.is_verified = True
+            user.is_active = True
+            logger.info("[DEV MODE] Email verification skipped for %s", normalized_email)
+        else:
+            _log_auth_event(
+                logging.WARNING,
+                event="login_failed",
+                user_id=str(user.id),
+                email=normalized_email,
+                ip_address=request_ip,
+                error="email_unverified",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Email tasdiqlanmagan",
+            )
+
+    if not user.is_active:
+        if _should_bypass_email_verification():
+            user.is_active = True
+        else:
+            _log_auth_event(
+                logging.WARNING,
+                event="login_failed",
+                user_id=str(user.id),
+                email=normalized_email,
+                ip_address=request_ip,
+                error="inactive_user",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Foydalanuvchi faol emas",
+            )
 
     token_pair, refresh_session = await _issue_auth_tokens(db=db, user=user, request=request)
     await db.commit()
@@ -751,6 +812,9 @@ async def resend_verification(
     payload: ResendVerificationRequest,
     db: AsyncSession = Depends(get_db),
 ) -> MessageResponse:
+    if _should_bypass_email_verification():
+        return MessageResponse(message="Development mode: email verification skipped")
+
     if not settings.ENABLE_EMAIL_VERIFICATION:
         return MessageResponse(message="Email verification is disabled")
 

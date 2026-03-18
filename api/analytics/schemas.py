@@ -75,6 +75,22 @@ class Recommendation(BaseModel):
     topic: str | None = None
     accuracy: float | None = None
     action_label: str | None = None
+    kind: str = "general_practice"
+    reason: str | None = None
+    question_count: int = 12
+
+
+class RewardRange(BaseModel):
+    min_coins: int
+    max_coins: int
+
+
+class RewardPolicyPreview(BaseModel):
+    learning_path_answer: RewardRange
+    learning_path_step: RewardRange
+    learning_path_perfect_bonus: int
+    regular_test_answer: RewardRange
+    regular_test_completion_bonus: int = 0
 
 
 class LessonRecommendation(BaseModel):
@@ -119,6 +135,28 @@ class TestBankMastery(BaseModel):
     correct_questions: int = 0
     mastered_questions: int = 0
     needs_review_questions: int = 0
+
+
+class SimulationStatus(BaseModel):
+    cooldown_days: int
+    cooldown_progress: float
+    cooldown_remaining_seconds: int
+    next_available_at: datetime | None = None
+    last_simulation_at: datetime | None = None
+    readiness_gate_score: float
+    readiness_ready: bool
+    cooldown_ready: bool
+    launch_ready: bool
+    fast_unlock_active: bool = False
+    fast_unlock_expires_at: datetime | None = None
+    unlock_source: str | None = None
+    recommended_question_count: int = 40
+    recommended_pressure_mode: bool = True
+    label: str
+    readiness_threshold: float = 70.0
+    pass_threshold: float = 65.0
+    lock_reasons: list[str] = []
+    warning_message: str | None = None
 
 
 class PassProbabilityFactor(BaseModel):
@@ -175,7 +213,9 @@ class DashboardResponse(BaseModel):
     progress_trend: list[TrendPoint] = []
     test_activity: list[ActivityPoint] = []
     question_bank_mastery: TestBankMastery = Field(default_factory=TestBankMastery)
+    simulation_status: SimulationStatus | None = None
     pass_probability_breakdown: PassProbabilityBreakdown | None = None
+    reward_policy: RewardPolicyPreview
 
 
 # ========== Admin Analytics ==========

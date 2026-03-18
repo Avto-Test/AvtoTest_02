@@ -25,12 +25,15 @@ from api.attempts.schemas import (
     GuestFinishAttempt,
     GuestStartAttempt,
     GuestSubmitAnswer,
+    RewardAchievement,
+    RewardSummary,
     ScoreResponse,
     StartAttempt,
     StartAttemptResponse,
     SubmitAnswer,
 )
 from api.auth.router import get_current_user
+from core.config import settings
 from database.session import get_db
 from models.answer_option import AnswerOption
 from models.analytics_event import AnalyticsEvent
@@ -39,11 +42,15 @@ from models.attempt_answer import AttemptAnswer
 from models.guest_attempt import GuestAttempt
 from models.guest_attempt_answer import GuestAttemptAnswer
 from models.question import Question
+from models.review_queue import ReviewQueue
 from models.test import Test
 from models.user import User
 from models.user_adaptive_profile import UserAdaptiveProfile
 from models.user_question_history import UserQuestionHistory
+from models.user_topic_stats import UserTopicStats
 from core.logging import get_logger
+from services.gamification.rewards import award_attempt_completion_rewards
+from services.learning.simulation_service import finalize_exam_simulation
 from services.learning.progress_tracking import LearningAnswerRecord, apply_learning_progress_updates
 
 router = APIRouter(prefix="/attempts", tags=["attempts"])
@@ -99,6 +106,11 @@ def _sanitize_option_text(text_value: str) -> str:
     if text.lower().endswith("/t"):
         return text[:-2].rstrip()
     return text
+
+
+def _is_demo_account(user: User) -> bool:
+    email = (user.email or "").strip().lower()
+    return settings.is_development and email.startswith("demo.") and email.endswith("@example.com")
 
 
 def _public_question_payload(question: Question) -> dict:
@@ -210,6 +222,43 @@ def _resolve_duration_minutes(question_count: int, pressure_mode: bool) -> int:
     if pressure_mode:
         minutes = max(5, int(round(minutes * 0.8)))
     return minutes
+
+
+async def _sync_simulation_completion(
+    db: AsyncSession,
+    attempt: Attempt,
+    *,
+    finished_at: datetime,
+    mistake_count: int,
+    passed: bool,
+    timeout: bool,
+) -> None:
+    if attempt.mode != "simulation":
+        return
+
+    simulation = await finalize_exam_simulation(
+        db,
+        attempt,
+        finished_at=finished_at,
+        mistake_count=mistake_count,
+        passed=passed,
+        timeout=timeout,
+    )
+    if simulation is None:
+        return
+
+    db.add(
+        AnalyticsEvent(
+            user_id=attempt.user_id,
+            event_name="simulation_completed",
+            metadata_json={
+                "simulation_id": str(attempt.id),
+                "mistake_count": int(mistake_count),
+                "passed": bool(passed),
+                "timeout": bool(timeout),
+            },
+        )
+    )
 
 
 @router.post("/start", response_model=StartAttemptResponse, status_code=status.HTTP_201_CREATED)
@@ -607,6 +656,9 @@ async def finish_attempt(
     
     # Finish attempt and calculate score
     attempt.finish()
+    correct_count = attempt.score
+    mistake_count = max(0, total_questions - correct_count)
+    passed = mistake_count <= (1 if attempt.pressure_mode else 2)
     question_ids = [answer.question_id for answer in attempt.attempt_answers]
     question_rows = (
         await db.execute(select(Question).where(Question.id.in_(question_ids)))
@@ -621,6 +673,31 @@ async def finish_attempt(
         )
         for answer in attempt.attempt_answers
     ]
+    completed_at = attempt.finished_at or datetime.now(timezone.utc)
+    topic_ids = {record.topic_id for record in answer_records if record.topic_id is not None}
+    pre_topic_rows = (
+        await db.execute(
+            select(UserTopicStats).where(
+                UserTopicStats.user_id == current_user.id,
+                UserTopicStats.topic_id.in_(topic_ids),
+            )
+        )
+    ).scalars().all() if topic_ids else []
+    pre_topic_state = {
+        row.topic_id: (int(row.total_attempts), float(row.accuracy_rate))
+        for row in pre_topic_rows
+    }
+    due_review_count_before = int(
+        (
+            await db.execute(
+                select(func.count(ReviewQueue.id)).where(
+                    ReviewQueue.user_id == current_user.id,
+                    ReviewQueue.next_review_at <= completed_at,
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
     await apply_learning_progress_updates(
         db=db,
         user_id=current_user.id,
@@ -638,6 +715,26 @@ async def finish_attempt(
                 },
             )
         )
+    await _sync_simulation_completion(
+        db,
+        attempt,
+        finished_at=completed_at,
+        mistake_count=mistake_count,
+        passed=passed,
+        timeout=False,
+    )
+    reward_grant = await award_attempt_completion_rewards(
+        db,
+        current_user.id,
+        attempt_id=attempt.id,
+        mode=attempt.mode,
+        passed=passed,
+        score_percent=(float(attempt.score) / max(1, total_questions)) * 100.0,
+        occurred_at=completed_at,
+        topic_ids=topic_ids,
+        pre_topic_state=pre_topic_state,
+        due_review_count_before=due_review_count_before,
+    )
 
     # Phase 2.5: Inference snapshot capture (non-blocking)
     try:
@@ -783,6 +880,7 @@ async def bulk_submit_attempt(
     questions_map = {q.id: q for q in questions}
     test_question_ids = {q.id for q in questions}
     submitted_question_ids = {q_id for q_id in data.answers.keys()}
+    visited_question_ids = set(data.visited_question_ids or [])
 
     # Allow partial submissions, but reject unknown question IDs.
     extra = submitted_question_ids - test_question_ids
@@ -792,11 +890,24 @@ async def bulk_submit_attempt(
             detail="Submission contains unknown questions.",
         )
 
-    # 2b. Response Times Validation (Phase 11)
-    if data.response_times and len(data.response_times) not in {len(questions), len(data.answers)}:
+    extra_visited = visited_question_ids - test_question_ids
+    if extra_visited:
         raise HTTPException(
             status_code=400,
-            detail="Response times count must match total questions (or submitted answers for legacy clients).",
+            detail="Submission contains unknown visited questions.",
+        )
+
+    effective_reviewed_ids = (visited_question_ids | submitted_question_ids) if visited_question_ids else set(test_question_ids)
+    effective_reviewed_ids &= test_question_ids
+    reviewed_question_count = len(effective_reviewed_ids) if effective_reviewed_ids else len(questions)
+    answered_question_count = len(submitted_question_ids)
+    completed_all = answered_question_count == len(questions) and reviewed_question_count == len(questions)
+
+    # 2b. Response Times Validation (Phase 11)
+    if data.response_times and len(data.response_times) not in {len(questions), len(data.answers), reviewed_question_count}:
+        raise HTTPException(
+            status_code=400,
+            detail="Response times count must match total questions, reviewed questions, or submitted answers.",
         )
     
     if any(rt < 0 for rt in data.response_times):
@@ -854,6 +965,30 @@ async def bulk_submit_attempt(
     correct_count = 0
     topic_results = {}
     adaptive_profile: UserAdaptiveProfile | None = None
+    topic_ids = {q.category_id for q in questions if q.category_id is not None}
+    pre_topic_rows = (
+        await db.execute(
+            select(UserTopicStats).where(
+                UserTopicStats.user_id == current_user.id,
+                UserTopicStats.topic_id.in_(topic_ids),
+            )
+        )
+    ).scalars().all() if topic_ids else []
+    pre_topic_state = {
+        row.topic_id: (int(row.total_attempts), float(row.accuracy_rate))
+        for row in pre_topic_rows
+    }
+    due_review_count_before = int(
+        (
+            await db.execute(
+                select(func.count(ReviewQueue.id)).where(
+                    ReviewQueue.user_id == current_user.id,
+                    ReviewQueue.next_review_at <= now,
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
 
     if attempt.mode == "adaptive":
         adaptive_profile_result = await db.execute(
@@ -985,7 +1120,7 @@ async def bulk_submit_attempt(
 
     # 5. Score-based adaptive target update (faster than per-question +/-1).
     if adaptive_profile is not None and questions:
-        score_percent = (correct_count / len(questions)) * 100.0
+        score_percent = (correct_count / max(1, reviewed_question_count)) * 100.0
         delta = 0
         if score_percent >= 85:
             delta = -4
@@ -1033,13 +1168,22 @@ async def bulk_submit_attempt(
         )
 
     # 6. Finalize attempt
+    if visited_question_ids:
+        effective_total = max(1, reviewed_question_count)
+        mistakes = max(0, answered_question_count - correct_count)
+        unanswered_count = max(0, effective_total - answered_question_count)
+    else:
+        effective_total = len(questions)
+        mistakes = effective_total - correct_count
+        unanswered_count = max(0, effective_total - answered_question_count)
+
+    attempt.question_count = effective_total
     attempt.score = int(correct_count * attempt.pressure_score_modifier)
     attempt.finished_at = now
     
     # Success condition (Normal: 2 mistakes, Pressure Mode: 1 mistake)
     mistake_limit = 1 if attempt.pressure_mode else 2
-    mistakes = len(questions) - correct_count
-    passed = mistakes <= mistake_limit and not time_is_up
+    passed = completed_all and mistakes <= mistake_limit and not time_is_up
 
     # If time was up, they fail automatically
     if time_is_up:
@@ -1058,11 +1202,31 @@ async def bulk_submit_attempt(
                 metadata_json={
                     "session_id": str(attempt.id),
                     "score": attempt.score,
-                    "total_questions": len(questions),
+                    "total_questions": effective_total,
                     "passed": passed,
                 },
             )
         )
+    await _sync_simulation_completion(
+        db,
+        attempt,
+        finished_at=now,
+        mistake_count=mistakes,
+        passed=passed,
+        timeout=time_is_up,
+    )
+    reward_grant = await award_attempt_completion_rewards(
+        db,
+        current_user.id,
+        attempt_id=attempt.id,
+        mode=attempt.mode,
+        passed=passed,
+        score_percent=(correct_count / max(1, effective_total)) * 100.0,
+        occurred_at=now,
+        topic_ids={record.topic_id for record in learning_answer_records if record.topic_id is not None},
+        pre_topic_state=pre_topic_state,
+        due_review_count_before=due_review_count_before,
+    )
 
     # Phase 20: Snapshot-Based ML Inference Storage
     try:
@@ -1274,12 +1438,15 @@ async def bulk_submit_attempt(
         logging.getLogger(__name__).exception(f"Detailed Intelligence update failure: {e}")
         pass_prediction_label = None
 
-    answers_unlocked = current_user.is_premium or is_first_completed_attempt
+    demo_review_enabled = _is_demo_account(current_user)
+    answers_unlocked = current_user.is_premium or is_first_completed_attempt or demo_review_enabled
     unlock_reason: str | None = None
     if current_user.is_premium:
         unlock_reason = "premium"
     elif is_first_completed_attempt:
         unlock_reason = "first_test_demo"
+    elif demo_review_enabled:
+        unlock_reason = "demo_account"
     else:
         unlock_reason = "premium_required"
 
@@ -1296,15 +1463,19 @@ async def bulk_submit_attempt(
         test_id=str(attempt.test_id),
         mode=attempt.mode,
         score=attempt.score,
-        total_questions=len(questions),
+        total_questions=effective_total,
         passed=passed,
     )
 
     return BulkSubmitResponse(
         score=attempt.score,
-        total=len(questions),
+        total=effective_total,
+        reviewed_count=effective_total,
+        answered_count=answered_question_count,
+        unanswered_count=unanswered_count,
         correct_count=correct_count,
-        mistakes_count=len(questions) - correct_count,
+        mistakes_count=mistakes,
+        completed_all=completed_all,
         passed=passed,
         finished_at=attempt.finished_at.isoformat(),
         answers=response_answers,
@@ -1318,5 +1489,17 @@ async def bulk_submit_attempt(
         topic_stability=response_topic_stability,
         avg_response_time=avg_rt,
         cognitive_profile=cognitive_profile,
-        pressure_mode=attempt.pressure_mode
+        pressure_mode=attempt.pressure_mode,
+        reward_summary=RewardSummary(
+            xp_awarded=reward_grant.xp_awarded,
+            coins_awarded=reward_grant.coins_awarded,
+            achievements=[
+                RewardAchievement(
+                    id=getattr(achievement, "id", None),
+                    name=achievement.achievement_definition.name,
+                    icon=achievement.achievement_definition.icon,
+                )
+                for achievement in reward_grant.unlocked_achievements
+            ],
+        ),
     )

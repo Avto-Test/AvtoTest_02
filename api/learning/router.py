@@ -17,9 +17,11 @@ from database.session import get_db
 from models.analytics_event import AnalyticsEvent
 from models.attempt import Attempt
 from models.question import Question
+from models.question_category import QuestionCategory
 from models.test import Test
 from models.user import User
 from services.learning.adaptive_engine import generate_adaptive_session
+from services.learning.taxonomy import normalize_learning_key
 
 router = APIRouter(prefix="/learning", tags=["learning"])
 
@@ -70,16 +72,40 @@ async def _get_or_create_learning_test(db: AsyncSession) -> Test:
     return test
 
 
+async def _resolve_focus_topic_ids(
+    db: AsyncSession,
+    topic_preferences: list[str],
+) -> list:
+    normalized_preferences = {
+        normalize_learning_key(topic)
+        for topic in topic_preferences
+        if topic and topic.strip()
+    }
+    if not normalized_preferences:
+        return []
+
+    categories = (
+        await db.execute(select(QuestionCategory).where(QuestionCategory.is_active == True))
+    ).scalars().all()
+    return [
+        category.id
+        for category in categories
+        if normalize_learning_key(category.name) in normalized_preferences
+    ]
+
+
 @router.post("/session", response_model=LearningSessionResponse, status_code=status.HTTP_201_CREATED)
 async def create_learning_session(
     payload: CreateLearningSessionRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> LearningSessionResponse:
+    focus_topic_ids = await _resolve_focus_topic_ids(db, payload.topic_preferences)
     plan = await generate_adaptive_session(
         current_user.id,
         db=db,
         question_count=payload.question_count,
+        focus_topic_ids=focus_topic_ids or None,
     )
     if not plan.questions:
         raise HTTPException(
@@ -106,6 +132,7 @@ async def create_learning_session(
                 "session_id": str(attempt.id),
                 "question_count": len(plan.questions),
                 "weak_topic_ids": [str(topic_id) for topic_id in plan.weak_topic_ids],
+                "focus_topic_ids": [str(topic_id) for topic_id in focus_topic_ids],
             },
         )
     )

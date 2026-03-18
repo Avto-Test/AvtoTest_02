@@ -15,6 +15,7 @@ from database.base import Base
 
 if TYPE_CHECKING:
     from models.attempt_answer import AttemptAnswer
+    from models.exam_simulation_attempt import ExamSimulationAttempt
     from models.test import Test
     from models.user import User
     from models.inference_snapshot import InferenceSnapshot
@@ -135,6 +136,12 @@ class Attempt(Base):
         "InferenceSnapshot",
         back_populates="attempt",
         uselist=False,
+    )
+    simulation_attempt: Mapped["ExamSimulationAttempt | None"] = relationship(
+        "ExamSimulationAttempt",
+        back_populates="attempt",
+        uselist=False,
+        cascade="all, delete-orphan",
     )
     
     def calculate_score(self) -> int:

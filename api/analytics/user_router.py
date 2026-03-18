@@ -31,6 +31,7 @@ from api.analytics.schemas import (
     TestBankMastery,
     PassProbabilityBreakdown,
     PassProbabilityFactor,
+    SimulationStatus,
     TrendPoint,
     ActivityPoint,
 )
@@ -41,6 +42,9 @@ from models.lesson import Lesson
 from models.test import Test
 from models.user import User
 from models.user_skill import UserSkill
+from services.gamification.economy import get_active_simulation_fast_unlock, get_simulation_fast_unlock_expiry
+from services.gamification.reward_policy import build_reward_policy_preview
+from services.learning.simulation_service import build_simulation_availability
 from services.learning.taxonomy import (
     lesson_learning_keys,
     normalize_learning_key,
@@ -54,7 +58,6 @@ from ml.model_registry import get_inference_engine
 
 router = APIRouter(prefix="/analytics/me", tags=["analytics"])
 logger = logging.getLogger(__name__)
-
 
 def _ensure_utc(dt: datetime | None) -> datetime | None:
     """Normalize DB datetimes to UTC-aware to prevent naive/aware comparison crashes."""
@@ -298,6 +301,7 @@ async def get_dashboard(
     try:
         stmt_general = base_attempt_stmt.add_columns(
             Attempt.mode.label("mode"),
+            Attempt.pressure_mode.label("pressure_mode"),
             Attempt.avg_response_time.label("avg_response_time"),
             Attempt.response_time_variance.label("response_time_variance"),
         )
@@ -311,6 +315,7 @@ async def get_dashboard(
         )
         stmt_general_legacy = base_attempt_stmt.add_columns(
             literal("adaptive").label("mode"),
+            literal(False).label("pressure_mode"),
             literal(0.0).label("avg_response_time"),
             literal(0.0).label("response_time_variance"),
         )
@@ -414,12 +419,89 @@ async def get_dashboard(
                 weakest_acc = accuracy
                 weakest_topic = category_name
 
-    recommendation = Recommendation()
-    if weakest_topic is not None:
+    topic_accuracy_lookup = {item.topic: item.accuracy for item in topic_breakdown}
+    recent_attempt_ids = [row.id for row in rows_general[:3]]
+    repeated_topic: str | None = None
+    repeated_topic_accuracy: float | None = None
+    repeated_topic_wrong_count = 0
+
+    if recent_attempt_ids:
+        recent_wrong_rows = (
+            await db.execute(
+                select(
+                    AttemptAnswer.attempt_id.label("attempt_id"),
+                    Question.topic.label("topic"),
+                    Question.category.label("category"),
+                )
+                .join(Question, AttemptAnswer.question_id == Question.id)
+                .where(
+                    AttemptAnswer.attempt_id.in_(recent_attempt_ids),
+                    AttemptAnswer.is_correct == False,
+                )
+            )
+        ).all()
+
+        repeated_topic_map: dict[str, dict[str, object]] = {}
+        for row in recent_wrong_rows:
+            canonical_topic = _canonical_category(row.topic or row.category or "Umumiy")
+            entry = repeated_topic_map.setdefault(
+                canonical_topic,
+                {
+                    "wrong_count": 0,
+                    "attempt_ids": set(),
+                },
+            )
+            entry["wrong_count"] = int(entry["wrong_count"]) + 1
+            cast_attempt_ids = entry["attempt_ids"]
+            if isinstance(cast_attempt_ids, set):
+                cast_attempt_ids.add(row.attempt_id)
+
+        ranked_repeated_topics = sorted(
+            (
+                (
+                    topic,
+                    int(entry["wrong_count"]),
+                    len(entry["attempt_ids"]) if isinstance(entry["attempt_ids"], set) else 0,
+                )
+                for topic, entry in repeated_topic_map.items()
+            ),
+            key=lambda item: (item[1], item[2], -(topic_accuracy_lookup.get(item[0], 100.0))),
+            reverse=True,
+        )
+        for topic_name, wrong_count, attempt_count in ranked_repeated_topics:
+            if wrong_count >= 2 and (attempt_count >= 2 or wrong_count >= 3):
+                repeated_topic = topic_name
+                repeated_topic_accuracy = topic_accuracy_lookup.get(topic_name)
+                repeated_topic_wrong_count = wrong_count
+                break
+
+    recommendation = Recommendation(kind="general_practice", question_count=12)
+    if repeated_topic is not None:
+        recommendation = Recommendation(
+            topic=repeated_topic,
+            accuracy=round(repeated_topic_accuracy or 0.0, 1) if repeated_topic_accuracy is not None else None,
+            action_label=f"{repeated_topic} bo'yicha 5 savol mashq qiling",
+            kind="repeated_mistake",
+            reason=f"So'nggi urinishlarda {repeated_topic} mavzusida {repeated_topic_wrong_count} ta xato takrorlandi.",
+            question_count=5,
+        )
+    elif weakest_topic is not None and weakest_acc < 70:
         recommendation = Recommendation(
             topic=weakest_topic,
             accuracy=round(weakest_acc, 1),
-            action_label=f"{weakest_topic} bo'yicha mashqni kuchaytiring",
+            action_label=f"{weakest_topic} bo'yicha 12 savol mashq qiling",
+            kind="weak_topic",
+            reason=f"{weakest_topic} hozir eng zaif mavzu bo'lib turibdi.",
+            question_count=12,
+        )
+    else:
+        recommendation = Recommendation(
+            topic=weakest_topic,
+            accuracy=round(weakest_acc, 1) if weakest_topic is not None else round(avg_score, 1),
+            action_label="12 ta umumiy mashqni boshlang",
+            kind="general_practice",
+            reason="Hozir asosiy maqsad ritmni saqlash va umumiy tayyorgarlikni oshirish.",
+            question_count=12,
         )
 
     # 3) Skills / retention
@@ -738,6 +820,22 @@ async def get_dashboard(
     )
 
     confidence_score = min(0.98, 0.35 + min(total_attempts, 20) / 40 + mastery_score / 250)
+    active_fast_unlock = await get_active_simulation_fast_unlock(db, user_id=current_user.id, now_utc=now_utc)
+    fast_unlock_expiry = (
+        get_simulation_fast_unlock_expiry(active_fast_unlock)
+        if active_fast_unlock is not None
+        else None
+    )
+
+    simulation_availability = await build_simulation_availability(
+        db,
+        user_id=current_user.id,
+        readiness_score=readiness_score,
+        pass_probability=pass_probability,
+        fast_unlock_active=active_fast_unlock is not None,
+        fast_unlock_expires_at=fast_unlock_expiry,
+        now_utc=now_utc,
+    )
 
     return DashboardResponse(
         overview=AnalyticsOverview(
@@ -772,7 +870,29 @@ async def get_dashboard(
         progress_trend=progress_trend,
         test_activity=test_activity,
         question_bank_mastery=question_bank_mastery,
+        simulation_status=SimulationStatus(
+            cooldown_days=simulation_availability.cooldown_days,
+            cooldown_progress=simulation_availability.cooldown_progress,
+            cooldown_remaining_seconds=simulation_availability.cooldown_remaining_seconds,
+            next_available_at=simulation_availability.next_available_at,
+            last_simulation_at=simulation_availability.last_simulation_at,
+            readiness_gate_score=simulation_availability.readiness_gate_score,
+            readiness_ready=simulation_availability.readiness_ready,
+            cooldown_ready=simulation_availability.cooldown_ready,
+            launch_ready=simulation_availability.launch_ready,
+            fast_unlock_active=simulation_availability.fast_unlock_active,
+            fast_unlock_expires_at=simulation_availability.fast_unlock_expires_at,
+            unlock_source=simulation_availability.unlock_source,
+            recommended_question_count=simulation_availability.recommended_question_count,
+            recommended_pressure_mode=simulation_availability.recommended_pressure_mode,
+            label=simulation_availability.label,
+            readiness_threshold=simulation_availability.readiness_threshold,
+            pass_threshold=simulation_availability.pass_threshold,
+            lock_reasons=simulation_availability.lock_reasons,
+            warning_message=simulation_availability.warning_message,
+        ),
         pass_probability_breakdown=pass_probability_breakdown,
+        reward_policy=build_reward_policy_preview(),
     )
 
 

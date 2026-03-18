@@ -1,0 +1,578 @@
+.practiceLaunchCard {
+  position: relative;
+  overflow: hidden;
+  border-radius: 2rem;
+  padding: 1px;
+  background-image: linear-gradient(
+    145deg,
+    color-mix(in oklab, #22d3ee 56%, var(--primary) 44%) 0%,
+    color-mix(in oklab, #2563eb 54%, #4f46e5 46%) 52%,
+    color-mix(in oklab, #0f172a 82%, var(--accent) 18%) 100%
+  );
+  box-shadow:
+    0 28px 60px -42px rgba(37, 99, 235, 0.34),
+    0 18px 28px -26px rgba(15, 23, 42, 0.16);
+}
+
+.practiceLaunchCard::before {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at top right, rgba(125, 211, 252, 0.26), transparent 26%),
+    radial-gradient(circle at bottom left, rgba(74, 222, 128, 0.18), transparent 24%);
+  opacity: 0.92;
+}
+
+.practiceLaunchCardInner {
+  position: relative;
+  overflow: hidden;
+  border-radius: calc(2rem - 1px);
+  padding: 1.35rem;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--card) 92%, white 8%),
+      color-mix(in oklab, var(--card) 96%, var(--primary-soft) 4%)
+    ),
+    var(--card);
+  backdrop-filter: blur(22px);
+}
+
+.practiceLaunchCardInner::before,
+.practiceLaunchCardInner::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.practiceLaunchCardInner::before {
+  background:
+    linear-gradient(125deg, rgba(255, 255, 255, 0.12), transparent 30%),
+    radial-gradient(circle at 85% 14%, rgba(59, 130, 246, 0.12), transparent 22%);
+  opacity: 0.8;
+}
+
+.practiceLaunchCardInner::after {
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
+  background-size: 3rem 3rem;
+  mask-image: radial-gradient(circle at center, rgba(255, 255, 255, 0.26), transparent 88%);
+  opacity: 0.18;
+}
+
+:global(.dark) .practiceLaunchCard {
+  box-shadow:
+    0 32px 80px -48px rgba(37, 99, 235, 0.54),
+    0 20px 40px -30px rgba(2, 6, 23, 0.82);
+}
+
+:global(.dark) .practiceLaunchCard::before {
+  background:
+    radial-gradient(circle at top right, rgba(56, 189, 248, 0.2), transparent 26%),
+    radial-gradient(circle at bottom left, rgba(16, 185, 129, 0.14), transparent 24%);
+}
+
+:global(.dark) .practiceLaunchCardInner {
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(2, 6, 23, 0.96)),
+    linear-gradient(135deg, rgba(56, 189, 248, 0.06), transparent 70%);
+}
+
+:global(.dark) .practiceLaunchCardInner::before {
+  background:
+    linear-gradient(125deg, rgba(255, 255, 255, 0.05), transparent 32%),
+    radial-gradient(circle at 85% 14%, rgba(59, 130, 246, 0.14), transparent 24%);
+}
+
+.grid {
+  position: relative;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.copy {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1.15rem;
+  padding: 0.25rem;
+}
+
+.eyebrow {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--primary) 24%, var(--border) 76%);
+  background: color-mix(in oklab, var(--primary-soft) 68%, var(--card) 32%);
+  padding: 0.48rem 0.82rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: color-mix(in oklab, var(--primary) 72%, var(--foreground) 28%);
+}
+
+.title {
+  margin: 0;
+  max-width: 12ch;
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 4vw, 3.15rem);
+  font-weight: 700;
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+  color: var(--foreground);
+}
+
+.subtitle {
+  margin: 0;
+  font-size: clamp(1rem, 1.8vw, 1.28rem);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  color: color-mix(in oklab, var(--foreground) 90%, var(--primary) 10%);
+}
+
+.description {
+  margin: 0;
+  max-width: 39rem;
+  font-size: 0.96rem;
+  line-height: 1.7;
+  color: var(--muted-foreground);
+}
+
+.pillRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 0.5rem 0.78rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.pillPrimary {
+  border-color: color-mix(in oklab, var(--primary) 24%, transparent);
+  background: color-mix(in oklab, var(--primary-soft) 72%, transparent);
+  color: color-mix(in oklab, var(--primary) 78%, var(--foreground) 22%);
+}
+
+.pillSuccess {
+  border-color: rgba(16, 185, 129, 0.28);
+  background: rgba(16, 185, 129, 0.1);
+  color: color-mix(in oklab, var(--foreground) 76%, #34d399 24%);
+}
+
+.pillWarning {
+  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.1);
+  color: color-mix(in oklab, var(--foreground) 78%, #f59e0b 22%);
+}
+
+.pillNeutral {
+  border-color: color-mix(in oklab, var(--border) 84%, transparent);
+  background: color-mix(in oklab, var(--muted) 72%, transparent);
+  color: color-mix(in oklab, var(--foreground) 84%, var(--muted-foreground) 16%);
+}
+
+.metrics {
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.metric {
+  position: relative;
+  overflow: hidden;
+  border-radius: 1.1rem;
+  border: 1px solid color-mix(in oklab, var(--border) 82%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--card) 84%, white 16%),
+      color-mix(in oklab, var(--card) 92%, var(--primary-soft) 8%)
+    );
+  padding: 0.9rem 0.95rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+:global(.dark) .metric {
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.74), rgba(2, 6, 23, 0.84)),
+    rgba(15, 23, 42, 0.84);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.metricLabel {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.metricValue {
+  display: block;
+  margin-top: 0.32rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--foreground);
+}
+
+.metricPrimary .metricValue {
+  color: color-mix(in oklab, var(--primary) 72%, var(--foreground) 28%);
+}
+
+.metricSuccess .metricValue {
+  color: color-mix(in oklab, #10b981 72%, var(--foreground) 28%);
+}
+
+.metricNeutral .metricValue {
+  color: var(--foreground);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.95rem 1rem;
+  margin-top: auto;
+  padding-top: 0.3rem;
+}
+
+.button {
+  display: inline-flex;
+  min-height: 3.15rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 1rem;
+  background-image: linear-gradient(145deg, #7dd3fc 0%, #3b82f6 48%, #4f46e5 100%);
+  padding: 0.85rem 1.2rem;
+  color: #03111f;
+  font-size: 0.95rem;
+  font-weight: 700;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    0 18px 30px -22px rgba(37, 99, 235, 0.62);
+  transition:
+    transform 0.22s ease,
+    box-shadow 0.22s ease,
+    filter 0.22s ease,
+    opacity 0.22s ease;
+}
+
+.button:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.36),
+    0 22px 36px -24px rgba(37, 99, 235, 0.68);
+  filter: saturate(1.05);
+}
+
+.button:active {
+  transform: translateY(0) scale(0.985);
+}
+
+.button:disabled {
+  cursor: progress;
+  opacity: 0.72;
+}
+
+:global(.dark) .button {
+  color: white;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 18px 32px -24px rgba(37, 99, 235, 0.82);
+}
+
+.helper {
+  margin: 0;
+  max-width: 22rem;
+  font-size: 0.82rem;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+}
+
+.previewShell {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.95rem;
+}
+
+.previewMedia {
+  position: relative;
+  overflow: hidden;
+  min-height: 13rem;
+  border-radius: 1.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background:
+    linear-gradient(145deg, rgba(9, 28, 54, 0.98) 0%, rgba(15, 23, 42, 0.96) 46%, rgba(13, 20, 34, 0.94) 100%),
+    linear-gradient(180deg, rgba(56, 189, 248, 0.12), rgba(16, 185, 129, 0.06));
+  padding: 1rem;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 26px 40px -34px rgba(15, 23, 42, 0.72);
+}
+
+.previewMedia::before,
+.previewMedia::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.previewMedia::before {
+  background:
+    radial-gradient(circle at top left, rgba(125, 211, 252, 0.22), transparent 24%),
+    radial-gradient(circle at bottom right, rgba(16, 185, 129, 0.12), transparent 24%);
+}
+
+.previewMedia::after {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 34%);
+}
+
+.previewBadge {
+  position: relative;
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 0.42rem;
+  border-radius: 999px;
+  border: 1px solid rgba(74, 222, 128, 0.26);
+  background: rgba(16, 185, 129, 0.16);
+  padding: 0.46rem 0.72rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #d1fae5;
+}
+
+.previewTrack {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.7rem 0.78rem;
+  backdrop-filter: blur(14px);
+}
+
+.trackDot,
+.trackLine {
+  display: block;
+  flex-shrink: 0;
+}
+
+.trackDot {
+  width: 0.46rem;
+  height: 0.46rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.78);
+  box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.14);
+}
+
+.trackDotActive {
+  background: #7dd3fc;
+  box-shadow: 0 0 0 5px rgba(56, 189, 248, 0.18);
+}
+
+.trackDotSoft {
+  background: #34d399;
+  box-shadow: 0 0 0 5px rgba(16, 185, 129, 0.14);
+}
+
+.trackLine {
+  width: 2.9rem;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(125, 211, 252, 0.78), rgba(148, 163, 184, 0.42));
+}
+
+.trackLineShort {
+  width: 1.8rem;
+}
+
+.previewFocus {
+  position: absolute;
+  left: 1rem;
+  right: 1rem;
+  bottom: 1rem;
+  border-radius: 1.3rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.74), rgba(15, 23, 42, 0.82)),
+    rgba(15, 23, 42, 0.8);
+  padding: 1rem 1.05rem;
+  backdrop-filter: blur(18px);
+}
+
+.previewFocusLabel {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(191, 219, 254, 0.82);
+}
+
+.previewFocusTitle {
+  margin: 0.38rem 0 0;
+  font-size: 1.08rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: white;
+}
+
+.previewFocusCopy {
+  margin: 0.38rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: rgba(226, 232, 240, 0.8);
+}
+
+.previewList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.previewItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.78rem;
+  border-radius: 1.2rem;
+  border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--card) 86%, white 14%),
+      color-mix(in oklab, var(--card) 92%, var(--primary-soft) 8%)
+    );
+  padding: 0.9rem 0.95rem;
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.previewItem:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklab, var(--primary) 28%, var(--border) 72%);
+  box-shadow: 0 16px 28px -26px rgba(37, 99, 235, 0.34);
+}
+
+:global(.dark) .previewItem {
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.76), rgba(2, 6, 23, 0.84)),
+    rgba(15, 23, 42, 0.84);
+}
+
+.previewIcon {
+  display: flex;
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--muted) 72%, white 28%);
+  color: var(--muted-foreground);
+}
+
+:global(.dark) .previewIcon {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.previewItemLabel {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--foreground);
+}
+
+.previewItemHint {
+  margin: 0.2rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--muted-foreground);
+}
+
+.previewItemActive {
+  border-color: rgba(56, 189, 248, 0.24);
+}
+
+.previewItemActive .previewIcon {
+  background: rgba(56, 189, 248, 0.14);
+  color: #0284c7;
+}
+
+.previewItemComplete {
+  border-color: rgba(16, 185, 129, 0.24);
+}
+
+.previewItemComplete .previewIcon {
+  background: rgba(16, 185, 129, 0.14);
+  color: #059669;
+}
+
+.previewItemQueued .previewIcon {
+  color: color-mix(in oklab, var(--muted-foreground) 88%, var(--foreground) 12%);
+}
+
+@media (min-width: 1024px) {
+  .grid {
+    grid-template-columns: minmax(0, 1.15fr) minmax(22rem, 0.85fr);
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 767px) {
+  .practiceLaunchCardInner {
+    padding: 1rem;
+  }
+
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 479px) {
+  .title {
+    max-width: none;
+  }
+
+  .metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .actions {
+    align-items: stretch;
+  }
+
+  .button {
+    width: 100%;
+  }
+}

@@ -65,10 +65,18 @@ async def generate_adaptive_session(
     *,
     db: AsyncSession,
     question_count: int = 20,
+    focus_topic_ids: list[UUID] | None = None,
 ) -> AdaptiveSessionPlan:
-    weak_topic_ids = await detect_weak_topics(user_id, db)
-    weak_target = int(round(question_count * 0.6)) if weak_topic_ids else 0
-    medium_target = int(round(question_count * 0.3))
+    detected_weak_topic_ids = await detect_weak_topics(user_id, db)
+    active_focus_ids = [topic_id for topic_id in (focus_topic_ids or []) if topic_id is not None]
+    weak_topic_ids = active_focus_ids or detected_weak_topic_ids
+
+    if active_focus_ids:
+        weak_target = int(round(question_count * 0.8))
+        medium_target = int(round(question_count * 0.1))
+    else:
+        weak_target = int(round(question_count * 0.6)) if weak_topic_ids else 0
+        medium_target = int(round(question_count * 0.3))
     unseen_target = max(question_count - weak_target - medium_target, 0)
 
     questions_result = await db.execute(

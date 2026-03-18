@@ -49,14 +49,14 @@ export default function AppNavbar() {
       <div className="container-app flex h-20 items-center justify-between gap-4">
         <div className="min-w-0">
           <Link href={roleMeta.homeHref} className="inline-flex items-center gap-3">
-            <div className="hidden h-11 w-11 items-center justify-center rounded-[18px] bg-[linear-gradient(135deg,#2563EB,#22C55E)] text-sm font-bold text-white shadow-[0_18px_40px_-24px_rgba(37,99,235,0.72)] sm:flex">
+            <div className="hidden h-11 w-11 items-center justify-center rounded-[18px] bg-[linear-gradient(135deg,#2563EB,#22C55E)] text-sm font-bold text-white shadow-[var(--shadow-soft)] sm:flex">
               AT
             </div>
             <div className="min-w-0">
-              <p className="truncate text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+              <p className="truncate text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
                 {roleMeta.roleLabel}
               </p>
-              <h1 className="truncate text-lg font-semibold text-slate-950">
+              <h1 className="truncate text-lg font-semibold text-foreground">
                 {roleMeta.description}
               </h1>
             </div>
@@ -64,8 +64,17 @@ export default function AppNavbar() {
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
-          <div className="hidden rounded-full border border-slate-200 bg-white/90 px-3 py-2 text-sm text-slate-500 md:flex md:items-center md:gap-2">
-            <Sparkles className="h-4 w-4 text-blue-600" />
+          {!user.is_premium && (
+            <Button asChild size="sm" className="hidden rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 px-4 text-xs font-bold text-white shadow-lg transition-all hover:scale-105 hover:brightness-110 active:scale-95 md:flex">
+              <Link href="/pricing" className="flex items-center gap-2">
+                <Sparkles className="h-3.5 w-3.5" />
+                <span>Premiumga o'ting</span>
+              </Link>
+            </Button>
+          )}
+
+          <div className="hidden rounded-full border border-border bg-card/90 px-3 py-2 text-sm text-muted-foreground md:flex md:items-center md:gap-2">
+            <Sparkles className="h-4 w-4 text-primary" />
             <span>AUTOTEST</span>
           </div>
           <div className="hidden sm:block">
@@ -74,16 +83,16 @@ export default function AppNavbar() {
           <div className="hidden sm:block">
             <ThemeToggle />
           </div>
-          <div className="hidden items-center gap-3 rounded-full border border-slate-200 bg-white/90 px-3 py-2 md:flex">
+          <div className="hidden items-center gap-3 rounded-full border border-border bg-card/90 px-3 py-2 md:flex">
             <Avatar name={user.full_name || user.email} className="h-10 w-10 rounded-[14px] text-xs" />
             <div className="min-w-0">
-              <p className="max-w-[180px] truncate text-sm font-medium text-slate-900">
+              <p className="max-w-[180px] truncate text-sm font-medium text-foreground">
                 {user.full_name || user.email}
               </p>
-              <p className="max-w-[180px] truncate text-xs text-slate-500">{roleMeta.roleLabel}</p>
+              <p className="max-w-[180px] truncate text-xs text-muted-foreground">{roleMeta.roleLabel}</p>
             </div>
           </div>
-          <SecondaryButton type="button" className="border-slate-200 bg-white/90 text-slate-700 hover:bg-slate-100" onClick={() => signOut()}>
+          <SecondaryButton type="button" className="border-border bg-card/90 text-foreground hover:bg-accent" onClick={() => signOut()}>
             <LogOut className="h-4 w-4" />
             <span className="hidden sm:inline">{t("nav.sign_out", "Chiqish")}</span>
           </SecondaryButton>
