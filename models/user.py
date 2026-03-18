@@ -14,19 +14,29 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database.base import Base
 
 if TYPE_CHECKING:
+    from models.achievement_definition import AchievementDefinition
     from models.attempt import Attempt
+    from models.coin_transaction import CoinTransaction
+    from models.coin_wallet import CoinWallet
+    from models.exam_simulation_attempt import ExamSimulationAttempt
     from models.feedback import Feedback
+    from models.leaderboard_snapshot import LeaderboardSnapshot
     from models.payment import Payment
     from models.promo_redemption import PromoRedemption
     from models.refresh_session import RefreshSession
     from models.school_membership import SchoolMembership
     from models.subscription import Subscription
+    from models.user_achievement import UserAchievement
     from models.user_role import UserRole
     from models.user_adaptive_profile import UserAdaptiveProfile
     from models.user_notification import UserNotification
+    from models.user_streak import UserStreak
     from models.verification_token import VerificationToken
     from models.user_training_history import UserTrainingHistory
     from models.user_skill import UserSkill
+    from models.xp_boost import XPBoost
+    from models.xp_event import XPEvent
+    from models.xp_wallet import XPWallet
 
 
 class User(Base):
@@ -82,6 +92,54 @@ class User(Base):
     )
     attempts: Mapped[list["Attempt"]] = relationship(
         "Attempt",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    exam_simulations: Mapped[list["ExamSimulationAttempt"]] = relationship(
+        "ExamSimulationAttempt",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    xp_wallet: Mapped["XPWallet | None"] = relationship(
+        "XPWallet",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    xp_events: Mapped[list["XPEvent"]] = relationship(
+        "XPEvent",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    xp_boosts: Mapped[list["XPBoost"]] = relationship(
+        "XPBoost",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    coin_wallet: Mapped["CoinWallet | None"] = relationship(
+        "CoinWallet",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    coin_transactions: Mapped[list["CoinTransaction"]] = relationship(
+        "CoinTransaction",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    streak: Mapped["UserStreak | None"] = relationship(
+        "UserStreak",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    user_achievements: Mapped[list["UserAchievement"]] = relationship(
+        "UserAchievement",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    leaderboard_snapshots: Mapped[list["LeaderboardSnapshot"]] = relationship(
+        "LeaderboardSnapshot",
         back_populates="user",
         cascade="all, delete-orphan",
     )

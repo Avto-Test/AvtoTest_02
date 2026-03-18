@@ -98,6 +98,7 @@ class BulkSubmit(BaseModel):
     attempt_id: UUID
     answers: dict[UUID, UUID]  # question_id -> selected_option_id
     response_times: list[int] = [] # response time in ms per question
+    visited_question_ids: list[UUID] | None = None
 
 
 class DetailedAnswer(BaseModel):
@@ -109,12 +110,30 @@ class DetailedAnswer(BaseModel):
     dynamic_difficulty_score: float = 0.5
 
 
+class RewardAchievement(BaseModel):
+    """Schema for unlocked achievements returned with attempt rewards."""
+    id: UUID | None = None
+    name: str
+    icon: str | None = None
+
+
+class RewardSummary(BaseModel):
+    """Schema for reward deltas granted after an attempt."""
+    xp_awarded: int = 0
+    coins_awarded: int = 0
+    achievements: list[RewardAchievement] = []
+
+
 class BulkSubmitResponse(BaseModel):
     """Schema for rich bulk submission response."""
     score: int
     total: int
+    reviewed_count: int
+    answered_count: int
+    unanswered_count: int
     correct_count: int
     mistakes_count: int
+    completed_all: bool = True
     passed: bool
     finished_at: str
     answers: list[DetailedAnswer]
@@ -131,4 +150,5 @@ class BulkSubmitResponse(BaseModel):
     avg_response_time: float | None = None
     cognitive_profile: str | None = None
     pressure_mode: bool = False
+    reward_summary: RewardSummary | None = None
 

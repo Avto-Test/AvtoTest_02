@@ -1,134 +1,88 @@
 /**
- * AUTOTEST Auth Store
- * Legacy Zustand store kept for routes that still depend on initialize/isAuthenticated.
+ * AUTOTEST auth compatibility hook.
+ * Legacy consumers should read from the canonical cookie-session store only.
  */
 
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import React from "react";
+import { useAuth } from "@/store/useAuth";
+import type { User } from "@/types/user";
 
-import { AUTH_SESSION_MARKER } from "@/lib/auth-session";
-
-type UserResponse = {
-  id: string;
-  email: string;
-  full_name: string | null;
-  is_verified: boolean;
-  is_active: boolean;
-  is_admin: boolean;
-  is_premium: boolean;
-  created_at: string;
-};
-
-interface AuthState {
+type LegacyAuthState = {
   accessToken: string | null;
-  user: UserResponse | null;
+  user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   setToken: (token: string) => void;
-  setUser: (user: UserResponse) => void;
+  setUser: (user: User) => void;
   logout: () => void;
   fetchUser: () => Promise<void>;
   initialize: () => Promise<void>;
+};
+
+type Selector<T> = (state: LegacyAuthState) => T;
+
+function buildLegacyAuthState(
+  state: ReturnType<typeof useAuth.getState>,
+): LegacyAuthState {
+  return {
+    accessToken: state.token,
+    user: state.user,
+    isAuthenticated: Boolean(state.token || state.user),
+    isLoading: !state.hydrated || state.loading,
+    setToken: (token) => state.setToken(token),
+    setUser: (user) => state.setUser(user),
+    logout: () => state.signOut(),
+    fetchUser: async () => {
+      await state.fetchUser();
+    },
+    initialize: async () => {
+      if (!state.hydrated || state.loading || state.user) {
+        return;
+      }
+
+      if (state.token) {
+        await state.fetchUser();
+      }
+    },
+  };
 }
 
-function invalidateServerSession(): void {
-  if (typeof window === "undefined") {
-    return;
-  }
+export function useAuthStore(): LegacyAuthState;
+export function useAuthStore<T>(selector: Selector<T>): T;
+export function useAuthStore<T>(selector?: Selector<T>) {
+  const token = useAuth(state => state.token);
+  const user = useAuth(state => state.user);
+  const loading = useAuth(state => state.loading);
+  const hydrated = useAuth(state => state.hydrated);
+  const setToken = useAuth(state => state.setToken);
+  const setUser = useAuth(state => state.setUser);
+  const signOut = useAuth(state => state.signOut);
+  const fetchUser = useAuth(state => state.fetchUser);
 
-  void fetch("/api/auth/logout", {
-    method: "POST",
-    credentials: "include",
-    cache: "no-store",
-  }).catch(() => {
-    // Best-effort cleanup only.
-  });
-}
-
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set, get) => ({
-      accessToken: null,
-      user: null,
-      isAuthenticated: false,
-      isLoading: true,
-
-      setToken: () => {
-        set({ accessToken: AUTH_SESSION_MARKER, isAuthenticated: true });
-      },
-
-      setUser: (user: UserResponse) => {
-        set({ user });
-      },
-
-      logout: () => {
-        invalidateServerSession();
-        set({
-          accessToken: null,
-          user: null,
-          isAuthenticated: false,
-          isLoading: false,
-        });
-      },
-
+  // We memoize the legacy state to avoid creating a new object on every render
+  // This object creation combined with `useAuth` was causing the infinite react loop
+  const legacyState = React.useMemo<LegacyAuthState>(() => {
+    return {
+      accessToken: token,
+      user: user,
+      isAuthenticated: Boolean(token || user),
+      isLoading: !hydrated || loading,
+      setToken: (t) => setToken(t),
+      setUser: (u) => setUser(u),
+      logout: () => signOut(),
       fetchUser: async () => {
-        try {
-          let response = await fetch("/api/auth/me", {
-            method: "GET",
-            credentials: "include",
-            cache: "no-store",
-          });
-
-          if (response.status === 401) {
-            const refreshResponse = await fetch("/api/auth/refresh", {
-              method: "POST",
-              credentials: "include",
-              cache: "no-store",
-            });
-
-            if (!refreshResponse.ok) {
-              set({
-                accessToken: null,
-                user: null,
-                isAuthenticated: false,
-                isLoading: false,
-              });
-              return;
-            }
-
-            response = await fetch("/api/auth/me", {
-              method: "GET",
-              credentials: "include",
-              cache: "no-store",
-            });
-          }
-
-          if (!response.ok) {
-            throw new Error(`Auth me failed: ${response.status}`);
-          }
-
-          const user = (await response.json()) as UserResponse;
-          set({
-            user,
-            accessToken: AUTH_SESSION_MARKER,
-            isAuthenticated: true,
-            isLoading: false,
-          });
-        } catch {
-          get().logout();
+        await fetchUser();
+      },
+      initialize: async () => {
+        if (!hydrated || loading || user) {
+          return;
+        }
+        if (token) {
+          await fetchUser();
         }
       },
+    };
+  }, [token, user, hydrated, loading, setToken, setUser, signOut, fetchUser]);
 
-      initialize: async () => {
-        set({ isLoading: true });
-        await get().fetchUser();
-      },
-    }),
-    {
-      name: "autotest-auth",
-      partialize: (state) => ({
-        accessToken: state.accessToken,
-      }),
-    },
-  ),
-);
+  return selector ? selector(legacyState) : (legacyState as T);
+}

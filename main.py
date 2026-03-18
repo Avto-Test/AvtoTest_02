@@ -1,27 +1,37 @@
-﻿"""
+"""
 AUTOTEST - Online Testing Platform
 Main FastAPI Application
 """
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+import logging
 
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from sqlalchemy import text
+import asyncio
 
 from api.admin.router import router as admin_router
+from api.ai_coach.router import router as ai_coach_router
 from api.analytics.admin_router import router as admin_analytics_router
 from api.analytics.legacy_router import router as legacy_analytics_router
 from api.analytics.user_router import router as user_analytics_router
+from api.answers.router import router as answers_router
 from api.attempts.router import router as attempts_router
 from api.auth.router import router as auth_router
+from api.economy.router import router as economy_router
 from api.feedback.router import router as feedback_router
+from api.gamification.router import router as gamification_router
 from api.notifications.router import router as notifications_router
 from api.payments.router import router as payments_router
 from api.promocode_router import router as promocode_router
 from api.lessons.router import router as lessons_router
 from api.learning.router import router as learning_router
+from api.leaderboard.router import router as leaderboard_router
+from api.simulation.router import router as simulation_router
 from api.school_router import router as school_router
 from api.driving_schools.router import router as driving_schools_router
 from api.driving_schools.admin_router import router as admin_driving_schools_router
@@ -37,22 +47,15 @@ from database.session import engine
 from middleware.error_handler import global_exception_handler, http_exception_handler
 from middleware.request_context import RequestContextMiddleware
 from middleware.rate_limit import RateLimitMiddleware
-from starlette.exceptions import HTTPException as StarletteHTTPException
+from services.gamification.leaderboard_scheduler import leaderboard_refresh_loop, refresh_leaderboards_once
 from ml.model_registry import get_inference_engine
-import models  # noqa: F401 - ensure ORM metadata is registered
-
-from sqlalchemy import text
+import models  # noqa: F401
 
 UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Application lifespan manager.
-    Handles startup and shutdown events.
-    """
-    # Startup: Configure logging and test DB
     setup_logging()
     init_monitoring()
     print("Starting AUTOTEST application...")
@@ -65,23 +68,31 @@ async def lifespan(app: FastAPI):
         print(f"[ERROR] Database connection failed: {e}")
         raise
 
-    # Phase 2.5: Trigger retrain check on startup (non-blocking background task)
-    import asyncio
     async def _startup_retrain_check():
         try:
             from ml.retrain_scheduler import check_retrain_needed
             result = await check_retrain_needed()
-            print(f"[ML] Retrain scheduler: {result}")
+            print(f"[ML) Retrain scheduler: {result}")
         except Exception as exc:
-            print(f"[ML] Retrain scheduler startup check failed (non-blocking): {exc}")
+            print(f"[ML] Retrain scheduler startup check failed: {exc}")
 
     asyncio.ensure_future(_startup_retrain_check())
     
-    yield  # Application runs here
-    
-    # Shutdown: Dispose engine
-    print("Shutting down AUTOTEST application...")
+    try:
+        await refresh_leaderboards_once()
+        print("[OK] Leaderboard snapshots refreshed")
+    except Exception as exc:
+        print(f"[WARN] Leaderboard refresh failed: {exc}")
 
+    leaderboard_task = asyncio.create_task(leaderboard_refresh_loop())
+    app.state.leaderboard_task = leaderboard_task
+    
+    yield
+    
+    print("Shutting down AUTOTEST application...")
+    task = getattr(app.state, "leaderboard_task", None)
+    if task:
+        task.cancel()
     await engine.dispose()
     print("[OK] Database engine disposed")
 
@@ -94,28 +105,38 @@ app = FastAPI(
     redoc_url=None,
 )
 
-# Rate Limiting Middleware
-app.add_middleware(RateLimitMiddleware)
-app.add_middleware(RequestContextMiddleware)
+# Exception Handlers (Added early so they can be caught by outer middlewares)
+app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+app.add_exception_handler(Exception, global_exception_handler)
 
-# CORS Middleware must be the outermost middleware so even error responses
-# (including rate-limit and unhandled exceptions) include CORS headers.
+# Middlewares (Order: RequestContext -> RateLimit -> Logging -> CORS)
+# Request flow: CORS -> Logging -> RateLimit -> RequestContext -> App
+# Response flow: App -> RequestContext -> RateLimit -> Logging -> CORS
+app.add_middleware(RequestContextMiddleware)
+app.add_middleware(RateLimitMiddleware)
+
+@app.middleware("http")
+async def diagnostic_logging(request: Request, call_next):
+    origin = request.headers.get("origin")
+    method = request.method
+    path = request.url.path
+    import logging
+    logging.info(f"DIAGNOSTIC: {method} {path} | Origin: {origin}")
+    response = await call_next(request)
+    return response
+
+# CORS must be the OUTERMOST middleware
 origins = settings.ALLOWED_ORIGINS
 if isinstance(origins, str):
     origins = [o.strip() for o in origins.split(",") if o.strip()]
 
-# Local development defaults are added only outside production. Production
-# deployments must use explicit ALLOWED_ORIGINS configuration.
-required_origins = (
-    {
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    }
-    if settings.DEBUG or settings.ENVIRONMENT == "testing"
-    else set()
-)
+required_origins = {
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3000",
+} if settings.DEBUG or settings.ENVIRONMENT == "testing" else set()
 
-origin_set = {origin.strip() for origin in origins if origin and origin.strip()}
+origin_set = {o.strip() for o in origins if o and o.strip()}
 origin_set.update(required_origins)
 allow_origins = sorted(origin_set)
 
@@ -127,97 +148,59 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Exception Handlers
-app.add_exception_handler(StarletteHTTPException, http_exception_handler)
-app.add_exception_handler(Exception, global_exception_handler)
-
-# Serve uploaded files
+# Static Files
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
-# Include routers
+# Routes
 api_router = APIRouter(prefix="/api")
+routers = [
+    auth_router, admin_router, ai_coach_router, answers_router, attempts_router,
+    legacy_analytics_router, user_analytics_router, admin_analytics_router,
+    economy_router, gamification_router, users_router, tests_router,
+    violations_router, lessons_router, learning_router, leaderboard_router,
+    simulation_router, feedback_router, notifications_router, school_router,
+    driving_schools_router, admin_driving_schools_router,
+    driving_instructors_router, admin_driving_instructors_router
+]
 
-api_router.include_router(auth_router)
-api_router.include_router(admin_router)
-api_router.include_router(attempts_router)
-api_router.include_router(legacy_analytics_router)
-api_router.include_router(user_analytics_router)
-api_router.include_router(admin_analytics_router)
-api_router.include_router(users_router)
-api_router.include_router(tests_router)
-api_router.include_router(violations_router)
-api_router.include_router(lessons_router)
-api_router.include_router(learning_router)
-api_router.include_router(feedback_router)
-api_router.include_router(notifications_router)
-api_router.include_router(school_router)
-api_router.include_router(driving_schools_router)
-api_router.include_router(admin_driving_schools_router)
-api_router.include_router(driving_instructors_router)
-api_router.include_router(admin_driving_instructors_router)
+for r in routers:
+    api_router.include_router(r)
+    # Also include at root for backward compatibility
+    app.include_router(r)
 
 app.include_router(api_router)
-
-# Legacy (non-/api) routes remain available for backwards compatibility.
-app.include_router(auth_router)
-app.include_router(admin_router)
-app.include_router(attempts_router)
-app.include_router(legacy_analytics_router)
-app.include_router(user_analytics_router)
-app.include_router(admin_analytics_router)
 app.include_router(payments_router)
 app.include_router(promocode_router)
-app.include_router(users_router)
-app.include_router(tests_router)
-app.include_router(violations_router)
-app.include_router(lessons_router)
-app.include_router(learning_router)
-app.include_router(feedback_router)
-app.include_router(notifications_router)
-app.include_router(school_router)
-app.include_router(driving_schools_router)
-app.include_router(admin_driving_schools_router)
-app.include_router(driving_instructors_router)
-app.include_router(admin_driving_instructors_router)
 
+@app.get("/debug-cors")
+async def debug_cors():
+    return {
+        "allow_origins": allow_origins,
+        "debug": settings.DEBUG,
+        "environment": settings.ENVIRONMENT,
+        "allowed_origins_raw": settings.ALLOWED_ORIGINS,
+    }
 
 @app.get("/health")
 async def health_check():
-    """
-    Hardened health check endpoint.
-    Returns specific status for DB and ML engine.
-    """
-    health_status = {
-        "status": "ok",
-        "db": "error",
-        "ml": "fallback"
-    }
-    
-    # 1. DB Check (Minimal async SELECT 1)
+    health_status = {"status": "ok", "db": "error", "ml": "fallback"}
     try:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
             health_status["db"] = "ok"
-    except Exception as e:
+    except Exception:
         health_status["status"] = "error"
-        health_status["db"] = "error"
-        
-    # 2. ML Check (Registry singleton check only)
+    
     try:
         engine_instance = get_inference_engine()
-        if engine_instance.model is not None:
-            health_status["ml"] = "active"
-        else:
-            health_status["ml"] = "fallback"
+        health_status["ml"] = "active" if engine_instance.model else "fallback"
     except Exception:
-        health_status["ml"] = "fallback"
-        
+        pass
     return health_status
 
 if settings.DEBUG:
     @app.post("/debug/request")
     async def debug_request(request: Request):
-        """Diagnostic endpoint to inspect development request payloads."""
         body = await request.body()
         return {
             "method": request.method,
@@ -225,3 +208,5 @@ if settings.DEBUG:
             "headers": dict(request.headers),
             "body_decoded": body.decode(),
         }
+
+print(f"!!! main.py logic initialized with origins: {allow_origins} !!!")

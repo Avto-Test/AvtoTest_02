@@ -66,6 +66,14 @@ class Settings(BaseSettings):
     # CORS
     ALLOWED_ORIGINS: Union[list[str], str] = DEFAULT_ALLOWED_ORIGINS
 
+    @property
+    def normalized_environment(self) -> str:
+        return self.ENVIRONMENT.strip().lower()
+
+    @property
+    def is_development(self) -> bool:
+        return self.normalized_environment == "development"
+
     @field_validator("DEBUG", mode="before")
     @classmethod
     def parse_debug_flag(cls, value: Any) -> bool:
@@ -83,25 +91,29 @@ class Settings(BaseSettings):
 
     @field_validator("ALLOWED_ORIGINS", mode="before")
     @classmethod
-    def assemble_cors_origins(cls, v: str | list[str]) -> list[str]:
-        origins: list[str]
-        if isinstance(v, str) and not v.startswith("["):
-            origins = [i.strip() for i in v.split(",") if i.strip()]
-        elif isinstance(v, (list, str)):
-            if isinstance(v, str):
-                origins = [v]
+    def assemble_cors_origins(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            if v.startswith("[") and v.endswith("]"):
+                try:
+                    import json
+                    origins = json.loads(v)
+                except Exception:
+                    origins = [i.strip() for i in v[1:-1].split(",") if i.strip()]
             else:
-                origins = [str(item).strip() for item in v if str(item).strip()]
+                origins = [i.strip() for i in v.split(",") if i.strip()]
+        elif isinstance(v, list):
+            origins = [str(item).strip() for item in v if str(item).strip()]
         else:
-            raise ValueError(v)
+            origins = []
 
-        merged = []
         seen = set()
+        merged = []
         for origin in [*origins, *DEFAULT_ALLOWED_ORIGINS]:
-            if origin not in seen:
+            if origin and origin not in seen:
                 merged.append(origin)
                 seen.add(origin)
         return merged
+
     
     # Payments (Legacy Stripe)
     # Retained for backward compatibility.
@@ -149,6 +161,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> "Settings":
+        self.ENVIRONMENT = self.normalized_environment
+
         # Email aliases fallback (no-op if EMAIL_* already explicitly configured).
         if not self.EMAIL_HOST and self.SMTP_HOST:
             self.EMAIL_HOST = self.SMTP_HOST
@@ -191,6 +205,9 @@ class Settings(BaseSettings):
 
         if not self.SENTRY_ENVIRONMENT:
             self.SENTRY_ENVIRONMENT = self.ENVIRONMENT
+
+        if self.ENVIRONMENT == "production" and not self.ENABLE_EMAIL_VERIFICATION:
+            raise ValueError("ENABLE_EMAIL_VERIFICATION cannot be disabled when ENVIRONMENT=production")
 
         if not self.DEBUG:
             if not self.SECRET_KEY:

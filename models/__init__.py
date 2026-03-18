@@ -3,9 +3,12 @@ AUTOTEST Models Package
 """
 
 from models.answer_option import AnswerOption
+from models.achievement_definition import AchievementDefinition
 from models.analytics_event import AnalyticsEvent
 from models.attempt import Attempt
 from models.attempt_answer import AttemptAnswer
+from models.coin_transaction import CoinTransaction
+from models.coin_wallet import CoinWallet
 from models.payment import Payment
 from models.question import Question
 from models.question_difficulty import QuestionDifficulty
@@ -36,6 +39,7 @@ from models.violation_log import ViolationLog
 from models.guest_attempt import GuestAttempt
 from models.guest_attempt_answer import GuestAttemptAnswer
 from models.pending_registration import PendingRegistration
+from models.leaderboard_snapshot import LeaderboardSnapshot
 from models.lesson import Lesson
 from models.feedback import Feedback
 from models.driving_school import DrivingSchool
@@ -51,6 +55,12 @@ from models.driving_instructor_lead import DrivingInstructorLead
 from models.driving_instructor_application import DrivingInstructorApplication
 from models.driving_instructor_registration_setting import DrivingInstructorRegistrationSetting
 from models.driving_instructor_complaint import DrivingInstructorComplaint
+from models.exam_simulation_attempt import ExamSimulationAttempt
+from models.user_achievement import UserAchievement
+from models.user_streak import UserStreak
+from models.xp_boost import XPBoost
+from models.xp_event import XPEvent
+from models.xp_wallet import XPWallet
 
 __all__ = [
     "User",
@@ -67,8 +77,11 @@ __all__ = [
     "SchoolMembership",
     "AnswerOption",
     "AnalyticsEvent",
+    "AchievementDefinition",
     "Attempt",
     "AttemptAnswer",
+    "CoinTransaction",
+    "CoinWallet",
     "Payment",
     "Subscription",
     "UserTrainingHistory",
@@ -83,6 +96,7 @@ __all__ = [
     "GuestAttempt",
     "GuestAttemptAnswer",
     "PendingRegistration",
+    "LeaderboardSnapshot",
     "Lesson",
     "Feedback",
     "UserAdaptiveProfile",
@@ -102,4 +116,10 @@ __all__ = [
     "DrivingInstructorApplication",
     "DrivingInstructorRegistrationSetting",
     "DrivingInstructorComplaint",
+    "ExamSimulationAttempt",
+    "UserAchievement",
+    "UserStreak",
+    "XPBoost",
+    "XPEvent",
+    "XPWallet",
 ]

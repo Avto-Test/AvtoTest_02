@@ -7,7 +7,6 @@ import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 import { toast } from "sonner";
 
 import { refreshAuthSession } from "@/lib/fetch-with-session";
-import { useAuth } from "@/store/useAuth";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE || "/api";
 
@@ -63,17 +62,17 @@ api.interceptors.response.use(
       requestUrl.includes("/payments/quote") ||
       requestUrl.includes("/payments/redeem-promo");
 
-    if (status === 401) {
-      const { token, signOut } = useAuth.getState();
-      if (token) {
-        signOut();
-      }
+    if (status === 401 && !isAuthFlowRequest) {
+      // If we reach here, it means either:
+      // 1. Refresh already failed (refreshed === false)
+      // 2. The request was already retried once (_handled401 === true)
       if (typeof window !== "undefined") {
         const path = window.location.pathname;
         if (!path.startsWith("/login") && !path.startsWith("/register") && !path.startsWith("/verify")) {
+          // No need to call signOut() here as refreshAuthSession does it.
           toast.error("Session expired. Please login again.");
           setTimeout(() => {
-            window.location.href = "/login";
+            window.location.href = `/login?next=${encodeURIComponent(path)}`;
           }, 1500);
         }
       }
