@@ -1,6 +1,11 @@
 import { apiRequest } from "@/api/client";
 import type {
   AdminAnalyticsSummary,
+  AdminExperimentSummary,
+  AdminFinanceRange,
+  AdminGrowthRange,
+  AdminGrowthSummary,
+  AdminPaymentSummary,
   AdminAnswerOption,
   AdminAnswerOptionPayload,
   AdminBillingData,
@@ -13,6 +18,7 @@ import type {
   AdminDrivingInstructorPromoStatsItem,
   AdminDrivingInstructorRegistrationSettingsPayload,
   AdminDrivingInstructorReviewPayload,
+  AdminDrivingInstructorLeadPayload,
   AdminDrivingInstructorsData,
   AdminDrivingSchoolCoursePayload,
   AdminDrivingSchoolLeadPayload,
@@ -24,18 +30,20 @@ import type {
   AdminDrivingSchoolsData,
   AdminLesson,
   AdminLessonPayload,
+  AdminPaginatedQuestions,
   AdminPromoCode,
   AdminPromoCodePayload,
   AdminQuestionCategory,
   AdminQuestionCategoryPayload,
   AdminQuestionListItem,
   AdminQuestionPayload,
+  AdminSimulationExamSettings,
+  AdminSimulationExamSettingsPayload,
   AdminSubscriptionPlan,
   AdminSubscriptionPlanPayload,
   AdminTestDetail,
   AdminTestListItem,
   AdminTestPayload,
-  AdminTopTestAnalytics,
   AdminUploadedAsset,
   AdminUserListItem,
   AdminUserSubscriptionPayload,
@@ -57,15 +65,50 @@ import type {
   SchoolReview,
 } from "@/types/school";
 
-export function getAdminAnalyticsSummary() {
-  return apiRequest<AdminAnalyticsSummary>("/analytics/admin/summary", { method: "GET" });
+function normalizeSchoolAdminProfile(school: SchoolAdminProfile): SchoolAdminProfile {
+  return {
+    ...school,
+    courses: Array.isArray(school.courses) ? school.courses : [],
+    media_items: Array.isArray(school.media_items) ? school.media_items : [],
+    reviews: Array.isArray(school.reviews) ? school.reviews : [],
+  };
 }
 
-export function getAdminTopTests(limit = 10) {
-  return apiRequest<AdminTopTestAnalytics[]>("/analytics/admin/top-tests", {
+function normalizeInstructorAdminProfile(instructor: InstructorAdminProfile): InstructorAdminProfile {
+  return {
+    ...instructor,
+    media_items: Array.isArray(instructor.media_items) ? instructor.media_items : [],
+    reviews: Array.isArray(instructor.reviews) ? instructor.reviews : [],
+  };
+}
+
+export function getAdminAnalyticsSummary() {
+  return apiRequest<AdminAnalyticsSummary>("/admin/analytics", { method: "GET" });
+}
+
+export function getAdminFinanceSummary(range: AdminFinanceRange = "all") {
+  return apiRequest<AdminPaymentSummary>("/admin/finance", {
     method: "GET",
-    query: { limit },
+    query: range === "all" ? undefined : { range },
   });
+}
+
+export function getAdminGrowthSummary(range: AdminGrowthRange = "all") {
+  return apiRequest<AdminGrowthSummary>("/admin/growth", {
+    method: "GET",
+    query: range === "all" ? undefined : { range },
+  });
+}
+
+export function getAdminExperimentSummary(name = "upgrade_button") {
+  return apiRequest<AdminExperimentSummary>("/admin/experiments", {
+    method: "GET",
+    query: name === "upgrade_button" ? undefined : { name },
+  });
+}
+
+export function getAdminPaymentSummary(range: AdminFinanceRange = "all") {
+  return getAdminFinanceSummary(range);
 }
 
 export function getAdminUsers() {
@@ -165,10 +208,25 @@ export function deleteAdminQuestionCategory(categoryId: string) {
   return apiRequest<null>(`/admin/question-categories/${categoryId}`, { method: "DELETE" });
 }
 
-export function getAdminQuestions(categoryId?: string) {
-  return apiRequest<AdminQuestionListItem[]>("/admin/questions", {
+export function getAdminQuestions({
+  categoryId,
+  offset,
+  limit,
+  search,
+}: {
+  categoryId?: string;
+  offset?: number;
+  limit?: number;
+  search?: string;
+} = {}) {
+  return apiRequest<AdminPaginatedQuestions>("/admin/questions", {
     method: "GET",
-    query: { category_id: categoryId },
+    query: {
+      category_id: categoryId,
+      offset,
+      limit,
+      search,
+    },
   });
 }
 
@@ -263,6 +321,17 @@ export function deleteAdminPromo(promoId: string) {
 
 export function getAdminViolations() {
   return apiRequest<AdminViolationLog[]>("/admin/violations", { method: "GET" });
+}
+
+export function getAdminSimulationExamSettings() {
+  return apiRequest<AdminSimulationExamSettings>("/admin/simulation-exam-settings", { method: "GET" });
+}
+
+export function updateAdminSimulationExamSettings(payload: AdminSimulationExamSettingsPayload) {
+  return apiRequest<AdminSimulationExamSettings>("/admin/simulation-exam-settings", {
+    method: "PUT",
+    body: payload,
+  });
 }
 
 export function getAdminSchools() {
@@ -449,7 +518,7 @@ export function getAdminInstructorLeads() {
   return apiRequest<InstructorLead[]>("/admin/driving-instructors/leads", { method: "GET" });
 }
 
-export function updateAdminInstructorLead(leadId: string, payload: { status: string }) {
+export function updateAdminInstructorLead(leadId: string, payload: AdminDrivingInstructorLeadPayload) {
   return apiRequest<InstructorLead>(`/admin/driving-instructors/leads/${leadId}`, {
     method: "PUT",
     body: payload,
@@ -529,66 +598,39 @@ function resolveSection<T>(
 }
 
 export async function getAdminDashboardData(): Promise<AdminDashboardData> {
-  const [
-    analyticsResult,
-    usersResult,
-    testsResult,
-    questionsResult,
-    schoolsResult,
-    instructorsResult,
-    schoolApplicationsResult,
-    instructorApplicationsResult,
-    schoolLeadsResult,
-    instructorLeadsResult,
-  ] = await Promise.allSettled([
+  const [analyticsResult, growthSummaryResult, paymentSummaryResult] = await Promise.allSettled([
     getAdminAnalyticsSummary(),
-    getAdminUsers(),
-    getAdminTests(),
-    getAdminQuestions(),
-    getAdminSchools(),
-    getAdminInstructors(),
-    getAdminSchoolApplications(),
-    getAdminInstructorApplications(),
-    getAdminSchoolLeads(),
-    getAdminInstructorLeads(),
+    getAdminGrowthSummary(),
+    getAdminFinanceSummary(),
   ]);
 
   const unavailableSections: string[] = [];
 
   return {
     analytics: resolveSection(analyticsResult, "analytics", unavailableSections, null),
-    users: resolveSection(usersResult, "users", unavailableSections, []),
-    tests: resolveSection(testsResult, "tests", unavailableSections, []),
-    questions: resolveSection(questionsResult, "questions", unavailableSections, []),
-    schools: resolveSection(schoolsResult, "driving-schools", unavailableSections, []),
-    instructors: resolveSection(instructorsResult, "driving-instructors", unavailableSections, []),
-    schoolApplications: resolveSection(
-      schoolApplicationsResult,
-      "school-applications",
-      unavailableSections,
-      [],
-    ),
-    instructorApplications: resolveSection(
-      instructorApplicationsResult,
-      "instructor-applications",
-      unavailableSections,
-      [],
-    ),
-    schoolLeads: resolveSection(schoolLeadsResult, "school-leads", unavailableSections, []),
-    instructorLeads: resolveSection(instructorLeadsResult, "instructor-leads", unavailableSections, []),
+    growthSummary: resolveSection(growthSummaryResult, "growth", unavailableSections, null),
+    paymentSummary: resolveSection(paymentSummaryResult, "payments", unavailableSections, null),
     unavailableSections,
   };
 }
 
 export async function getAdminContentData(): Promise<AdminContentData> {
-  const [tests, lessons, questions, categories] = await Promise.all([
+  const [tests, lessons, questionsPage, categories, simulationExamSettings] = await Promise.all([
     getAdminTests(),
     getAdminLessons(),
-    getAdminQuestions(),
+    getAdminQuestions({ limit: 200 }),
     getAdminQuestionCategories(),
+    getAdminSimulationExamSettings(),
   ]);
 
-  return { tests, lessons, questions, categories };
+  return {
+    tests,
+    lessons,
+    questions: questionsPage.items,
+    questionTotal: questionsPage.total,
+    categories,
+    simulationExamSettings,
+  };
 }
 
 export async function getAdminBillingData(): Promise<AdminBillingData> {
@@ -606,7 +648,7 @@ export async function getAdminDrivingSchoolsData(): Promise<AdminDrivingSchoolsD
   ]);
 
   return {
-    schools,
+    schools: schools.map(normalizeSchoolAdminProfile),
     leads,
     applications,
     reviews,
@@ -627,7 +669,7 @@ export async function getAdminDrivingInstructorsData(): Promise<AdminDrivingInst
     ]);
 
   return {
-    instructors,
+    instructors: instructors.map(normalizeInstructorAdminProfile),
     applications,
     leads,
     reviews,

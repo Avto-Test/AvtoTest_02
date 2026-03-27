@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useUser } from "@/hooks/use-user";
+import { isSuperAdmin } from "@/lib/rbac";
 import { adminNavigation, findAdminNavigationItem, isAdminPathActive } from "@/lib/admin-navigation";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/shared/ui/avatar";
@@ -124,18 +125,22 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!authenticated || user?.is_admin !== true) {
+  if (!authenticated || !user || !isSuperAdmin(user)) {
     return (
       <div className="page-shell min-h-screen bg-[var(--background)] p-6">
         <div className="mx-auto max-w-3xl pt-24">
           <ErrorState
             title="Admin ruxsati topilmadi"
-            description="Bu shell faqat `is_admin=true` foydalanuvchilar uchun ochiladi. Sessiya yoki rolni tekshiring."
+            description="Bu shell faqat `SuperAdmin` roliga ega foydalanuvchilar uchun ochiladi. Sessiya yoki rolni tekshiring."
           />
         </div>
       </div>
     );
   }
+
+  const adminUser = user;
+  const adminDisplayName = adminUser.full_name ?? adminUser.email ?? "Admin";
+  const adminAvatarFallback = adminDisplayName.slice(0, 2).toUpperCase();
 
   return (
     <div className="page-shell h-[100dvh] overflow-hidden bg-[var(--background)] p-3 text-[var(--foreground)] sm:p-4 lg:p-5">
@@ -169,11 +174,13 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="success">Admin workspace</Badge>
-                    <Badge variant="outline" className="border-[var(--border)] text-[var(--muted-foreground)]">
+                    <Badge variant="muted" className="border-[var(--border)]">
                       {currentItem.label}
                     </Badge>
                   </div>
-                  <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted-foreground)]">{currentItem.description}</p>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted-foreground)]">
+                    {currentItem.description}
+                  </p>
                 </div>
               </div>
 
@@ -192,12 +199,12 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                 >
                   <Avatar
                     src={null}
-                    fallback={(user.full_name ?? user.email).slice(0, 2).toUpperCase()}
+                    fallback={adminAvatarFallback}
                     className="h-10 w-10"
                   />
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-[var(--foreground)]">{user.full_name ?? user.email}</p>
-                    <p className="truncate text-xs text-[var(--muted-foreground)]">{user.email}</p>
+                    <p className="truncate text-sm font-medium text-[var(--foreground)]">{adminDisplayName}</p>
+                    <p className="truncate text-xs text-[var(--muted-foreground)]">{adminUser.email}</p>
                   </div>
                 </button>
               </div>

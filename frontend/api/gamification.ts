@@ -6,6 +6,7 @@ import type { CoinBalance, GamificationSummary, StreakSummary, XPSummary } from 
 export function getGamificationSummary() {
   return apiRequest<GamificationSummary>("/users/me/gamification", {
     method: "GET",
+    baseUrl: "/api",
   });
 }
 

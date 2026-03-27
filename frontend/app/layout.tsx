@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Space_Grotesk } from "next/font/google";
 
 import { AuthProvider } from "@/components/providers/auth-provider";
+import { ExperimentProvider } from "@/components/providers/experiment-provider";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { themeStyleText } from "@/styles/theme";
 
@@ -30,7 +31,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className={`${inter.variable} ${spaceGrotesk.variable} font-sans antialiased`}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <ExperimentProvider>{children}</ExperimentProvider>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

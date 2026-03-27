@@ -1,7 +1,7 @@
-"use client";
+﻿"use client";
 
-import { Building2, Plus, Trash2, Upload } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Building2, FileStack, ImageIcon, MessageSquare, Phone, Plus, RefreshCcw, Search, Upload } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   createAdminSchool,
@@ -20,6 +20,7 @@ import {
   updateAdminSchoolReview,
   uploadAdminSchoolMedia,
 } from "@/api/admin";
+import { AdminActionMenu, AdminDetailHeader, AdminStatCard, AdminSurface, AdminToolbar } from "@/features/admin/admin-ui";
 import type {
   AdminDrivingSchoolCoursePayload,
   AdminDrivingSchoolMediaPayload,
@@ -30,16 +31,24 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { Modal } from "@/shared/ui/modal";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { ErrorState } from "@/shared/ui/error-state";
 import { Input } from "@/shared/ui/input";
 import { PageHeader } from "@/shared/ui/page-header";
 import { Select } from "@/shared/ui/select";
 import { Skeleton } from "@/shared/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { Textarea } from "@/shared/ui/textarea";
 import { formatAdminStatus, statusVariant, toNullableString, toOptionalNumber, toRequiredNumber } from "@/features/admin/utils";
 import type { SchoolAdminProfile } from "@/types/school";
+import {
+  canTransitionStatus,
+  SCHOOL_LEAD_STATUSES,
+  SCHOOL_LEAD_TRANSITIONS,
+  SCHOOL_PARTNER_APPLICATION_STATUSES,
+  SCHOOL_PARTNER_APPLICATION_TRANSITIONS,
+} from "@/types/statuses";
+import type { DrivingSchoolLeadStatus, DrivingSchoolPartnerApplicationStatus } from "@/types/statuses";
 
 type SchoolDraft = {
   owner_user_id: string;
@@ -135,6 +144,39 @@ function makeMediaDraft(item?: SchoolAdminProfile["media_items"][number]): Media
   };
 }
 
+function normalizeSchoolText(value?: string | null) {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+function ensureList<T>(value: T[] | null | undefined) {
+  return Array.isArray(value) ? value : [];
+}
+
+function toSchoolPayload(school: SchoolAdminProfile): AdminDrivingSchoolPayload {
+  return {
+    owner_user_id: school.owner_user_id ?? null,
+    slug: school.slug ?? null,
+    name: school.name,
+    short_description: school.short_description ?? null,
+    full_description: school.full_description ?? null,
+    city: school.city,
+    region: school.region ?? null,
+    address: school.address ?? null,
+    landmark: school.landmark ?? null,
+    phone: school.phone,
+    telegram: school.telegram ?? null,
+    website: school.website ?? null,
+    work_hours: school.work_hours ?? null,
+    license_info: school.license_info ?? null,
+    years_active: school.years_active ?? null,
+    logo_url: school.logo_url ?? null,
+    map_embed_url: school.map_embed_url ?? null,
+    referral_code: school.referral_code ?? null,
+    promo_code_id: school.promo_code_id ?? null,
+    is_active: school.is_active,
+  };
+}
+
 function LoadingState() {
   return (
     <div className="space-y-6">
@@ -155,15 +197,80 @@ export function AdminDrivingSchoolsPage() {
   const [schoolDraft, setSchoolDraft] = useState<SchoolDraft>(makeSchoolDraft());
   const [courseDraft, setCourseDraft] = useState<CourseDraft>(makeCourseDraft());
   const [mediaDraft, setMediaDraft] = useState<MediaDraft>(makeMediaDraft());
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [detailTab, setDetailTab] = useState("overview");
+  const [applicationFilter, setApplicationFilter] = useState("linked");
 
   const selectedSchool = useMemo(() => {
     const schools = resource.data?.schools ?? [];
-    return schools.find((school) => school.id === selectedSchoolId) ?? schools[0] ?? null;
+    return schools.find((school) => school.id === selectedSchoolId) ?? null;
   }, [resource.data?.schools, selectedSchoolId]);
+
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredSchools = useMemo(() => {
+    return (resource.data?.schools ?? []).filter((school) => {
+      const matchesQuery =
+        !normalizedQuery ||
+        school.name.toLowerCase().includes(normalizedQuery) ||
+        school.city.toLowerCase().includes(normalizedQuery) ||
+        normalizeSchoolText(school.region).includes(normalizedQuery) ||
+        normalizeSchoolText(school.short_description).includes(normalizedQuery);
+      const matchesStatus =
+        statusFilter === "all" ? true : statusFilter === "active" ? school.is_active : !school.is_active;
+      return matchesQuery && matchesStatus;
+    });
+  }, [normalizedQuery, resource.data?.schools, statusFilter]);
+
+  const selectedSchoolApplications = useMemo(() => {
+    if (!selectedSchool) {
+      return [];
+    }
+
+    return (resource.data?.applications ?? []).filter((item) => item.linked_school_id === selectedSchool.id);
+  }, [resource.data?.applications, selectedSchool]);
+
+  const unlinkedSchoolApplications = useMemo(() => {
+    return (resource.data?.applications ?? []).filter((item) => !item.linked_school_id);
+  }, [resource.data?.applications]);
+
+  const visibleSchoolApplications = useMemo(() => {
+    if (!selectedSchool) {
+      return [];
+    }
+    if (applicationFilter === "unlinked") {
+      return unlinkedSchoolApplications;
+    }
+    if (applicationFilter === "all") {
+      return [...selectedSchoolApplications, ...unlinkedSchoolApplications];
+    }
+    return selectedSchoolApplications;
+  }, [applicationFilter, selectedSchool, selectedSchoolApplications, unlinkedSchoolApplications]);
+
+  const selectedSchoolLeads = useMemo(() => {
+    if (!selectedSchool) {
+      return [];
+    }
+    return (resource.data?.leads ?? []).filter((lead) => lead.school_id === selectedSchool.id);
+  }, [resource.data?.leads, selectedSchool]);
+
+  const selectedSchoolPromoStats = useMemo(() => {
+    if (!selectedSchool) {
+      return null;
+    }
+    return (resource.data?.promoStats ?? []).find((item) => item.school_id === selectedSchool.id) ?? null;
+  }, [resource.data?.promoStats, selectedSchool]);
+  const selectedSchoolCourses = ensureList(selectedSchool?.courses);
+  const selectedSchoolMediaItems = ensureList(selectedSchool?.media_items);
+  const selectedSchoolReviews = ensureList(selectedSchool?.reviews);
 
   const refresh = async () => {
     await resource.reload();
   };
+
+  useEffect(() => {
+    setApplicationFilter("linked");
+  }, [selectedSchoolId]);
 
   const openSchoolModal = (school?: SchoolAdminProfile) => {
     setEditingSchool(school ?? null);
@@ -272,6 +379,75 @@ export function AdminDrivingSchoolsPage() {
     }
   };
 
+  const removeSchool = async (school: SchoolAdminProfile) => {
+    setBusy(school.id);
+    setNotice(null);
+    try {
+      await deleteAdminSchool(school.id);
+      if (selectedSchoolId === school.id) {
+        setSelectedSchoolId(null);
+      }
+      await refresh();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "School o'chirilmadi.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const toggleSchoolStatus = async (school: SchoolAdminProfile) => {
+    setBusy(`school-status-${school.id}`);
+    setNotice(null);
+    try {
+      await updateAdminSchool(school.id, { ...toSchoolPayload(school), is_active: !school.is_active });
+      await refresh();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "School holati yangilanmadi.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const updateSchoolApplicationStatus = async (
+    applicationId: string,
+    nextStatus: DrivingSchoolPartnerApplicationStatus,
+    linkedSchoolId?: string | null,
+  ) => {
+    setBusy(`school-application-${applicationId}-${nextStatus}`);
+    setNotice(null);
+    try {
+      await updateAdminSchoolApplication(applicationId, {
+        status: nextStatus,
+        linked_school_id: linkedSchoolId ?? undefined,
+      });
+      await refresh();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Application holati yangilanmadi.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const linkSchoolApplication = async (applicationId: string, currentStatus: DrivingSchoolPartnerApplicationStatus) => {
+    if (!selectedSchool) {
+      return;
+    }
+    setBusy(`school-application-link-${applicationId}`);
+    setNotice(null);
+    try {
+      await updateAdminSchoolApplication(applicationId, {
+        status: currentStatus,
+        linked_school_id: selectedSchool.id,
+      });
+      setNotice("Ariza tanlangan school bilan bog'landi.");
+      await refresh();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Application school bilan bog'lanmadi.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   if (resource.loading) {
     return <LoadingState />;
   }
@@ -291,7 +467,7 @@ export function AdminDrivingSchoolsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Avtomaktablar"
-        description="School CRUD, kurs/media boshqaruvi, partner applications, leadlar va reviewlar shu yerda jamlangan."
+        description="School CRUD, kurs/media boshqaruvi, partner applications, leadlar va reviewlarni SaaS detail oqimida boshqaring."
         action={
           <Button onClick={() => openSchoolModal()}>
             <Plus className="h-4 w-4" />
@@ -300,290 +476,479 @@ export function AdminDrivingSchoolsPage() {
         }
       />
 
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <AdminStatCard label="Jami schools" value={resource.data.schools.length} caption="Katalogdagi barcha avtomaktablar" icon={Building2} />
+        <AdminStatCard label="Faol schools" value={resource.data.schools.filter((school) => school.is_active).length} caption="Foydalanuvchiga ko'rinadiganlari" icon={Building2} tone="success" />
+        <AdminStatCard label="Leadlar" value={resource.data.leads.length} caption="Umumiy lead oqimi" icon={Phone} tone="warning" />
+        <AdminStatCard label="Reviewlar" value={resource.data.reviews.length} caption="Moderatsiya qilinadigan feedbacklar" icon={MessageSquare} tone="neutral" />
+      </div>
+
+      <AdminToolbar
+        search={
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-foreground)]" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="School nomi, shahar yoki tavsif bo'yicha qidiring"
+              className="pl-9"
+            />
+          </div>
+        }
+        filters={
+          <Select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="min-w-40">
+            <option value="all">Barcha status</option>
+            <option value="active">Faol</option>
+            <option value="inactive">Nofaol</option>
+          </Select>
+        }
+        actions={
+          <Button variant="outline" onClick={() => void refresh()}>
+            <RefreshCcw className="h-4 w-4" />
+            Yangilash
+          </Button>
+        }
+      />
+
       {notice ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{notice}</div>
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Avtomaktablar katalogi</CardTitle>
-          <CardDescription>{resource.data.schools.length} ta school admin panelga ulangan</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 xl:grid-cols-2">
-          {resource.data.schools.length === 0 ? (
-            <EmptyState title="School yo'q" description="Yangi school yaratish uchun yuqoridagi tugmadan foydalaning." />
+      <AdminSurface
+        title="Schools katalogi"
+        description={`${filteredSchools.length} ta school ko'rinmoqda. Primary action detail sahifani ochadi, qolgan amallar menyuga yig'ildi.`}
+      >
+        <div className="grid gap-4 p-5 xl:grid-cols-3">
+          {filteredSchools.length === 0 ? (
+            <EmptyState title="School topilmadi" description="Qidiruv va filtr bo'yicha mos school yo'q." />
           ) : (
-            resource.data.schools.map((school) => (
+            filteredSchools.map((school) => (
               <div key={school.id} className="rounded-2xl border border-[var(--border)] p-4">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
+                  <div className="min-w-0">
                     <p className="font-medium">{school.name}</p>
-                    <p className="mt-1 text-sm text-[var(--muted-foreground)]">{school.city}{school.region ? `, ${school.region}` : ""}</p>
+                    <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                      {school.city}
+                      {school.region ? `, ${school.region}` : ""}
+                    </p>
+                    <p className="mt-2 line-clamp-2 text-sm text-[var(--muted-foreground)]">{school.short_description ?? "Qisqa tavsif kiritilmagan."}</p>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Badge variant={school.is_active ? "success" : "outline"}>{school.is_active ? "Active" : "Inactive"}</Badge>
-                    <Badge variant="outline">{school.lead_count} leads</Badge>
-                  </div>
+                  <Badge variant={school.is_active ? "success" : "muted"}>{school.is_active ? "Active" : "Inactive"}</Badge>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" onClick={() => setSelectedSchoolId(school.id)}>Boshqarish</Button>
-                  <Button size="sm" variant="outline" onClick={() => openSchoolModal(school)}>Tahrirlash</Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={busy === school.id}
-                    onClick={() => {
-                      void (async () => {
-                        setBusy(school.id);
-                        setNotice(null);
-                        try {
-                          await deleteAdminSchool(school.id);
-                          await refresh();
-                        } catch (error) {
-                          setNotice(error instanceof Error ? error.message : "School o'chirilmadi.");
-                        } finally {
-                          setBusy(null);
-                        }
-                      })();
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    O'chirish
+                  <Badge variant="muted">{ensureList(school.courses).length} kurs</Badge>
+                  <Badge variant="muted">{ensureList(school.media_items).length} media</Badge>
+                  <Badge variant="muted">{school.lead_count} leads</Badge>
+                </div>
+                <div className="mt-4 flex items-center justify-between gap-2">
+                  <Button size="sm" variant="outline" onClick={() => { setSelectedSchoolId(school.id); setDetailTab("overview"); }}>
+                    Manage
                   </Button>
+                  <AdminActionMenu
+                    items={[
+                      { label: "Edit", onClick: () => openSchoolModal(school) },
+                      {
+                        label: school.is_active ? "Deactivate" : "Activate",
+                        disabled: busy === `school-status-${school.id}`,
+                        onClick: () => void toggleSchoolStatus(school),
+                      },
+                      {
+                        label: "Delete",
+                        tone: "danger",
+                        disabled: busy === school.id,
+                        onClick: () => void removeSchool(school),
+                      },
+                    ]}
+                  />
                 </div>
               </div>
             ))
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </AdminSurface>
 
       {selectedSchool ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>{selectedSchool.name} boshqaruvi</CardTitle>
-            <CardDescription>Kurs va media CRUD shu school kesimida ishlaydi</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-6 xl:grid-cols-2">
-            <div className="space-y-4">
-              <div className="rounded-2xl border border-[var(--border)] p-4">
-                <p className="font-medium">Kurs formasi</p>
-                <div className="mt-4 grid gap-3 md:grid-cols-2">
-                  <Input placeholder="Category code" value={courseDraft.category_code} onChange={(event) => setCourseDraft((draft) => ({ ...draft, category_code: event.target.value }))} />
-                  <Input placeholder="Duration weeks" value={courseDraft.duration_weeks} onChange={(event) => setCourseDraft((draft) => ({ ...draft, duration_weeks: event.target.value }))} />
-                  <Input placeholder="Price cents" value={courseDraft.price_cents} onChange={(event) => setCourseDraft((draft) => ({ ...draft, price_cents: event.target.value }))} />
-                  <Input placeholder="Currency" value={courseDraft.currency} onChange={(event) => setCourseDraft((draft) => ({ ...draft, currency: event.target.value }))} />
-                  <Input placeholder="Sort order" value={courseDraft.sort_order} onChange={(event) => setCourseDraft((draft) => ({ ...draft, sort_order: event.target.value }))} />
-                  <label className="flex items-center gap-3 text-sm font-medium">
-                    <input type="checkbox" checked={courseDraft.installment_available} onChange={(event) => setCourseDraft((draft) => ({ ...draft, installment_available: event.target.checked }))} />
-                    Installment
-                  </label>
-                  <label className="flex items-center gap-3 text-sm font-medium">
-                    <input type="checkbox" checked={courseDraft.is_active} onChange={(event) => setCourseDraft((draft) => ({ ...draft, is_active: event.target.checked }))} />
-                    Active
-                  </label>
-                  <Textarea className="md:col-span-2" placeholder="Description" value={courseDraft.description} onChange={(event) => setCourseDraft((draft) => ({ ...draft, description: event.target.value }))} />
-                </div>
-                <div className="mt-4 flex gap-3">
-                  <Button disabled={busy === "course"} onClick={() => void saveCourse()}>{courseDraft.id ? "Kursni saqlash" : "Kurs qo'shish"}</Button>
-                  <Button variant="outline" onClick={() => setCourseDraft(makeCourseDraft())}>Tozalash</Button>
-                </div>
-              </div>
+        <>
+          <AdminDetailHeader
+            title={selectedSchool.name}
+            description={selectedSchool.short_description ?? "School detail boshqaruvi: overview, kurslar, media, applications, leads va reviews bir joyda."}
+            onBack={() => setSelectedSchoolId(null)}
+            action={
+              <>
+                <Button variant="outline" onClick={() => openSchoolModal(selectedSchool)}>
+                  Tahrirlash
+                </Button>
+                <AdminActionMenu
+                  items={[
+                    {
+                      label: selectedSchool.is_active ? "Deactivate" : "Activate",
+                      disabled: busy === `school-status-${selectedSchool.id}`,
+                      onClick: () => void toggleSchoolStatus(selectedSchool),
+                    },
+                    {
+                      label: "Delete",
+                      tone: "danger",
+                      disabled: busy === selectedSchool.id,
+                      onClick: () => void removeSchool(selectedSchool),
+                    },
+                  ]}
+                />
+              </>
+            }
+            meta={
+              <>
+                <Badge variant={selectedSchool.is_active ? "success" : "muted"}>{selectedSchool.is_active ? "Active" : "Inactive"}</Badge>
+                <Badge variant="muted">{selectedSchool.city}</Badge>
+                <Badge variant="muted">{selectedSchool.referral_code}</Badge>
+                {selectedSchool.promo_code ? <Badge variant="warning">Promo: {selectedSchool.promo_code}</Badge> : null}
+              </>
+            }
+          />
 
-              <div className="space-y-3">
-                {selectedSchool.courses.map((course) => (
-                  <div key={course.id} className="rounded-2xl border border-[var(--border)] p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-medium">{course.category_code}</p>
-                        <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-                          {course.duration_weeks ?? "?"} hafta • {course.price_cents != null ? formatCurrency(course.price_cents, course.currency) : "Narx yo'q"}
-                        </p>
-                      </div>
-                      <Badge variant={course.is_active ? "success" : "outline"}>{course.is_active ? "Active" : "Inactive"}</Badge>
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => setCourseDraft(makeCourseDraft(course))}>Edit</Button>
-                      <Button size="sm" variant="ghost" onClick={() => void deleteAdminSchoolCourse(course.id).then(refresh)}>Delete</Button>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <AdminStatCard label="Kurslar" value={selectedSchoolCourses.length} caption="Faol va draft kurslar" icon={FileStack} tone="neutral" />
+            <AdminStatCard label="Media" value={selectedSchoolMediaItems.length} caption="Galereya elementlari" icon={ImageIcon} tone="neutral" />
+            <AdminStatCard label="Leadlar" value={selectedSchoolLeads.length} caption="Tanlangan school oqimi" icon={Phone} tone="warning" />
+            <AdminStatCard label="Reviewlar" value={selectedSchoolReviews.length} caption="Mijoz feedbacklari" icon={MessageSquare} tone="success" />
+          </div>
+
+          <Tabs value={detailTab} onValueChange={setDetailTab}>
+            <TabsList>
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="courses">Courses</TabsTrigger>
+              <TabsTrigger value="media">Media</TabsTrigger>
+              <TabsTrigger value="applications">Applications</TabsTrigger>
+              <TabsTrigger value="leads">Leads</TabsTrigger>
+              <TabsTrigger value="reviews">Reviews</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="overview" className="space-y-6">
+              <AdminSurface title="Overview" description="Asosiy kontaktlar, tavsif va keyingi actionlar shu yerda jamlandi.">
+                <div className="grid gap-4 p-5 lg:grid-cols-2">
+                  <div className="rounded-2xl border border-[var(--border)] p-4">
+                    <p className="text-sm font-medium text-[var(--muted-foreground)]">Asosiy ma&apos;lumotlar</p>
+                    <div className="mt-4 space-y-3 text-sm">
+                      <p><span className="font-medium">Telefon:</span> {selectedSchool.phone}</p>
+                      <p><span className="font-medium">Telegram:</span> {selectedSchool.telegram ?? "Kiritilmagan"}</p>
+                      <p><span className="font-medium">Website:</span> {selectedSchool.website ?? "Kiritilmagan"}</p>
+                      <p><span className="font-medium">Manzil:</span> {selectedSchool.address ?? "Kiritilmagan"}</p>
+                      <p><span className="font-medium">Ish vaqti:</span> {selectedSchool.work_hours ?? "Kiritilmagan"}</p>
+                      <p><span className="font-medium">Litsenziya:</span> {selectedSchool.license_info ?? "Kiritilmagan"}</p>
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
+                  <div className="rounded-2xl border border-[var(--border)] p-4">
+                    <p className="text-sm font-medium text-[var(--muted-foreground)]">Next action</p>
+                    <div className="mt-4 space-y-3 text-sm text-[var(--muted-foreground)]">
+                      <p>Kurs narxlarini tekshirib, media galereyani yangilang.</p>
+                      <p>Leadlar tabida yangi so&apos;rovlarni tezda statusga o&apos;tkazing.</p>
+                      <p>Reviews tabida ko&apos;rinishini tasdiqlab, reputatsiya oqimini tozalang.</p>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <Badge variant="muted">{selectedSchool.review_count} reviews</Badge>
+                      <Badge variant="muted">{selectedSchool.promo_redemption_count} redemptions</Badge>
+                    </div>
+                  </div>
+                </div>
+              </AdminSurface>
 
-            <div className="space-y-4">
-              <div className="rounded-2xl border border-[var(--border)] p-4">
-                <p className="font-medium">Media formasi</p>
-                <div className="mt-4 grid gap-3 md:grid-cols-2">
-                  <Select value={mediaDraft.media_type} onChange={(event) => setMediaDraft((draft) => ({ ...draft, media_type: event.target.value }))}>
-                    <option value="image">image</option>
-                    <option value="video">video</option>
-                  </Select>
-                  <Input placeholder="Sort order" value={mediaDraft.sort_order} onChange={(event) => setMediaDraft((draft) => ({ ...draft, sort_order: event.target.value }))} />
-                  <Input className="md:col-span-2" placeholder="Media URL" value={mediaDraft.url} onChange={(event) => setMediaDraft((draft) => ({ ...draft, url: event.target.value }))} />
-                  <Input className="md:col-span-2" placeholder="Caption" value={mediaDraft.caption} onChange={(event) => setMediaDraft((draft) => ({ ...draft, caption: event.target.value }))} />
-                  <Input className="md:col-span-2" type="file" onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (!file) return;
-                    void (async () => {
-                      setBusy("school-upload");
-                      try {
-                        const uploaded = await uploadAdminSchoolMedia(file);
-                        setMediaDraft((draft) => ({ ...draft, url: uploaded.url }));
-                      } finally {
-                        setBusy(null);
+              <AdminSurface title="Promo performance" description="Referral va promo ko'rsatkichlari school detail ichiga ko'chirildi.">
+                <div className="p-5">
+                  {selectedSchoolPromoStats ? (
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <div className="rounded-2xl border border-[var(--border)] p-4">
+                        <p className="text-sm text-[var(--muted-foreground)]">Referral code</p>
+                        <p className="mt-2 text-lg font-semibold">{selectedSchoolPromoStats.referral_code}</p>
+                      </div>
+                      <div className="rounded-2xl border border-[var(--border)] p-4">
+                        <p className="text-sm text-[var(--muted-foreground)]">Lead count</p>
+                        <p className="mt-2 text-lg font-semibold">{selectedSchoolPromoStats.lead_count}</p>
+                      </div>
+                      <div className="rounded-2xl border border-[var(--border)] p-4">
+                        <p className="text-sm text-[var(--muted-foreground)]">Promo redemptions</p>
+                        <p className="mt-2 text-lg font-semibold">{selectedSchoolPromoStats.promo_redemption_count}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <EmptyState title="Promo statistika topilmadi" description="Tanlangan school uchun promo metrikalar hali yo'q." />
+                  )}
+                </div>
+              </AdminSurface>
+            </TabsContent>
+
+            <TabsContent value="courses" className="space-y-6">
+              <AdminSurface title="Course management" description="Form va list alohida, ammo bir tab ichida qoladi.">
+                <div className="grid gap-6 p-5 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+                  <div className="rounded-2xl border border-[var(--border)] p-4">
+                    <p className="font-medium">Kurs formasi</p>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <Input placeholder="Category code" value={courseDraft.category_code} onChange={(event) => setCourseDraft((draft) => ({ ...draft, category_code: event.target.value }))} />
+                      <Input placeholder="Duration weeks" value={courseDraft.duration_weeks} onChange={(event) => setCourseDraft((draft) => ({ ...draft, duration_weeks: event.target.value }))} />
+                      <Input placeholder="Price cents" value={courseDraft.price_cents} onChange={(event) => setCourseDraft((draft) => ({ ...draft, price_cents: event.target.value }))} />
+                      <Input placeholder="Currency" value={courseDraft.currency} onChange={(event) => setCourseDraft((draft) => ({ ...draft, currency: event.target.value }))} />
+                      <Input placeholder="Sort order" value={courseDraft.sort_order} onChange={(event) => setCourseDraft((draft) => ({ ...draft, sort_order: event.target.value }))} />
+                      <label className="flex items-center gap-3 text-sm font-medium">
+                        <input type="checkbox" checked={courseDraft.installment_available} onChange={(event) => setCourseDraft((draft) => ({ ...draft, installment_available: event.target.checked }))} />
+                        Installment
+                      </label>
+                      <label className="flex items-center gap-3 text-sm font-medium">
+                        <input type="checkbox" checked={courseDraft.is_active} onChange={(event) => setCourseDraft((draft) => ({ ...draft, is_active: event.target.checked }))} />
+                        Active
+                      </label>
+                      <Textarea className="md:col-span-2" placeholder="Description" value={courseDraft.description} onChange={(event) => setCourseDraft((draft) => ({ ...draft, description: event.target.value }))} />
+                    </div>
+                    <div className="mt-4 flex gap-3">
+                      <Button disabled={busy === "course"} onClick={() => void saveCourse()}>{courseDraft.id ? "Kursni saqlash" : "Kurs qo'shish"}</Button>
+                      <Button variant="outline" onClick={() => setCourseDraft(makeCourseDraft())}>Tozalash</Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {selectedSchoolCourses.length === 0 ? (
+                      <EmptyState title="Kurs yo'q" description="Tanlangan school uchun hali kurs qo'shilmagan." />
+                    ) : (
+                      selectedSchoolCourses.map((course) => (
+                        <div key={course.id} className="rounded-2xl border border-[var(--border)] p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-medium">{course.category_code}</p>
+                              <p className="mt-1 text-sm text-[var(--muted-foreground)]">{course.duration_weeks ?? "?"} hafta / {course.price_cents != null ? formatCurrency(course.price_cents, course.currency) : "Narx yo'q"}</p>
+                            </div>
+                            <Badge variant={course.is_active ? "success" : "muted"}>{course.is_active ? "Active" : "Inactive"}</Badge>
+                          </div>
+                          <div className="mt-4 flex items-center justify-between gap-2">
+                            <Button size="sm" variant="outline" onClick={() => setCourseDraft(makeCourseDraft(course))}>Manage</Button>
+                            <AdminActionMenu items={[{ label: "Edit", onClick: () => setCourseDraft(makeCourseDraft(course)) }, { label: "Delete", tone: "danger", onClick: () => void deleteAdminSchoolCourse(course.id).then(refresh) }]} />
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </AdminSurface>
+            </TabsContent>
+
+            <TabsContent value="media" className="space-y-6">
+              <AdminSurface title="Media management" description="Upload va galereya boshqaruvi bitta tabga yig'ildi.">
+                <div className="grid gap-6 p-5 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+                  <div className="rounded-2xl border border-[var(--border)] p-4">
+                    <p className="font-medium">Media formasi</p>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <Select value={mediaDraft.media_type} onChange={(event) => setMediaDraft((draft) => ({ ...draft, media_type: event.target.value }))}>
+                        <option value="image">image</option>
+                        <option value="video">video</option>
+                      </Select>
+                      <Input placeholder="Sort order" value={mediaDraft.sort_order} onChange={(event) => setMediaDraft((draft) => ({ ...draft, sort_order: event.target.value }))} />
+                      <Input className="md:col-span-2" placeholder="Media URL" value={mediaDraft.url} onChange={(event) => setMediaDraft((draft) => ({ ...draft, url: event.target.value }))} />
+                      <Input className="md:col-span-2" placeholder="Caption" value={mediaDraft.caption} onChange={(event) => setMediaDraft((draft) => ({ ...draft, caption: event.target.value }))} />
+                      <Input className="md:col-span-2" type="file" onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (!file) return;
+                        void (async () => {
+                          setBusy("school-upload");
+                          try {
+                            const uploaded = await uploadAdminSchoolMedia(file);
+                            setMediaDraft((draft) => ({ ...draft, url: uploaded.url }));
+                          } finally {
+                            setBusy(null);
+                          }
+                        })();
+                      }} />
+                      <label className="flex items-center gap-3 text-sm font-medium md:col-span-2">
+                        <input type="checkbox" checked={mediaDraft.is_active} onChange={(event) => setMediaDraft((draft) => ({ ...draft, is_active: event.target.checked }))} />
+                        Active
+                      </label>
+                    </div>
+                    <div className="mt-4 flex gap-3">
+                      <Button disabled={busy === "media" || busy === "school-upload"} onClick={() => void saveMedia()}>
+                        <Upload className="h-4 w-4" />
+                        {mediaDraft.id ? "Mediani saqlash" : "Media qo'shish"}
+                      </Button>
+                      <Button variant="outline" onClick={() => setMediaDraft(makeMediaDraft())}>Tozalash</Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {selectedSchoolMediaItems.length === 0 ? (
+                      <EmptyState title="Media yo'q" description="Tanlangan school uchun hali media yuklanmagan." />
+                    ) : (
+                      selectedSchoolMediaItems.map((item) => (
+                        <div key={item.id} className="rounded-2xl border border-[var(--border)] p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="font-medium">{item.caption ?? item.media_type}</p>
+                              <p className="mt-1 line-clamp-1 text-xs text-[var(--muted-foreground)]">{item.url}</p>
+                            </div>
+                            <Badge variant={item.is_active ? "success" : "muted"}>{item.is_active ? "Active" : "Inactive"}</Badge>
+                          </div>
+                          <div className="mt-4 flex items-center justify-between gap-2">
+                            <Button size="sm" variant="outline" onClick={() => setMediaDraft(makeMediaDraft(item))}>Manage</Button>
+                            <AdminActionMenu items={[{ label: "Edit", onClick: () => setMediaDraft(makeMediaDraft(item)) }, { label: "Delete", tone: "danger", onClick: () => void deleteAdminSchoolMedia(item.id).then(refresh) }]} />
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </AdminSurface>
+            </TabsContent>
+
+            <TabsContent value="applications" className="space-y-6">
+              <AdminSurface
+                title="Partner applications"
+                description="Arizalar endi school nomi bilan emas, canonical linked_school_id orqali ko'rsatiladi."
+              >
+                <div className="space-y-3 p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--border)] p-4">
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="success">{selectedSchoolApplications.length} linked</Badge>
+                      <Badge variant="warning">{unlinkedSchoolApplications.length} unlinked</Badge>
+                    </div>
+                    <Select value={applicationFilter} onChange={(event) => setApplicationFilter(event.target.value)} className="min-w-52">
+                      <option value="linked">Linked to current school</option>
+                      <option value="unlinked">Only unlinked</option>
+                      <option value="all">Linked + unlinked</option>
+                    </Select>
+                  </div>
+                  {visibleSchoolApplications.length === 0 ? (
+                    <EmptyState
+                      title={applicationFilter === "unlinked" ? "Unlinked application yo'q" : "Ariza yo'q"}
+                      description={
+                        applicationFilter === "linked"
+                          ? "Tanlangan school bilan bog'langan application hali yo'q."
+                          : applicationFilter === "unlinked"
+                            ? "Qo'lda bog'lashni kutayotgan application topilmadi."
+                            : "Linked yoki unlinked application topilmadi."
                       }
-                    })();
-                  }} />
-                  <label className="flex items-center gap-3 text-sm font-medium md:col-span-2">
-                    <input type="checkbox" checked={mediaDraft.is_active} onChange={(event) => setMediaDraft((draft) => ({ ...draft, is_active: event.target.checked }))} />
-                    Active
-                  </label>
-                </div>
-                <div className="mt-4 flex gap-3">
-                  <Button disabled={busy === "media" || busy === "school-upload"} onClick={() => void saveMedia()}>
-                    <Upload className="h-4 w-4" />
-                    {mediaDraft.id ? "Mediani saqlash" : "Media qo'shish"}
-                  </Button>
-                  <Button variant="outline" onClick={() => setMediaDraft(makeMediaDraft())}>Tozalash</Button>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                {selectedSchool.media_items.map((item) => (
-                  <div key={item.id} className="rounded-2xl border border-[var(--border)] p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-medium">{item.caption ?? item.media_type}</p>
-                        <p className="mt-1 text-xs text-[var(--muted-foreground)]">{item.url}</p>
+                    />
+                  ) : (
+                    visibleSchoolApplications.map((item) => (
+                      <div key={item.id} className="rounded-2xl border border-[var(--border)] p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="font-medium">{item.school_name}</p>
+                            <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                              {item.responsible_person} / {item.city} / {item.email}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Badge variant={statusVariant(item.status)}>{formatAdminStatus(item.status)}</Badge>
+                            <Badge variant={item.linked_school_id ? "success" : "warning"}>
+                              {item.linked_school_id ? "Linked" : "Unlinked"}
+                            </Badge>
+                          </div>
+                        </div>
+                        <p className="mt-3 text-sm text-[var(--muted-foreground)]">
+                          {item.linked_school_id
+                            ? "Bu ariza tanlangan school bilan stable ID orqali bog'langan."
+                            : "Unlinked application. Kerak bo'lsa uni tanlangan school ga qo'lda ulang."}
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {!item.linked_school_id ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={busy === `school-application-link-${item.id}`}
+                              onClick={() => void linkSchoolApplication(item.id, item.status)}
+                            >
+                              Link to current school
+                            </Button>
+                          ) : null}
+                          {SCHOOL_PARTNER_APPLICATION_STATUSES.map((status) => (
+                            <Button
+                              key={status}
+                              size="sm"
+                              variant="outline"
+                              disabled={
+                                busy === `school-application-${item.id}-${status}` ||
+                                !canTransitionStatus(item.status, status, SCHOOL_PARTNER_APPLICATION_TRANSITIONS)
+                              }
+                              onClick={() => void updateSchoolApplicationStatus(item.id, status, item.linked_school_id)}
+                            >
+                              {formatAdminStatus(status)}
+                            </Button>
+                          ))}
+                        </div>
                       </div>
-                      <Badge variant={item.is_active ? "success" : "outline"}>{item.is_active ? "Active" : "Inactive"}</Badge>
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => setMediaDraft(makeMediaDraft(item))}>Edit</Button>
-                      <Button size="sm" variant="ghost" onClick={() => void deleteAdminSchoolMedia(item.id).then(refresh)}>Delete</Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
+                    ))
+                  )}
+                </div>
+              </AdminSurface>
+            </TabsContent>
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Partner applications</CardTitle>
-            <CardDescription>{resource.data.applications.length} ta ariza</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {resource.data.applications.length === 0 ? (
-              <EmptyState title="Ariza yo'q" description="Partner applications shu yerda ko'rinadi." />
-            ) : resource.data.applications.map((item) => (
-              <div key={item.id} className="rounded-2xl border border-[var(--border)] p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-medium">{item.school_name}</p>
-                    <p className="mt-1 text-sm text-[var(--muted-foreground)]">{item.responsible_person} • {item.city}</p>
-                  </div>
-                  <Badge variant={statusVariant(item.status)}>{formatAdminStatus(item.status)}</Badge>
+            <TabsContent value="leads" className="space-y-6">
+              <AdminSurface title="Leads" description={`${selectedSchoolLeads.length} ta lead tanlangan school bilan bog'langan.`}>
+                <div className="space-y-3 p-5">
+                  {selectedSchoolLeads.length === 0 ? (
+                    <EmptyState title="Lead topilmadi" description="Tanlangan school uchun leadlar hali yo'q." />
+                  ) : (
+                    selectedSchoolLeads.map((lead) => (
+                      <div key={lead.id} className="rounded-2xl border border-[var(--border)] p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="font-medium">{lead.full_name}</p>
+                            <p className="mt-1 text-sm text-[var(--muted-foreground)]">{lead.phone}</p>
+                          </div>
+                          <Badge variant={statusVariant(lead.status)}>{formatAdminStatus(lead.status)}</Badge>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {SCHOOL_LEAD_STATUSES.map((status: DrivingSchoolLeadStatus) => (
+                            <Button
+                              key={status}
+                              size="sm"
+                              variant="outline"
+                              disabled={!canTransitionStatus(lead.status, status, SCHOOL_LEAD_TRANSITIONS)}
+                              onClick={() => void updateAdminSchoolLead(lead.id, { status }).then(refresh)}
+                            >
+                              {formatAdminStatus(status)}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
-                <div className="mt-3 flex gap-2">
-                  {["pending", "approved", "rejected"].map((status) => (
-                    <Button key={status} size="sm" variant="outline" onClick={() => void updateAdminSchoolApplication(item.id, { status }).then(refresh)}>
-                      {status}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+              </AdminSurface>
+            </TabsContent>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Leadlar</CardTitle>
-            <CardDescription>{resource.data.leads.length} ta lead</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {resource.data.leads.length === 0 ? (
-              <EmptyState title="Leadlar yo'q" description="Katalogdan tushgan leadlar shu yerda." />
-            ) : resource.data.leads.map((lead) => (
-              <div key={lead.id} className="rounded-2xl border border-[var(--border)] p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-medium">{lead.full_name}</p>
-                    <p className="mt-1 text-sm text-[var(--muted-foreground)]">{lead.school_name ?? "Unknown school"} • {lead.phone}</p>
-                  </div>
-                  <Badge variant={statusVariant(lead.status)}>{formatAdminStatus(lead.status)}</Badge>
+            <TabsContent value="reviews" className="space-y-6">
+              <AdminSurface title="Reviews" description={`${selectedSchoolReviews.length} ta review tanlangan school detail ichida ko'rsatilmoqda.`}>
+                <div className="space-y-3 p-5">
+                  {selectedSchoolReviews.length === 0 ? (
+                    <EmptyState title="Review yo'q" description="School review moderatsiyasi shu yerda." />
+                  ) : (
+                    selectedSchoolReviews.map((review) => (
+                      <div key={review.id} className="rounded-2xl border border-[var(--border)] p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="font-medium">{review.rating}/5</p>
+                            <p className="mt-1 text-sm text-[var(--muted-foreground)]">{review.comment ?? "No comment"}</p>
+                            <p className="mt-1 text-xs text-[var(--muted-foreground)]">{formatDate(review.created_at)}</p>
+                          </div>
+                          <Badge variant={review.is_visible ? "success" : "muted"}>{review.is_visible ? "Visible" : "Hidden"}</Badge>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button size="sm" variant="outline" onClick={() => void updateAdminSchoolReview(review.id, { is_visible: !review.is_visible }).then(refresh)}>
+                            {review.is_visible ? "Hide" : "Show"}
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => void deleteAdminSchoolReview(review.id).then(refresh)}>
+                            Delete
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
-                <div className="mt-3 flex gap-2">
-                  {["new", "contacted", "enrolled", "rejected"].map((status) => (
-                    <Button key={status} size="sm" variant="outline" onClick={() => void updateAdminSchoolLead(lead.id, { status }).then(refresh)}>
-                      {status}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Reviewlar</CardTitle>
-            <CardDescription>{resource.data.reviews.length} ta review</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {resource.data.reviews.length === 0 ? (
-              <EmptyState title="Review yo'q" description="School review moderatsiyasi shu yerda." />
-            ) : resource.data.reviews.map((review) => (
-              <div key={review.id} className="rounded-2xl border border-[var(--border)] p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-medium">{review.rating}/5</p>
-                    <p className="mt-1 text-sm text-[var(--muted-foreground)]">{review.comment ?? "No comment"}</p>
-                    <p className="mt-1 text-xs text-[var(--muted-foreground)]">{formatDate(review.created_at)}</p>
-                  </div>
-                  <Badge variant={review.is_visible ? "success" : "outline"}>{review.is_visible ? "Visible" : "Hidden"}</Badge>
-                </div>
-                <div className="mt-3 flex gap-2">
-                  <Button size="sm" variant="outline" onClick={() => void updateAdminSchoolReview(review.id, { is_visible: !review.is_visible }).then(refresh)}>
-                    {review.is_visible ? "Hide" : "Show"}
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => void deleteAdminSchoolReview(review.id).then(refresh)}>Delete</Button>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Promo statistika</CardTitle>
-            <CardDescription>Referral va promo samaradorligi</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {resource.data.promoStats.length === 0 ? (
-              <EmptyState title="Promo statistika yo'q" description="Hozircha ma'lumot topilmadi." />
-            ) : resource.data.promoStats.map((item) => (
-              <div key={item.school_id} className="rounded-2xl border border-[var(--border)] p-4">
-                <p className="font-medium">{item.school_name}</p>
-                <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-                  {item.referral_code} • {item.promo_code ?? "No promo"}
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Badge variant="outline">{item.lead_count} leads</Badge>
-                  <Badge variant="outline">{item.promo_redemption_count} redemptions</Badge>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
-
+              </AdminSurface>
+            </TabsContent>
+          </Tabs>
+        </>
+      ) : (
+        <AdminSurface title="School detail" description="Ro'yxatdan biror school tanlang va boshqaruv tablarini oching.">
+          <div className="p-5">
+            <EmptyState title="Detail tanlanmagan" description="Katalogdan biror school uchun Manage tugmasini bosing." />
+          </div>
+        </AdminSurface>
+      )}
       <Modal open={schoolModalOpen} onClose={() => setSchoolModalOpen(false)} title={editingSchool ? "School tahrirlash" : "Yangi school"} className="max-w-5xl">
         <div className="grid gap-4 md:grid-cols-2">
           <Input placeholder="Owner user id" value={schoolDraft.owner_user_id} onChange={(event) => setSchoolDraft((draft) => ({ ...draft, owner_user_id: event.target.value }))} />
@@ -621,3 +986,5 @@ export function AdminDrivingSchoolsPage() {
     </div>
   );
 }
+
+

@@ -4,20 +4,20 @@ const steps = [
   {
     icon: BookOpen,
     number: "01",
-    title: "Mavzuni tanlang",
-    description: "Yo'l harakati qoidalari, belgilar yoki vaziyatlardan birini tanlang va mashqni boshlang.",
+    title: "Sizni tahlil qiladi",
+    description: "AI sizning bilim darajangizni aniqlaydi. Har bir javobingiz kuzatiladi. Qaysi mavzuda qiynalayotganingiz aniqlanadi.",
   },
   {
     icon: Brain,
     number: "02",
-    title: "Savollarni yeching",
-    description: "Real vaziyatlar asosidagi savollarni yeching. Xato qilsangiz, AI murabbiy darhol tushuntiradi.",
+    title: "Sizga mos mashq beradi",
+    description: "Har kimga individual savollar. Savollar darajasi sizga moslashadi. Keraksiz takrorlar bo'lmaydi.",
   },
   {
     icon: Trophy,
     number: "03",
-    title: "Natijani mustahkamlang",
-    description: "XP to'plang, darajangizni oshiring va imtihonga tayyor holatga keling.",
+    title: "Imtihonga tayyorlaydi",
+    description: "Aniq natijaga olib boradi. Qanchalik tayyor ekaningiz ko'rsatiladi. Faqat kerakli mavzular ustida ishlaysiz.",
   },
 ];
 
@@ -28,7 +28,7 @@ export function HowItWorksSection() {
         <div className="mb-20 text-center">
           <h2 className="mb-4 text-3xl font-bold text-foreground md:text-4xl">Qanday ishlaydi?</h2>
           <p className="mx-auto max-w-2xl text-lg text-muted-foreground">
-            3 oddiy qadamda haydovchilik testlariga tayyorlaning.
+            AI sizni o‘rganadi va imtihonga tayyorlaydi
           </p>
         </div>
 

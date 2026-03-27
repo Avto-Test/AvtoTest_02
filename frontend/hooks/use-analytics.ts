@@ -24,10 +24,10 @@ export function useAnalytics() {
   });
 
   const loading = progress
-    ? progress.dashboardLoading || historyResource.loading
+    ? progress.dashboardLoading || progress.summaryLoading || historyResource.loading
     : dashboardResource.loading || summaryResource.loading || historyResource.loading;
   const error = progress
-    ? progress.dashboardError ?? historyResource.error
+    ? progress.dashboardError ?? progress.summaryError ?? historyResource.error
     : dashboardResource.error ?? summaryResource.error ?? historyResource.error;
   const dashboard = progress ? progress.dashboard : dashboardResource.data;
   const summary = progress ? progress.summary : summaryResource.data;

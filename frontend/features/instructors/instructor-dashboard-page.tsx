@@ -5,6 +5,8 @@ import { ArrowRight, Car, Eye, MessageSquare, PhoneCall, Star, UserRound } from 
 
 import { getMyInstructorLeads, getMyInstructorReviews, getMyInstructorSummary } from "@/api/instructors";
 import { AppShell } from "@/components/app-shell";
+import { InstructorMediaManager } from "@/features/instructors/instructor-media-manager";
+import { InstructorProfileEditor } from "@/features/instructors/instructor-profile-editor";
 import { useAsyncResource } from "@/hooks/use-async-resource";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { buttonStyles } from "@/shared/ui/button";
@@ -13,8 +15,7 @@ import { EmptyState } from "@/shared/ui/empty-state";
 import { ErrorState } from "@/shared/ui/error-state";
 import { PageHeader } from "@/shared/ui/page-header";
 import { Skeleton } from "@/shared/ui/skeleton";
-import { InstructorMediaManager } from "@/features/instructors/instructor-media-manager";
-import { InstructorProfileEditor } from "@/features/instructors/instructor-profile-editor";
+import { formatStatusLabel } from "@/types/statuses";
 
 export function InstructorDashboardPage() {
   const resource = useAsyncResource(async () => {
@@ -70,7 +71,7 @@ export function InstructorDashboardPage() {
                   <UserRound className="h-7 w-7" />
                 </div>
                 <div className="space-y-2">
-                  <h2 className="text-2xl font-semibold">Instruktor profili hali yo'q</h2>
+                  <h2 className="text-2xl font-semibold">Instruktor profili hali yo&rsquo;q</h2>
                   <p className="text-sm text-[var(--muted-foreground)]">
                     Ariza yuboring yoki mavjud arizangiz holatini shu kabinetdan kuzating.
                   </p>
@@ -89,7 +90,7 @@ export function InstructorDashboardPage() {
                       </p>
                     </div>
                     <span className="rounded-full bg-[var(--muted)] px-3 py-1 text-sm font-medium">
-                      {application.status}
+                      {formatStatusLabel(application.status)}
                     </span>
                   </div>
                   {application.rejection_reason ? (
@@ -107,7 +108,7 @@ export function InstructorDashboardPage() {
               )}
 
               <Link href="/driving-instructors/apply" className={buttonStyles({ className: "w-full sm:w-auto" })}>
-                Instruktor arizasiga o'tish
+                Instruktor arizasiga o&rsquo;tish
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </CardContent>
@@ -117,7 +118,7 @@ export function InstructorDashboardPage() {
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <Card>
                 <CardContent className="p-6">
-                  <p className="text-sm text-[var(--muted-foreground)]">Ko'rishlar</p>
+                  <p className="text-sm text-[var(--muted-foreground)]">Ko&rsquo;rishlar</p>
                   <p className="mt-2 text-3xl font-bold">{instructor.view_count}</p>
                   <p className="mt-2 text-sm text-[var(--muted-foreground)]">Public profile view count</p>
                 </CardContent>
@@ -126,7 +127,7 @@ export function InstructorDashboardPage() {
                 <CardContent className="p-6">
                   <p className="text-sm text-[var(--muted-foreground)]">Leadlar</p>
                   <p className="mt-2 text-3xl font-bold">{instructor.lead_count}</p>
-                  <p className="mt-2 text-sm text-[var(--muted-foreground)]">Kelgan dars so'rovlari</p>
+                  <p className="mt-2 text-sm text-[var(--muted-foreground)]">Kelgan dars so&rsquo;rovlari</p>
                 </CardContent>
               </Card>
               <Card>
@@ -231,7 +232,7 @@ export function InstructorDashboardPage() {
                             </p>
                             <p className="mt-2 text-sm text-[var(--muted-foreground)]">{lead.comment ?? "Izoh qoldirilmagan."}</p>
                           </div>
-                          <span className="rounded-full bg-[var(--muted)] px-3 py-1 text-xs font-medium">{lead.status}</span>
+                          <span className="rounded-full bg-[var(--muted)] px-3 py-1 text-xs font-medium">{formatStatusLabel(lead.status)}</span>
                         </div>
                       </div>
                     ))
@@ -273,8 +274,8 @@ export function InstructorDashboardPage() {
                 </div>
                 <div className="rounded-2xl bg-[var(--muted)] p-4">
                   <Eye className="h-5 w-5 text-[var(--primary)]" />
-                  <p className="mt-4 font-semibold">Ko'rishlar</p>
-                  <p className="mt-2 text-sm text-[var(--muted-foreground)]">{summary.view_trend_7d.reduce((sum, point) => sum + point.views, 0)} ta oxirgi 7 kunlik ko'rish</p>
+                  <p className="mt-4 font-semibold">Ko&rsquo;rishlar</p>
+                  <p className="mt-2 text-sm text-[var(--muted-foreground)]">{summary.view_trend_7d.reduce((sum, point) => sum + point.views, 0)} ta oxirgi 7 kunlik ko&rsquo;rish</p>
                 </div>
                 <div className="rounded-2xl bg-[var(--muted)] p-4">
                   <MessageSquare className="h-5 w-5 text-[var(--primary)]" />

@@ -10,6 +10,14 @@ export interface LiveAnswerSubmission {
   is_correct: boolean;
   locked: boolean;
   already_answered: boolean;
+  mistake_count: number;
+  mistake_limit: number;
+  violation_count: number;
+  violation_limit: number;
+  attempt_finished: boolean;
+  passed?: boolean | null;
+  disqualified: boolean;
+  disqualification_reason?: string | null;
 }
 
 export interface LiveRewardResponse {

@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 
 import { useUser } from "@/hooks/use-user";
 import { usePersistentState } from "@/hooks/use-persistent-state";
+import { isSuperAdmin } from "@/lib/rbac";
 import { primaryNavigation, secondaryNavigation, utilityNavigation } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/shared/ui/button";
@@ -175,7 +176,7 @@ export function AppSidebar({ mobileOpen, onMobileClose }: AppSidebarProps) {
   const pathname = usePathname();
   const { user } = useUser();
   const [collapsed, setCollapsed] = usePersistentState("autotest.sidebar.collapsed", false);
-  const managementNavigation = user?.is_admin ? [{ href: "/admin", label: "Admin", icon: Shield }] : [];
+  const managementNavigation = isSuperAdmin(user) ? [{ href: "/admin", label: "Admin", icon: Shield }] : [];
   const ownerNavigation = [
     ...(user?.has_school_profile ? [{ href: "/school/dashboard", label: "School", icon: Building2 }] : []),
     ...(user?.has_instructor_profile ? [{ href: "/instructor/dashboard", label: "Instruktor", icon: UserRound }] : []),

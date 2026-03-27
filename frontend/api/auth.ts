@@ -16,10 +16,14 @@ type VerifyPayload = {
   code: string;
 };
 
+const AUTH_REQUEST_TIMEOUT_MS = 10000;
+const AUTH_PROFILE_TIMEOUT_MS = 8000;
+
 export async function getCurrentUser() {
   const user = await apiRequest<Omit<User, "plan"> & { is_premium?: boolean }>("/api/auth/me", {
     method: "GET",
     baseUrl: "/",
+    timeoutMs: AUTH_PROFILE_TIMEOUT_MS,
   });
 
   return {
@@ -34,6 +38,7 @@ export function login(payload: { email: string; password: string }) {
     body: payload,
     baseUrl: "/",
     retryOnAuth: false,
+    timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
   });
 }
 
@@ -69,5 +74,6 @@ export function logout() {
     method: "POST",
     baseUrl: "/",
     retryOnAuth: false,
+    timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
   });
 }

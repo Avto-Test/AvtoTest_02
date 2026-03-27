@@ -90,22 +90,39 @@ function LearningPathPageContent() {
 
   const roadmap = useMemo(() => {
     if (!progress.dashboard) return [];
-    return buildLearningPathTopicProgress(progress.dashboard).map((topic) => {
-      const masteryMeta = masteryStateMeta(topic.state);
-      const recommended = matchesAliases(progress.dashboard?.recommendation.topic, topic.aliases);
-      const lessonMatch = progress.dashboard?.lesson_recommendations.find((lesson) =>
-        matchesAliases(lesson.topic ?? lesson.section, topic.aliases),
-      );
+    return buildLearningPathTopicProgress(progress.dashboard)
+      .map((topic) => {
+        const masteryMeta = masteryStateMeta(topic.state);
+        const recommended = matchesAliases(progress.dashboard?.recommendation.topic, topic.aliases);
+        const lessonMatch = progress.dashboard?.lesson_recommendations.find((lesson) =>
+          matchesAliases(lesson.topic ?? lesson.section, topic.aliases),
+        );
 
-      return {
-        ...topic,
-        masteryMeta,
-        lessonHref: `/lessons?topic=${encodeURIComponent(lessonMatch?.topic ?? topic.topic)}`,
-        practiceHref: `/practice?topic=${encodeURIComponent(topic.topic)}`,
-        recommended,
-        highlighted: topic.state === "weak",
-      };
-    });
+        return {
+          ...topic,
+          masteryMeta,
+          lessonHref: `/lessons?topic=${encodeURIComponent(lessonMatch?.topic ?? topic.topic)}`,
+          practiceHref: `/practice?topic=${encodeURIComponent(topic.topic)}`,
+          recommended,
+          highlighted: topic.state === "weak",
+          fullyCompleted: topic.score >= 100,
+        };
+      })
+      .sort((left, right) => {
+        if (left.fullyCompleted !== right.fullyCompleted) {
+          return left.fullyCompleted ? 1 : -1;
+        }
+        if (left.score !== right.score) {
+          return right.score - left.score;
+        }
+        if (left.mastery !== right.mastery) {
+          return right.mastery - left.mastery;
+        }
+        if (left.accuracy !== right.accuracy) {
+          return right.accuracy - left.accuracy;
+        }
+        return left.topic.localeCompare(right.topic, "uz");
+      });
   }, [progress.dashboard]);
 
   if (progress.dashboardLoading) {
@@ -283,7 +300,7 @@ function LearningPathPageContent() {
                   </div>
                 </div>
 
-                <div className="mt-5 flex flex-wrap gap-3">
+                <div className="mt-5 flex flex-wrap items-center gap-3">
                   <Link href={item.lessonHref} className={buttonStyles({ variant: "outline", className: "rounded-xl" })}>
                     <BookOpen className="h-4 w-4" />
                     Darsni ko&apos;rish
@@ -291,6 +308,12 @@ function LearningPathPageContent() {
                   <Link href={item.practiceHref} className={buttonStyles({ className: "rounded-xl" })}>
                     Mashq qilish
                   </Link>
+                  {item.fullyCompleted ? (
+                    <div className="ml-auto inline-flex items-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-600 dark:text-emerald-300">
+                      <CheckCircle2 className="h-4 w-4" />
+                      Tasdiqlandi
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>

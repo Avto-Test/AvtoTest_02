@@ -5,6 +5,7 @@ export interface User {
   email: string;
   full_name?: string | null;
   is_admin: boolean;
+  roles: string[];
   is_verified: boolean;
   is_active: boolean;
   is_premium: boolean;

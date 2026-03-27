@@ -1,6 +1,6 @@
 "use client";
 
-import { CreditCard, Gift, Plus, Trash2 } from "lucide-react";
+import { CreditCard, Gift, Plus, RefreshCcw } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import {
@@ -12,22 +12,28 @@ import {
   updateAdminPlan,
   updateAdminPromo,
 } from "@/api/admin";
-import type { AdminPromoCode, AdminPromoCodePayload, AdminSubscriptionPlan, AdminSubscriptionPlanPayload } from "@/types/admin";
+import { AdminActionMenu, AdminStatCard, AdminSurface, AdminTableShell, AdminToolbar } from "@/features/admin/admin-ui";
+import { toIsoOrNull, toNullableString, toRequiredNumber } from "@/features/admin/utils";
 import { useAsyncResource } from "@/hooks/use-async-resource";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { Modal } from "@/shared/ui/modal";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { ErrorState } from "@/shared/ui/error-state";
 import { Input } from "@/shared/ui/input";
+import { Modal } from "@/shared/ui/modal";
 import { PageHeader } from "@/shared/ui/page-header";
 import { Select } from "@/shared/ui/select";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { Table, TableCell, TableHead, TableRow } from "@/shared/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { Textarea } from "@/shared/ui/textarea";
-import { toIsoOrNull, toNullableString, toRequiredNumber } from "@/features/admin/utils";
+import type {
+  AdminPromoCode,
+  AdminPromoCodePayload,
+  AdminSubscriptionPlan,
+  AdminSubscriptionPlanPayload,
+} from "@/types/admin";
 
 type PlanDraft = {
   code: string;
@@ -91,16 +97,22 @@ function LoadingState() {
   return (
     <div className="space-y-6">
       <Skeleton className="h-24 rounded-[1.75rem] bg-[var(--muted)]" />
-      <div className="grid gap-6 xl:grid-cols-2">
-        <Skeleton className="h-[32rem] rounded-[1.75rem] bg-[var(--muted)]" />
-        <Skeleton className="h-[32rem] rounded-[1.75rem] bg-[var(--muted)]" />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Skeleton className="h-28 rounded-[1.75rem] bg-[var(--muted)]" />
+        <Skeleton className="h-28 rounded-[1.75rem] bg-[var(--muted)]" />
+        <Skeleton className="h-28 rounded-[1.75rem] bg-[var(--muted)]" />
+        <Skeleton className="h-28 rounded-[1.75rem] bg-[var(--muted)]" />
       </div>
+      <Skeleton className="h-[32rem] rounded-[1.75rem] bg-[var(--muted)]" />
     </div>
   );
 }
 
 export function AdminBillingPage() {
   const resource = useAsyncResource(getAdminBillingData, [], true);
+  const [tab, setTab] = useState("plans");
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [planModalOpen, setPlanModalOpen] = useState(false);
   const [promoModalOpen, setPromoModalOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<AdminSubscriptionPlan | null>(null);
@@ -114,6 +126,52 @@ export function AdminBillingPage() {
     () => (resource.data?.plans ?? []).map((plan) => ({ id: plan.id, label: `${plan.name} (${plan.code})` })),
     [resource.data?.plans],
   );
+
+  const filteredPlans = useMemo(() => {
+    const plans = resource.data?.plans ?? [];
+    const normalized = query.trim().toLowerCase();
+
+    return plans.filter((plan) => {
+      const matchesQuery =
+        !normalized ||
+        plan.name.toLowerCase().includes(normalized) ||
+        plan.code.toLowerCase().includes(normalized);
+      const matchesStatus =
+        statusFilter === "all" ||
+        (statusFilter === "active" && plan.is_active) ||
+        (statusFilter === "inactive" && !plan.is_active);
+      return matchesQuery && matchesStatus;
+    });
+  }, [query, resource.data?.plans, statusFilter]);
+
+  const filteredPromos = useMemo(() => {
+    const promos = resource.data?.promos ?? [];
+    const normalized = query.trim().toLowerCase();
+
+    return promos.filter((promo) => {
+      const matchesQuery =
+        !normalized ||
+        promo.code.toLowerCase().includes(normalized) ||
+        (promo.name ?? "").toLowerCase().includes(normalized);
+      const matchesStatus =
+        statusFilter === "all" ||
+        (statusFilter === "active" && promo.is_active) ||
+        (statusFilter === "inactive" && !promo.is_active);
+      return matchesQuery && matchesStatus;
+    });
+  }, [query, resource.data?.promos, statusFilter]);
+
+  const summary = useMemo(() => {
+    const plans = resource.data?.plans ?? [];
+    const promos = resource.data?.promos ?? [];
+    return {
+      totalPlans: plans.length,
+      activePlans: plans.filter((plan) => plan.is_active).length,
+      totalPromos: promos.length,
+      activePromos: promos.filter((promo) => promo.is_active).length,
+      redemptions: promos.reduce((total, promo) => total + promo.redeemed_count, 0),
+    };
+  }, [resource.data?.plans, resource.data?.promos]);
 
   const openPlanModal = (plan?: AdminSubscriptionPlan) => {
     setEditingPlan(plan ?? null);
@@ -223,6 +281,32 @@ export function AdminBillingPage() {
     }
   };
 
+  const togglePlan = async (plan: AdminSubscriptionPlan) => {
+    setBusy(plan.id);
+    setNotice(null);
+    try {
+      await updateAdminPlan(plan.id, { is_active: !plan.is_active });
+      await runRefresh();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Plan holati yangilanmadi.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const togglePromo = async (promo: AdminPromoCode) => {
+    setBusy(promo.id);
+    setNotice(null);
+    try {
+      await updateAdminPromo(promo.id, { is_active: !promo.is_active });
+      await runRefresh();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Promo holati yangilanmadi.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   if (resource.loading) {
     return <LoadingState />;
   }
@@ -242,150 +326,199 @@ export function AdminBillingPage() {
     <div className="space-y-6">
       <PageHeader
         title="Tariflar va promo"
-        description="Tariflar va promokodlarni bir joydan boshqaring."
+        description="Plan va promokodlarni alohida tizim sifatida boshqaring, lekin bitta SaaS billing oqimida."
         action={
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={() => openPlanModal()}>
-              <Plus className="h-4 w-4" />
-              Yangi plan
+          <Button onClick={() => openPlanModal()}>
+            <Plus className="h-4 w-4" />
+            Yangi plan
+          </Button>
+        }
+      />
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <AdminStatCard label="Planlar" value={summary.totalPlans} caption={`${summary.activePlans} ta faol tarif`} icon={CreditCard} />
+        <AdminStatCard label="Promo kodlar" value={summary.totalPromos} caption={`${summary.activePromos} ta faol promo`} icon={Gift} tone="warning" />
+        <AdminStatCard label="Redeem qilingan" value={summary.redemptions} caption="Promo ishlatilishlar yig'indisi" icon={RefreshCcw} tone="neutral" />
+        <AdminStatCard label="Faol billing obyektlari" value={summary.activePlans + summary.activePromos} caption="Plan va promo birgalikdagi faol obyektlar" icon={Plus} tone="success" />
+      </div>
+
+      <AdminToolbar
+        search={
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={tab === "plans" ? "Plan nomi yoki kodi bo'yicha qidiring" : "Promo kodi yoki nomi bo'yicha qidiring"}
+          />
+        }
+        filters={
+          <Select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="min-w-40">
+            <option value="all">Barcha holatlar</option>
+            <option value="active">Faol</option>
+            <option value="inactive">Nofaol</option>
+          </Select>
+        }
+        actions={
+          <>
+            <Button variant="outline" onClick={() => void runRefresh()}>
+              <RefreshCcw className="h-4 w-4" />
+              Yangilash
             </Button>
             <Button variant="outline" onClick={() => openPromoModal()}>
               <Gift className="h-4 w-4" />
               Yangi promo
             </Button>
-          </div>
+          </>
         }
       />
 
       {notice ? (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <div className="rounded-2xl border border-[var(--accent-yellow-strong)] bg-[var(--accent-yellow-soft)] px-4 py-3 text-sm text-[var(--accent-yellow)]">
           {notice}
         </div>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <Card className="min-w-0">
-          <CardHeader>
-            <CardTitle>Subscription planlar</CardTitle>
-            <CardDescription>{resource.data.plans.length} ta active/inactive tarif</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {resource.data.plans.length === 0 ? (
-              <EmptyState title="Planlar yo'q" description="Yangi plan qo'shish uchun yuqoridagi tugmadan foydalaning." />
-            ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <thead>
-                    <tr>
-                      <TableHead>Kod</TableHead>
-                      <TableHead>Narx</TableHead>
-                      <TableHead>Muddat</TableHead>
-                      <TableHead>Holat</TableHead>
-                      <TableHead>Amallar</TableHead>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {resource.data.plans.map((plan) => (
-                      <TableRow key={plan.id}>
-                        <TableCell>
-                          <div>
-                            <p className="font-medium">{plan.name}</p>
-                            <p className="text-xs text-[var(--muted-foreground)]">{plan.code}</p>
-                          </div>
-                        </TableCell>
-                        <TableCell>{formatCurrency(plan.price_cents, plan.currency)}</TableCell>
-                        <TableCell>{plan.duration_days} kun</TableCell>
-                        <TableCell>
-                          <Badge variant={plan.is_active ? "success" : "outline"}>
-                            {plan.is_active ? "Active" : "Inactive"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-2">
-                            <Button size="sm" variant="outline" onClick={() => openPlanModal(plan)}>
-                              Tahrirlash
-                            </Button>
-                            <Button size="sm" variant="ghost" disabled={busy === plan.id} onClick={() => void removePlan(plan.id)}>
-                              <Trash2 className="h-4 w-4" />
-                              O'chirish
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </tbody>
-                </Table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="plans">Plans</TabsTrigger>
+          <TabsTrigger value="promos">Promo codes</TabsTrigger>
+        </TabsList>
 
-        <Card className="min-w-0">
-          <CardHeader>
-            <CardTitle>Promo kodlar</CardTitle>
-            <CardDescription>{resource.data.promos.length} ta promo mavjud</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {resource.data.promos.length === 0 ? (
-              <EmptyState title="Promo yo'q" description="Yangi promo yaratish uchun yuqoridagi tugmadan foydalaning." />
-            ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <thead>
-                    <tr>
-                      <TableHead>Kod</TableHead>
-                      <TableHead>Chegirma</TableHead>
-                      <TableHead>Qo'llanish</TableHead>
-                      <TableHead>Holat</TableHead>
-                      <TableHead>Amallar</TableHead>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {resource.data.promos.map((promo) => (
-                      <TableRow key={promo.id}>
-                        <TableCell>
-                          <div>
-                            <p className="font-medium">{promo.code}</p>
-                            <p className="text-xs text-[var(--muted-foreground)]">{promo.name ?? "No name"}</p>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {promo.discount_value}
-                          {promo.discount_type === "percent" ? "%" : ` ${promo.school_id ? "school-linked" : promo.discount_type}`}
-                        </TableCell>
-                        <TableCell>
-                          <div className="space-y-1">
-                            <p>{promo.current_uses}/{promo.max_uses ?? promo.max_redemptions ?? "∞"}</p>
-                            <p className="text-xs text-[var(--muted-foreground)]">
-                              {promo.expires_at ? `Expire: ${formatDate(promo.expires_at)}` : "Cheklanmagan"}
-                            </p>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={promo.is_active ? "success" : "outline"}>
-                            {promo.is_active ? "Active" : "Inactive"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-2">
-                            <Button size="sm" variant="outline" onClick={() => openPromoModal(promo)}>
-                              Tahrirlash
-                            </Button>
-                            <Button size="sm" variant="ghost" disabled={busy === promo.id} onClick={() => void removePromo(promo.id)}>
-                              <Trash2 className="h-4 w-4" />
-                              O'chirish
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </tbody>
-                </Table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+        <TabsContent value="plans">
+          <AdminSurface
+            title="Subscription planlar"
+            description="Narx, muddat va status bo'yicha toza billing jadvali. To'liq sozlamalar `Manage` modalida qoladi."
+          >
+            <div className="p-5">
+              {filteredPlans.length === 0 ? (
+                <EmptyState title="Plan topilmadi" description="Qidiruv yoki filtr bo'yicha mos plan yo'q." />
+              ) : (
+                <AdminTableShell>
+                  <Table>
+                    <thead className="bg-[var(--muted)]/35">
+                      <tr>
+                        <TableHead>Plan</TableHead>
+                        <TableHead>Narx</TableHead>
+                        <TableHead>Muddat</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Yangilangan</TableHead>
+                        <TableHead className="text-right">Amallar</TableHead>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredPlans.map((plan) => (
+                        <TableRow key={plan.id}>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium">{plan.name}</p>
+                              <p className="text-xs text-[var(--muted-foreground)]">{plan.code}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell>{formatCurrency(plan.price_cents, plan.currency)}</TableCell>
+                          <TableCell>{plan.duration_days} kun</TableCell>
+                          <TableCell>
+                            <Badge variant={plan.is_active ? "success" : "muted"}>
+                              {plan.is_active ? "Active" : "Inactive"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-[var(--muted-foreground)]">{formatDate(plan.updated_at)}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center justify-end gap-2">
+                              <Button size="sm" variant="outline" onClick={() => openPlanModal(plan)}>
+                                Manage
+                              </Button>
+                              <AdminActionMenu
+                                items={[
+                                  { label: plan.is_active ? "Deactivate" : "Activate", disabled: busy === plan.id, onClick: () => void togglePlan(plan) },
+                                  { label: "Edit", disabled: busy === plan.id, onClick: () => openPlanModal(plan) },
+                                  { label: "Delete", tone: "danger", disabled: busy === plan.id, onClick: () => void removePlan(plan.id) },
+                                ]}
+                              />
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </tbody>
+                  </Table>
+                </AdminTableShell>
+              )}
+            </div>
+          </AdminSurface>
+        </TabsContent>
+
+        <TabsContent value="promos">
+          <AdminSurface
+            title="Promo kodlar"
+            description="Usage, chegirma turi va amal qilish muddati aniq ko'rinadigan promo jadvali."
+          >
+            <div className="p-5">
+              {filteredPromos.length === 0 ? (
+                <EmptyState title="Promo topilmadi" description="Qidiruv yoki filtr bo'yicha mos promo yo'q." />
+              ) : (
+                <AdminTableShell>
+                  <Table>
+                    <thead className="bg-[var(--muted)]/35">
+                      <tr>
+                        <TableHead>Kod</TableHead>
+                        <TableHead>Chegirma</TableHead>
+                        <TableHead>Qo&apos;llanish</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Amal qiladi</TableHead>
+                        <TableHead className="text-right">Amallar</TableHead>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredPromos.map((promo) => (
+                        <TableRow key={promo.id}>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium">{promo.code}</p>
+                              <p className="text-xs text-[var(--muted-foreground)]">{promo.name ?? "Nom berilmagan"}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {promo.discount_value}
+                            {promo.discount_type === "percent" ? "%" : ` ${promo.discount_type}`}
+                          </TableCell>
+                          <TableCell>
+                            <div className="space-y-1">
+                              <p>
+                                {promo.current_uses}/{promo.max_uses ?? promo.max_redemptions ?? "cheksiz"}
+                              </p>
+                              <p className="text-xs text-[var(--muted-foreground)]">{promo.redeemed_count} marta redeem qilingan</p>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={promo.is_active ? "success" : "muted"}>
+                              {promo.is_active ? "Active" : "Inactive"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-[var(--muted-foreground)]">
+                            {promo.expires_at ? formatDate(promo.expires_at) : "Cheklanmagan"}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center justify-end gap-2">
+                              <Button size="sm" variant="outline" onClick={() => openPromoModal(promo)}>
+                                Manage
+                              </Button>
+                              <AdminActionMenu
+                                items={[
+                                  { label: promo.is_active ? "Deactivate" : "Activate", disabled: busy === promo.id, onClick: () => void togglePromo(promo) },
+                                  { label: "Edit", disabled: busy === promo.id, onClick: () => openPromoModal(promo) },
+                                  { label: "Delete", tone: "danger", disabled: busy === promo.id, onClick: () => void removePromo(promo.id) },
+                                ]}
+                              />
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </tbody>
+                  </Table>
+                </AdminTableShell>
+              )}
+            </div>
+          </AdminSurface>
+        </TabsContent>
+      </Tabs>
 
       <Modal open={planModalOpen} onClose={() => setPlanModalOpen(false)} title={editingPlan ? "Plan tahrirlash" : "Yangi plan"}>
         <div className="grid gap-4 md:grid-cols-2">

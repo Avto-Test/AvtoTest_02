@@ -8,22 +8,24 @@ import type {
 import { apiRequest } from "@/api/client";
 
 export function getDashboardAnalytics() {
-  return apiRequest<DashboardAnalytics>("/analytics/me/dashboard", { method: "GET" });
+  return apiRequest<DashboardAnalytics>("/analytics/me/dashboard", { method: "GET", baseUrl: "/api" });
 }
 
 export function getAnalyticsSummary() {
-  return apiRequest<AnalyticsSummary>("/analytics/me/summary", { method: "GET" });
+  return apiRequest<AnalyticsSummary>("/analytics/me/summary", { method: "GET", baseUrl: "/api" });
 }
 
 export function getReviewQueue() {
   return apiRequest<ReviewQueueResponse>("/analytics/me/review-queue", {
     method: "GET",
+    baseUrl: "/api",
   });
 }
 
 export function getIntelligenceHistory() {
   return apiRequest<IntelligenceHistoryEntry[]>("/analytics/me/intelligence-history", {
     method: "GET",
+    baseUrl: "/api",
   });
 }
 

@@ -6,6 +6,7 @@ export interface PublicAnswerOption {
 export interface PublicQuestion {
   id: string;
   text: string;
+  difficulty_percent?: number | null;
   image_url?: string | null;
   video_url?: string | null;
   media_type?: string | null;
@@ -47,6 +48,8 @@ export interface TestSession {
 
 export interface LearningSession {
   session_id: string;
+  question_count: number;
+  duration_minutes: number;
   questions: PublicQuestion[];
 }
 
@@ -93,6 +96,11 @@ export interface AttemptResult {
   avg_response_time?: number | null;
   cognitive_profile?: string | null;
   pressure_mode?: boolean;
+  mistake_limit?: number | null;
+  violation_count?: number | null;
+  violation_limit?: number | null;
+  disqualified?: boolean;
+  disqualification_reason?: string | null;
   reward_summary?: AttemptRewardSummary | null;
 }
 

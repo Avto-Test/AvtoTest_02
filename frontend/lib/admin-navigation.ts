@@ -2,6 +2,7 @@ import {
   BarChart3,
   BookCopy,
   Building2,
+  ClipboardList,
   CreditCard,
   GraduationCap,
   LayoutDashboard,
@@ -71,6 +72,12 @@ export const adminNavigation: AdminNavigationSection[] = [
   {
     title: "Marketplace",
     items: [
+      {
+        href: "/admin/marketplace",
+        label: "Ko'rib chiqish markazi",
+        description: "Arizalar, leadlar va marketplace oqimlari uchun tezkor hub",
+        icon: ClipboardList,
+      },
       {
         href: "/admin/driving-schools",
         label: "Avtomaktablar",

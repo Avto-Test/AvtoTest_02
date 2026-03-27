@@ -14,20 +14,100 @@ import type {
   SchoolPartnerApplication,
   SchoolReview,
 } from "@/types/school";
+import type {
+  DrivingInstructorApplicationStatus,
+  DrivingInstructorComplaintStatus,
+  DrivingInstructorLeadStatus,
+  DrivingSchoolLeadStatus,
+  DrivingSchoolPartnerApplicationStatus,
+} from "@/types/statuses";
 
 export interface AdminAnalyticsSummary {
   total_users: number;
+  active_users: number;
   premium_users: number;
-  free_users: number;
-  total_tests: number;
-  total_attempts: number;
+  total_questions: number;
+  total_applications: number;
+  pending_applications: number;
+  new_leads: number;
+  average_accuracy?: number | null;
+  category_performance?: AdminAnalyticsCategoryPerformance[] | null;
+  accuracy_trend?: AdminMetricTrendSnapshot | null;
+  active_users_trend?: AdminMetricTrendSnapshot | null;
+  applications_trend?: AdminMetricTrendSnapshot | null;
 }
 
-export interface AdminTopTestAnalytics {
-  test_id: string;
-  title: string;
-  attempts_count: number;
-  average_score: number;
+export interface AdminPaymentSummary {
+  total_revenue_cents: number;
+  total_payments: number;
+  successful_payments: number;
+  failed_payments: number;
+  pending_payments: number;
+  conversion_rate: number;
+  currency: string;
+}
+
+export type AdminFinanceRange = "all" | "7d" | "30d";
+
+export interface AdminAnalyticsCategoryPerformance {
+  category?: string | null;
+  topic?: string | null;
+  accuracy?: number | null;
+  question_count?: number | null;
+  total_questions?: number | null;
+  attempts?: number | null;
+  attempts_count?: number | null;
+}
+
+export interface AdminMetricTrendSnapshot {
+  current: number;
+  previous: number;
+  sample_size_current?: number | null;
+  sample_size_previous?: number | null;
+}
+
+export interface AdminGrowthConversionRates {
+  activation_rate: number;
+  engagement_rate: number;
+  payment_rate: number;
+}
+
+export interface AdminGrowthDropOffs {
+  registration_to_activity: number;
+  activity_to_engagement: number;
+  engagement_to_premium_click: number;
+  engagement_to_payment: number;
+}
+
+export interface AdminGrowthSummary {
+  registered_users: number;
+  active_users: number;
+  engaged_users: number;
+  premium_clicks: number;
+  successful_payments: number;
+  conversion_rates: AdminGrowthConversionRates;
+  drop_offs: AdminGrowthDropOffs;
+}
+
+export type AdminGrowthRange = "all" | "7d" | "30d";
+
+export interface AdminExperimentVariantSummary {
+  assigned_users: number;
+  clicks: number;
+  payments: number;
+  conversion_rate: number;
+}
+
+export interface AdminExperimentSummary {
+  experiment: string;
+  winner?: "A" | "B" | null;
+  confidence_level: string;
+  recommendation: string;
+  days_running: number;
+  minimum_duration_met: boolean;
+  minimum_sample_met: boolean;
+  variant_A: AdminExperimentVariantSummary;
+  variant_B: AdminExperimentVariantSummary;
 }
 
 export interface AdminUserListItem {
@@ -112,6 +192,14 @@ export interface AdminQuestionPayload {
   category_id?: string | null;
   difficulty: string;
   difficulty_percent: number;
+}
+
+export interface AdminPaginatedQuestions {
+  items: AdminQuestionListItem[];
+  total: number;
+  offset: number;
+  limit: number;
+  has_more: boolean;
 }
 
 export interface AdminTestDetail extends AdminTestListItem {
@@ -244,6 +332,30 @@ export interface AdminViolationLog {
   test_title?: string | null;
 }
 
+export interface AdminSimulationExamSettings {
+  id: number;
+  question_count: number;
+  duration_minutes: number;
+  mistake_limit: number;
+  violation_limit: number;
+  cooldown_days: number;
+  fast_unlock_price: number;
+  intro_video_url?: string | null;
+  updated_by_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminSimulationExamSettingsPayload {
+  question_count?: number;
+  duration_minutes?: number;
+  mistake_limit?: number;
+  violation_limit?: number;
+  cooldown_days?: number;
+  fast_unlock_price?: number;
+  intro_video_url?: string | null;
+}
+
 export interface AdminDrivingSchoolPayload {
   owner_user_id?: string | null;
   slug?: string | null;
@@ -287,11 +399,12 @@ export interface AdminDrivingSchoolMediaPayload {
 }
 
 export interface AdminDrivingSchoolLeadPayload {
-  status: string;
+  status: DrivingSchoolLeadStatus;
 }
 
 export interface AdminDrivingSchoolPartnerApplicationPayload {
-  status: string;
+  status: DrivingSchoolPartnerApplicationStatus;
+  linked_school_id?: string | null;
 }
 
 export interface AdminDrivingSchoolReviewPayload {
@@ -349,12 +462,13 @@ export interface AdminDrivingInstructorMediaPayload {
 }
 
 export interface AdminDrivingInstructorApplicationPayload {
-  status: string;
+  status: DrivingInstructorApplicationStatus;
   rejection_reason?: string | null;
+  linked_instructor_id?: string | null;
 }
 
 export interface AdminDrivingInstructorLeadPayload {
-  status: string;
+  status: DrivingInstructorLeadStatus;
 }
 
 export interface AdminDrivingInstructorReviewPayload {
@@ -364,7 +478,7 @@ export interface AdminDrivingInstructorReviewPayload {
 }
 
 export interface AdminDrivingInstructorComplaintPayload {
-  status: string;
+  status: DrivingInstructorComplaintStatus;
 }
 
 export interface AdminDrivingInstructorRegistrationSettingsPayload {
@@ -392,15 +506,8 @@ export interface AdminDrivingInstructorPromoStatsItem {
 
 export interface AdminDashboardData {
   analytics: AdminAnalyticsSummary | null;
-  users: AdminUserListItem[];
-  tests: AdminTestListItem[];
-  questions: AdminQuestionListItem[];
-  schools: SchoolAdminProfile[];
-  instructors: InstructorAdminProfile[];
-  schoolApplications: SchoolPartnerApplication[];
-  instructorApplications: InstructorApplication[];
-  schoolLeads: SchoolLead[];
-  instructorLeads: InstructorLead[];
+  growthSummary: AdminGrowthSummary | null;
+  paymentSummary: AdminPaymentSummary | null;
   unavailableSections: string[];
 }
 
@@ -408,7 +515,9 @@ export interface AdminContentData {
   tests: AdminTestListItem[];
   lessons: AdminLesson[];
   questions: AdminQuestionListItem[];
+  questionTotal: number;
   categories: AdminQuestionCategory[];
+  simulationExamSettings: AdminSimulationExamSettings;
 }
 
 export interface AdminBillingData {
@@ -437,7 +546,7 @@ export interface AdminDrivingInstructorsData {
     phone?: string | null;
     reason: string;
     comment?: string | null;
-    status: string;
+    status: DrivingInstructorComplaintStatus;
     created_at: string;
     updated_at: string;
     instructor_name?: string | null;

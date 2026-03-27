@@ -20,11 +20,66 @@ export class ApiError extends Error {
   }
 }
 
+function extractPayloadMessage(payload: unknown, status: number): string {
+  if (typeof payload === "string") {
+    return sanitizeErrorMessage(payload, status);
+  }
+
+  if (payload && typeof payload === "object") {
+    if ("detail" in payload && typeof payload.detail === "string") {
+      return sanitizeErrorMessage(payload.detail, status);
+    }
+
+    if ("message" in payload && typeof payload.message === "string") {
+      return sanitizeErrorMessage(payload.message, status);
+    }
+  }
+
+  return sanitizeErrorMessage(`Request failed with status ${status}`, status);
+}
+
+function sanitizeErrorMessage(message: string, status: number): string {
+  const normalized = message.trim();
+  const lowered = normalized.toLowerCase();
+
+  if (
+    lowered.includes("request timed out") ||
+    lowered.includes("timed out") ||
+    lowered.includes("aborted") ||
+    status === 504
+  ) {
+    return "Server javobi juda sekin bo'ldi. Bir ozdan keyin qayta urinib ko'ring.";
+  }
+
+  if (
+    lowered.includes("database schema is not initialized") ||
+    lowered.includes("ma'lumotlar bazasi tayyor emas") ||
+    lowered.includes("relation \"users\" does not exist") ||
+    lowered.includes("undefinedtableerror")
+  ) {
+    return "Server bazasi hali tayyor emas. Administrator migratsiyalarni ishga tushirishi kerak.";
+  }
+
+  if (
+    lowered.includes("sqlalchemy") ||
+    lowered.includes("asyncpg") ||
+    lowered.includes("traceback") ||
+    lowered.includes("programmingerror") ||
+    lowered.includes("internal server error") ||
+    status >= 500
+  ) {
+    return "Serverda ichki xatolik yuz berdi. Iltimos, keyinroq qayta urinib ko'ring.";
+  }
+
+  return normalized;
+}
+
 type RequestOptions = Omit<RequestInit, "body"> & {
   body?: BodyInit | Record<string, unknown> | unknown;
   query?: Record<string, string | number | boolean | null | undefined>;
   baseUrl?: string;
   retryOnAuth?: boolean;
+  timeoutMs?: number;
 };
 
 let refreshPromise: Promise<boolean> | null = null;
@@ -105,7 +160,7 @@ async function parseResponse<T>(response: Response) {
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { query, baseUrl, retryOnAuth = true, headers, body, ...init } = options;
+  const { query, baseUrl, retryOnAuth = true, headers, body, timeoutMs, ...init } = options;
   const method = (init.method ?? "GET").toUpperCase();
   const retryable = method === "GET" || method === "HEAD";
   const maxAttempts = retryable ? 3 : 1;
@@ -119,24 +174,44 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   let lastError: unknown = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const controller = typeof timeoutMs === "number" && timeoutMs > 0 && !init.signal ? new AbortController() : null;
+    const signal = init.signal ?? controller?.signal;
+    let timeoutId: number | null = null;
+    let timedOut = false;
+
+    if (controller) {
+      timeoutId = window.setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs);
+    }
+
     try {
       response = await fetch(buildUrl(path, query, baseUrl), {
         credentials: "include",
         cache: "no-store",
         ...init,
         headers: normalizedHeaders,
+        signal,
         body:
           body == null || typeof body === "string" || body instanceof FormData
             ? body
             : JSON.stringify(body),
       });
     } catch (error) {
-      lastError = error;
+      lastError = timedOut ? new Error("Request timed out") : error;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
       if (attempt >= maxAttempts) {
-        throw error;
+        throw (lastError instanceof Error ? lastError : error);
       }
       await sleep(250 * attempt);
       continue;
+    }
+
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
     }
 
     if (![429, 502, 503, 504].includes(response.status) || attempt >= maxAttempts) {
@@ -162,12 +237,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
   if (!response.ok) {
     const payload = await parseResponse<{ detail?: string } | string>(response);
-    const message =
-      typeof payload === "string"
-        ? payload
-        : payload && typeof payload === "object" && "detail" in payload
-          ? String(payload.detail)
-          : `Request failed with status ${response.status}`;
+    const message = extractPayloadMessage(payload, response.status);
     throw new ApiError(message, response.status, payload);
   }
 

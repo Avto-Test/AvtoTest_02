@@ -23,6 +23,8 @@ const allowedAuthPaths = new Set([
   "me",
 ]);
 
+const AUTH_BACKEND_TIMEOUT_MS = 8000;
+
 type BackendTokenPayload = {
   access_token: string;
   refresh_token: string;
@@ -60,33 +62,11 @@ function shouldUseSecureCookies(request: NextRequest) {
   return request.nextUrl.protocol === "https:" || forwardedProto === "https" || forwardedSsl === "on";
 }
 
-function getCookieDomain() {
-  const explicitDomain = process.env.AUTH_COOKIE_DOMAIN?.trim();
-  if (explicitDomain) {
-    return explicitDomain;
-  }
-
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
-  if (!appUrl) {
-    return undefined;
-  }
-
-  try {
-    const hostname = new URL(appUrl).hostname.trim().toLowerCase();
-    if (!hostname || hostname === "localhost" || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)) {
-      return undefined;
-    }
-    return hostname;
-  } catch {
-    return undefined;
-  }
-}
-
 function setAuthCookies(response: NextResponse, request: NextRequest, payload: BackendTokenPayload) {
   const secure = shouldUseSecureCookies(request);
   const accessMaxAge = Math.max(payload.access_token_expires_in ?? 20 * 60, 60);
   const refreshMaxAge = Math.max(payload.refresh_token_expires_in ?? 14 * 24 * 60 * 60, 3600);
-  const domain = getCookieDomain();
+  const domain = process.env.NODE_ENV === "production" ? "auto-drive.online" : undefined;
 
   const cookieOptions = {
     httpOnly: true,
@@ -116,7 +96,7 @@ function setAuthCookies(response: NextResponse, request: NextRequest, payload: B
 
 function clearAuthCookies(response: NextResponse, request: NextRequest) {
   const secure = shouldUseSecureCookies(request);
-  const domain = getCookieDomain();
+  const domain = process.env.NODE_ENV === "production" ? "auto-drive.online" : undefined;
   const options = {
     httpOnly: true,
     secure,
@@ -185,15 +165,24 @@ async function proxyAuthRequest(
   }
 
   try {
-    const response = await fetch(
-      `${getServerApiBaseUrl()}/api/auth/${forwardPath}${request.nextUrl.search}`,
-      {
-        method: request.method,
-        headers,
-        body: bodyText && bodyText.trim().length > 0 ? bodyText : undefined,
-        cache: "no-store",
-      },
-    );
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), AUTH_BACKEND_TIMEOUT_MS);
+
+    let response: Response;
+    try {
+      response = await fetch(
+        `${getServerApiBaseUrl()}/api/auth/${forwardPath}${request.nextUrl.search}`,
+        {
+          method: request.method,
+          headers,
+          body: bodyText && bodyText.trim().length > 0 ? bodyText : undefined,
+          cache: "no-store",
+          signal: controller.signal,
+        },
+      );
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     const responseText = await response.text();
     let payload: unknown = {};
@@ -227,11 +216,15 @@ async function proxyAuthRequest(
     }
 
     return nextResponse;
-  } catch {
+  } catch (error) {
     if (forwardPath === "logout") {
       const fallback = NextResponse.json({ message: "Sessiya yopildi" }, { status: 200 });
       clearAuthCookies(fallback, request);
       return fallback;
+    }
+
+    if (error instanceof Error && error.name === "AbortError") {
+      return NextResponse.json({ detail: "Auth backend request timed out." }, { status: 504 });
     }
 
     return NextResponse.json({ detail: "Unable to reach auth backend." }, { status: 502 });

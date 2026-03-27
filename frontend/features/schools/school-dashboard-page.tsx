@@ -5,6 +5,8 @@ import { ArrowRight, Building2, MessageSquare, PhoneCall, Star, Users } from "lu
 
 import { getMySchoolLeads, getMySchoolReviews, getMySchoolSummary, getSchoolDashboard } from "@/api/schools";
 import { AppShell } from "@/components/app-shell";
+import { SchoolMediaManager } from "@/features/schools/school-media-manager";
+import { SchoolProfileEditor } from "@/features/schools/school-profile-editor";
 import { useAsyncResource } from "@/hooks/use-async-resource";
 import { formatDate, formatRelativeTime } from "@/lib/utils";
 import { buttonStyles } from "@/shared/ui/button";
@@ -13,8 +15,7 @@ import { EmptyState } from "@/shared/ui/empty-state";
 import { ErrorState } from "@/shared/ui/error-state";
 import { PageHeader } from "@/shared/ui/page-header";
 import { Skeleton } from "@/shared/ui/skeleton";
-import { SchoolMediaManager } from "@/features/schools/school-media-manager";
-import { SchoolProfileEditor } from "@/features/schools/school-profile-editor";
+import { formatStatusLabel } from "@/types/statuses";
 
 export function SchoolDashboardPage() {
   const resource = useAsyncResource(async () => {
@@ -89,7 +90,7 @@ export function SchoolDashboardPage() {
                       </p>
                     </div>
                     <span className="rounded-full bg-[var(--muted)] px-3 py-1 text-sm font-medium">
-                      {latestApplication.status}
+                      {formatStatusLabel(latestApplication.status)}
                     </span>
                   </div>
                   <p className="mt-3 text-sm text-[var(--muted-foreground)]">
@@ -104,7 +105,7 @@ export function SchoolDashboardPage() {
               )}
 
               <Link href="/driving-schools/partner" className={buttonStyles({ className: "w-full sm:w-auto" })}>
-                Hamkorlik arizasiga o'tish
+                Hamkorlik arizasiga o&rsquo;tish
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </CardContent>
@@ -116,14 +117,14 @@ export function SchoolDashboardPage() {
                 <CardContent className="p-6">
                   <p className="text-sm text-[var(--muted-foreground)]">Leadlar</p>
                   <p className="mt-2 text-3xl font-bold">{school.lead_count}</p>
-                  <p className="mt-2 text-sm text-[var(--muted-foreground)]">Katalogdan kelgan bog'lanish so'rovlari</p>
+                  <p className="mt-2 text-sm text-[var(--muted-foreground)]">Katalogdan kelgan bog&rsquo;lanish so&rsquo;rovlari</p>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent className="p-6">
                   <p className="text-sm text-[var(--muted-foreground)]">Sharhlar</p>
                   <p className="mt-2 text-3xl font-bold">{school.review_count}</p>
-                  <p className="mt-2 text-sm text-[var(--muted-foreground)]">Ko'rinadigan foydalanuvchi baholari</p>
+                  <p className="mt-2 text-sm text-[var(--muted-foreground)]">Ko&rsquo;rinadigan foydalanuvchi baholari</p>
                 </CardContent>
               </Card>
               <Card>
@@ -234,7 +235,7 @@ export function SchoolDashboardPage() {
                             </p>
                             <p className="mt-2 text-sm text-[var(--muted-foreground)]">{lead.comment ?? "Izoh qoldirilmagan."}</p>
                           </div>
-                          <span className="rounded-full bg-[var(--muted)] px-3 py-1 text-xs font-medium">{lead.status}</span>
+                          <span className="rounded-full bg-[var(--muted)] px-3 py-1 text-xs font-medium">{formatStatusLabel(lead.status)}</span>
                         </div>
                       </div>
                     ))
@@ -244,13 +245,13 @@ export function SchoolDashboardPage() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Kabinet ko'rsatkichlari</CardTitle>
+                  <CardTitle>Kabinet ko&rsquo;rsatkichlari</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="rounded-2xl bg-[var(--muted)] p-4">
                     <div className="flex items-center gap-2">
                       <Users className="h-4 w-4 text-[var(--primary)]" />
-                      <p className="font-medium">Maktab a'zolari</p>
+                      <p className="font-medium">Maktab a&rsquo;zolari</p>
                     </div>
                     <p className="mt-2 text-sm text-[var(--muted-foreground)]">
                       {stats ? `${stats.member_count} a'zo - ${stats.group_count} guruh` : "School RBAC stats mavjud emas"}
@@ -259,7 +260,7 @@ export function SchoolDashboardPage() {
                   <div className="rounded-2xl bg-[var(--muted)] p-4">
                     <div className="flex items-center gap-2">
                       <MessageSquare className="h-4 w-4 text-[var(--primary)]" />
-                      <p className="font-medium">Ommaviy ko'rinish</p>
+                      <p className="font-medium">Ommaviy ko&rsquo;rinish</p>
                     </div>
                     <p className="mt-2 text-sm text-[var(--muted-foreground)]">
                       Profilingizga kelayotgan review va lead oqimi shu kabinetda jamlangan.

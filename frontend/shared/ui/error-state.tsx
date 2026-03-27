@@ -10,11 +10,13 @@ export function ErrorState({
   description,
   error,
   onRetry,
+  action,
 }: {
   title?: string;
   description: string;
   error?: unknown;
   onRetry?: () => void;
+  action?: React.ReactNode;
 }) {
   const notice = resolveUserFacingNotice(error ?? description, {
     title,
@@ -57,6 +59,7 @@ export function ErrorState({
                 Qayta tekshirish
               </Button>
             ) : null}
+            {action}
             {notice.actionHref && notice.actionLabel ? (
               <Link href={notice.actionHref}>
                 <Button variant={isWarning ? "default" : "secondary"}>

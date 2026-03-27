@@ -1,7 +1,7 @@
 "use client";
 
-import { BookCopy, FileImage, FileText, Plus, Trash2, Upload } from "lucide-react";
-import { useMemo, useState } from "react";
+import { BookCopy, FileImage, FileText, Plus, RefreshCcw, Search, Trash2, Upload } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   createAdminAnswerOption,
@@ -15,21 +15,27 @@ import {
   deleteAdminQuestionCategory,
   deleteAdminTest,
   getAdminContentData,
+  getAdminQuestions,
   updateAdminAnswerOption,
   updateAdminLesson,
   updateAdminQuestion,
   updateAdminQuestionCategory,
+  updateAdminSimulationExamSettings,
   updateAdminTest,
   uploadAdminLessonFile,
   uploadAdminQuestionImage,
 } from "@/api/admin";
+import { AdminActionMenu, AdminSurface, AdminToolbar } from "@/features/admin/admin-ui";
+import { toNullableString, toRequiredNumber } from "@/features/admin/utils";
 import type {
   AdminLesson,
   AdminLessonPayload,
+  AdminPaginatedQuestions,
   AdminQuestionCategory,
   AdminQuestionCategoryPayload,
   AdminQuestionListItem,
   AdminQuestionPayload,
+  AdminSimulationExamSettings,
   AdminTestListItem,
   AdminTestPayload,
 } from "@/types/admin";
@@ -37,15 +43,14 @@ import { useAsyncResource } from "@/hooks/use-async-resource";
 import { Modal } from "@/shared/ui/modal";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { ErrorState } from "@/shared/ui/error-state";
 import { Input } from "@/shared/ui/input";
 import { PageHeader } from "@/shared/ui/page-header";
 import { Select } from "@/shared/ui/select";
 import { Skeleton } from "@/shared/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { Textarea } from "@/shared/ui/textarea";
-import { toNullableString, toRequiredNumber } from "@/features/admin/utils";
 
 type TestDraft = {
   title: string;
@@ -93,6 +98,20 @@ type QuestionDraft = {
   difficulty_percent: string;
   answer_options: QuestionOptionDraft[];
 };
+
+type SimulationExamSettingsDraft = {
+  question_count: string;
+  duration_minutes: string;
+  mistake_limit: string;
+  violation_limit: string;
+  cooldown_days: string;
+  fast_unlock_price: string;
+  intro_video_url: string;
+};
+
+function normalizeAdminLabel(value?: string | null) {
+  return value?.trim().toLowerCase() ?? "";
+}
 
 function makeTestDraft(test?: AdminTestListItem): TestDraft {
   return {
@@ -153,6 +172,40 @@ function makeQuestionDraft(question?: AdminQuestionListItem): QuestionDraft {
   };
 }
 
+function makeSimulationExamSettingsDraft(settings?: AdminSimulationExamSettings): SimulationExamSettingsDraft {
+  return {
+    question_count: String(settings?.question_count ?? 40),
+    duration_minutes: String(settings?.duration_minutes ?? 40),
+    mistake_limit: String(settings?.mistake_limit ?? 3),
+    violation_limit: String(settings?.violation_limit ?? 2),
+    cooldown_days: String(settings?.cooldown_days ?? 14),
+    fast_unlock_price: String(settings?.fast_unlock_price ?? 120),
+    intro_video_url: settings?.intro_video_url ?? "",
+  };
+}
+
+function matchesContentStateFilter(
+  filter: string,
+  item: {
+    is_active?: boolean;
+    is_premium?: boolean;
+  },
+) {
+  if (filter === "all") {
+    return true;
+  }
+  if (filter === "active") {
+    return item.is_active === true;
+  }
+  if (filter === "inactive") {
+    return item.is_active === false;
+  }
+  if (filter === "premium") {
+    return item.is_premium === true;
+  }
+  return true;
+}
+
 function LoadingState() {
   return (
     <div className="space-y-6">
@@ -166,8 +219,153 @@ function LoadingState() {
   );
 }
 
+const QUESTION_PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
+const QUESTION_SEARCH_DEBOUNCE_MS = 400;
+
+function buildBootstrapQuestionPage(
+  items: AdminQuestionListItem[],
+  total: number,
+  limit: number,
+): AdminPaginatedQuestions {
+  return {
+    items: items.slice(0, limit),
+    total,
+    offset: 0,
+    limit,
+    has_more: total > limit,
+  };
+}
+
+function buildVisiblePageNumbers(page: number, totalPages: number) {
+  return Array.from(new Set([1, page - 1, page, page + 1, totalPages]))
+    .filter((value) => value >= 1 && value <= totalPages)
+    .sort((left, right) => left - right);
+}
+
+function QuestionBankLoadingState() {
+  return (
+    <div className="grid gap-4 p-5 lg:grid-cols-2">
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div key={`question-skeleton-${index}`} className="space-y-4 rounded-2xl border border-[var(--border)] p-4">
+          <Skeleton className="h-5 w-4/5 bg-[var(--muted)]" />
+          <Skeleton className="h-4 w-2/3 bg-[var(--muted)]" />
+          <div className="flex flex-wrap gap-2">
+            <Skeleton className="h-6 w-24 rounded-full bg-[var(--muted)]" />
+            <Skeleton className="h-6 w-20 rounded-full bg-[var(--muted)]" />
+            <Skeleton className="h-6 w-28 rounded-full bg-[var(--muted)]" />
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <Skeleton className="h-9 w-24 rounded-xl bg-[var(--muted)]" />
+            <Skeleton className="h-9 w-9 rounded-xl bg-[var(--muted)]" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function QuestionBankPagination({
+  page,
+  total,
+  limit,
+  hasMore,
+  loading,
+  onPageChange,
+  onLimitChange,
+}: {
+  page: number;
+  total: number;
+  limit: number;
+  hasMore: boolean;
+  loading: boolean;
+  onPageChange: (page: number) => void;
+  onLimitChange: (limit: number) => void;
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / limit || 1));
+  const visiblePages = buildVisiblePageNumbers(page, totalPages);
+  const rangeStart = total === 0 ? 0 : (page - 1) * limit + 1;
+  const rangeEnd = total === 0 ? 0 : Math.min(page * limit, total);
+
+  return (
+    <div className="flex flex-col gap-4 border-t border-[var(--border)]/70 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="space-y-1 text-sm text-[var(--muted-foreground)]">
+        <p>
+          {rangeStart}-{rangeEnd} / {total} ta savol
+        </p>
+        <p>Page {page} of {totalPages}</p>
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+        <label className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
+          <span>Har sahifada</span>
+          <Select
+            value={String(limit)}
+            onChange={(event) => onLimitChange(Number(event.target.value))}
+            className="min-w-24"
+            disabled={loading}
+          >
+            {QUESTION_PAGE_SIZE_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </Select>
+        </label>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={page === 1 || loading}
+            onClick={() => onPageChange(Math.max(1, page - 1))}
+          >
+            Previous
+          </Button>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {visiblePages.map((value, index) => {
+              const previous = visiblePages[index - 1];
+              return (
+                <div key={`page-group-${value}`} className="flex items-center gap-2">
+                  {previous && value - previous > 1 ? (
+                    <span className="px-1 text-sm text-[var(--muted-foreground)]">...</span>
+                  ) : null}
+                  <Button
+                    size="sm"
+                    variant={value === page ? "default" : "outline"}
+                    disabled={loading}
+                    onClick={() => onPageChange(value)}
+                  >
+                    {value}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!hasMore || loading}
+            onClick={() => onPageChange(page + 1)}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function AdminContentPage() {
   const resource = useAsyncResource(getAdminContentData, [], true);
+  const [tab, setTab] = useState("questions");
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [questionPage, setQuestionPage] = useState(1);
+  const [questionLimit, setQuestionLimit] = useState<number>(20);
+  const [questionCategoryId, setQuestionCategoryId] = useState("all");
+  const [debouncedQuestionQuery, setDebouncedQuestionQuery] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [testModalOpen, setTestModalOpen] = useState(false);
@@ -182,10 +380,191 @@ export function AdminContentPage() {
   const [categoryDraft, setCategoryDraft] = useState<CategoryDraft>(makeCategoryDraft());
   const [lessonDraft, setLessonDraft] = useState<LessonDraft>(makeLessonDraft());
   const [questionDraft, setQuestionDraft] = useState<QuestionDraft>(makeQuestionDraft());
+  const [simulationExamSettingsDraft, setSimulationExamSettingsDraft] = useState<SimulationExamSettingsDraft>(
+    makeSimulationExamSettingsDraft(),
+  );
   const categoryOptions = useMemo(() => resource.data?.categories ?? [], [resource.data?.categories]);
+  const effectiveQuestionCategoryId = questionCategoryId === "all" ? undefined : questionCategoryId;
+  const questionOffset = (questionPage - 1) * questionLimit;
+  const bootstrapQuestionPage = useMemo(
+    () =>
+      buildBootstrapQuestionPage(
+        resource.data?.questions ?? [],
+        resource.data?.questionTotal ?? 0,
+        questionLimit,
+      ),
+    [questionLimit, resource.data?.questionTotal, resource.data?.questions],
+  );
+  const canUseBootstrapQuestionPage =
+    tab === "questions" &&
+    questionPage === 1 &&
+    !effectiveQuestionCategoryId &&
+    debouncedQuestionQuery.length === 0;
+  const questionBankResource = useAsyncResource(
+    () =>
+      getAdminQuestions({
+        offset: questionOffset,
+        limit: questionLimit,
+        search: debouncedQuestionQuery || undefined,
+        categoryId: effectiveQuestionCategoryId,
+      }),
+    [questionOffset, questionLimit, effectiveQuestionCategoryId, debouncedQuestionQuery],
+    tab === "questions" && !canUseBootstrapQuestionPage,
+    {
+      cacheKey: `admin-question-bank:${effectiveQuestionCategoryId ?? "all"}:${debouncedQuestionQuery || "all"}:${questionOffset}:${questionLimit}`,
+      keepPreviousData: true,
+    },
+  );
+  const questionPageData = canUseBootstrapQuestionPage ? bootstrapQuestionPage : questionBankResource.data;
+  const questionItems = questionPageData?.items ?? [];
+  const questionTotal = questionPageData?.total ?? resource.data?.questionTotal ?? 0;
+  const questionHasMore = questionPageData?.has_more ?? false;
+  const questionBankLoading = !questionPageData && questionBankResource.loading;
+  const questionBankRefreshing =
+    tab === "questions" &&
+    (questionBankResource.loading || query.trim() !== debouncedQuestionQuery);
+  const categoryCoverage = useMemo(() => {
+    const coverage = new Map<string, { lessonCount: number; questionCount: number }>();
+    const categoriesByName = new Map(
+      categoryOptions.map((category) => [normalizeAdminLabel(category.name), category]),
+    );
+
+    for (const category of categoryOptions) {
+      coverage.set(category.id, { lessonCount: 0, questionCount: 0 });
+    }
+
+    for (const lesson of resource.data?.lessons ?? []) {
+      const matchedCategory = [lesson.topic, lesson.section]
+        .map((value) => categoriesByName.get(normalizeAdminLabel(value)))
+        .find(Boolean);
+      if (!matchedCategory) {
+        continue;
+      }
+      const next = coverage.get(matchedCategory.id);
+      if (next) {
+        next.lessonCount += 1;
+      }
+    }
+
+    for (const question of resource.data?.questions ?? []) {
+      const matchedCategory =
+        (question.category_id ? categoryOptions.find((category) => category.id === question.category_id) : null) ??
+        categoriesByName.get(normalizeAdminLabel(question.category));
+      if (!matchedCategory) {
+        continue;
+      }
+      const next = coverage.get(matchedCategory.id);
+      if (next) {
+        next.questionCount += 1;
+      }
+    }
+
+    return coverage;
+  }, [categoryOptions, resource.data?.lessons, resource.data?.questions]);
+  const selectedLessonCategoryId = useMemo(() => {
+    const matched = categoryOptions.find((category) =>
+      [lessonDraft.topic, lessonDraft.section].some(
+        (value) => normalizeAdminLabel(value) === normalizeAdminLabel(category.name),
+      ),
+    );
+    return matched?.id ?? "";
+  }, [categoryOptions, lessonDraft.section, lessonDraft.topic]);
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredTests = useMemo(() => {
+    return (resource.data?.tests ?? []).filter((test) => {
+      const matchesQuery =
+        !normalizedQuery ||
+        test.title.toLowerCase().includes(normalizedQuery) ||
+        (test.description ?? "").toLowerCase().includes(normalizedQuery) ||
+        test.difficulty.toLowerCase().includes(normalizedQuery);
+      return matchesQuery && matchesContentStateFilter(statusFilter, test);
+    });
+  }, [normalizedQuery, resource.data?.tests, statusFilter]);
+  const filteredCategories = useMemo(() => {
+    return (resource.data?.categories ?? []).filter((category) => {
+      const matchesQuery =
+        !normalizedQuery ||
+        category.name.toLowerCase().includes(normalizedQuery) ||
+        (category.description ?? "").toLowerCase().includes(normalizedQuery);
+      return matchesQuery && matchesContentStateFilter(statusFilter, category);
+    });
+  }, [normalizedQuery, resource.data?.categories, statusFilter]);
+  const filteredLessons = useMemo(() => {
+    return (resource.data?.lessons ?? []).filter((lesson) => {
+      const matchesQuery =
+        !normalizedQuery ||
+        lesson.title.toLowerCase().includes(normalizedQuery) ||
+        (lesson.description ?? "").toLowerCase().includes(normalizedQuery) ||
+        (lesson.topic ?? "").toLowerCase().includes(normalizedQuery);
+      return matchesQuery && matchesContentStateFilter(statusFilter, lesson);
+    });
+  }, [normalizedQuery, resource.data?.lessons, statusFilter]);
+
+  useEffect(() => {
+    if (resource.data?.simulationExamSettings) {
+      setSimulationExamSettingsDraft(makeSimulationExamSettingsDraft(resource.data.simulationExamSettings));
+    }
+  }, [resource.data?.simulationExamSettings]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedQuestionQuery(query.trim());
+    }, QUESTION_SEARCH_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [query]);
+
+  useEffect(() => {
+    if (questionCategoryId === "all") {
+      return;
+    }
+    if (categoryOptions.some((category) => category.id === questionCategoryId)) {
+      return;
+    }
+    setQuestionCategoryId("all");
+    setQuestionPage(1);
+  }, [categoryOptions, questionCategoryId]);
+
+  useEffect(() => {
+    if (tab !== "questions" || !questionPageData) {
+      return;
+    }
+
+    const totalPages = Math.max(1, Math.ceil(questionPageData.total / questionLimit || 1));
+    if (questionPage > totalPages) {
+      setQuestionPage(totalPages);
+    }
+  }, [questionLimit, questionPage, questionPageData, tab]);
 
   const refresh = async () => {
-    await resource.reload();
+    await resource.reload({ force: true });
+    if (tab === "questions" && !canUseBootstrapQuestionPage) {
+      const refreshed = await questionBankResource.reload({ force: true });
+      if (refreshed && refreshed.items.length === 0 && refreshed.total > 0 && questionPage > 1) {
+        setQuestionPage(Math.max(1, Math.ceil(refreshed.total / questionLimit)));
+      }
+    }
+  };
+
+  const saveSimulationExamSettings = async () => {
+    setBusy("simulation-settings");
+    setNotice(null);
+    try {
+      await updateAdminSimulationExamSettings({
+        question_count: toRequiredNumber(simulationExamSettingsDraft.question_count, 40),
+        duration_minutes: toRequiredNumber(simulationExamSettingsDraft.duration_minutes, 40),
+        mistake_limit: toRequiredNumber(simulationExamSettingsDraft.mistake_limit, 3),
+        violation_limit: toRequiredNumber(simulationExamSettingsDraft.violation_limit, 2),
+        cooldown_days: toRequiredNumber(simulationExamSettingsDraft.cooldown_days, 14),
+        fast_unlock_price: toRequiredNumber(simulationExamSettingsDraft.fast_unlock_price, 120),
+        intro_video_url: toNullableString(simulationExamSettingsDraft.intro_video_url),
+      });
+      await refresh();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Imtihon qoidalari saqlanmadi.");
+    } finally {
+      setBusy(null);
+    }
   };
 
   const openTestModal = (test?: AdminTestListItem) => {
@@ -405,6 +784,22 @@ export function AdminContentPage() {
     }
   };
 
+  const uploadIntroVideoAsset = async (file: File) => {
+    setBusy("intro-video-upload");
+    setNotice(null);
+    try {
+      const uploaded = await uploadAdminLessonFile(file);
+      if (uploaded.content_type && uploaded.content_type !== "video") {
+        throw new Error("About uchun faqat video fayl yuklang.");
+      }
+      setSimulationExamSettingsDraft((draft) => ({ ...draft, intro_video_url: uploaded.url }));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "About videosi yuklanmadi.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const uploadQuestionAsset = async (file: File) => {
     setBusy("question-upload");
     setNotice(null);
@@ -422,6 +817,19 @@ export function AdminContentPage() {
     return <LoadingState />;
   }
 
+  const applyLessonCategory = (categoryId: string) => {
+    const matchedCategory = categoryOptions.find((category) => category.id === categoryId);
+    if (!matchedCategory) {
+      setLessonDraft((draft) => ({ ...draft, topic: "", section: "" }));
+      return;
+    }
+    setLessonDraft((draft) => ({
+      ...draft,
+      topic: matchedCategory.name,
+      section: matchedCategory.name,
+    }));
+  };
+
   if (resource.error || !resource.data) {
     return (
       <ErrorState
@@ -433,11 +841,97 @@ export function AdminContentPage() {
     );
   }
 
+  const searchPlaceholder =
+    tab === "questions"
+      ? "Savol, topic yoki kategoriya bo'yicha qidiring"
+      : tab === "categories"
+        ? "Kategoriya nomi bo'yicha qidiring"
+        : tab === "lessons"
+          ? "Lesson yoki topic bo'yicha qidiring"
+          : "Sozlama bo'yicha qidiring";
+  const configuredQuestionCount = toRequiredNumber(simulationExamSettingsDraft.question_count, 40);
+  const configuredDurationMinutes = toRequiredNumber(simulationExamSettingsDraft.duration_minutes, 40);
+  const availableQuestionCount = resource.data.questionTotal;
+  const hasQuestionBankGap = configuredQuestionCount > availableQuestionCount;
+  const settingsBusy = busy === "simulation-settings" || busy === "intro-video-upload";
+
+  const primaryAction =
+    tab === "questions" ? (
+      <Button onClick={() => openQuestionModal()}>
+        <Plus className="h-4 w-4" />
+        Yangi savol
+      </Button>
+    ) : tab === "categories" ? (
+      <Button onClick={() => openCategoryModal()}>
+        <Plus className="h-4 w-4" />
+        Yangi kategoriya
+      </Button>
+    ) : tab === "lessons" ? (
+      <Button onClick={() => openLessonModal()}>
+        <Plus className="h-4 w-4" />
+        Yangi lesson
+      </Button>
+    ) : (
+      <Button disabled={settingsBusy} onClick={() => void saveSimulationExamSettings()}>
+        Sozlamalarni saqlash
+      </Button>
+    );
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Kontent banki"
-        description="Testlar, lessonlar, savollar va kategoriyalarni yagona admin boshqaruv oqimida tahrirlang."
+        description="Adaptive amaliyot uchun savollar banki, kategoriyalar, lessonlar va imtihon sozlamalarini bitta oqimda boshqaring."
+        action={primaryAction}
+      />
+
+      <AdminToolbar
+        search={tab === "settings" ? null : (
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-foreground)]" />
+            <Input
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setQuestionPage(1);
+              }}
+              placeholder={searchPlaceholder}
+              className="pl-9"
+            />
+          </div>
+        )}
+        filters={tab === "questions" ? (
+          <Select
+            value={questionCategoryId}
+            onChange={(event) => {
+              setQuestionCategoryId(event.target.value);
+              setQuestionPage(1);
+            }}
+            className="min-w-48"
+          >
+            <option value="all">Barcha kategoriyalar</option>
+            {categoryOptions.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </Select>
+        ) : tab === "settings" ? null : (
+          <Select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="min-w-40">
+            <option value="all">Barcha status</option>
+            <option value="active">Faol</option>
+            <option value="inactive">Nofaol</option>
+            {tab === "lessons" ? <option value="premium">Premium</option> : null}
+          </Select>
+        )}
+        actions={
+          <>
+            <Button variant="outline" onClick={() => void refresh()}>
+              <RefreshCcw className="h-4 w-4" />
+              Yangilash
+            </Button>
+          </>
+        }
       />
 
       {notice ? (
@@ -446,165 +940,123 @@ export function AdminContentPage() {
         </div>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <Card>
-          <CardHeader className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <div>
-              <CardTitle>Testlar</CardTitle>
-              <CardDescription>{resource.data.tests.length} ta test</CardDescription>
-            </div>
-            <Button onClick={() => openTestModal()}>
-              <Plus className="h-4 w-4" />
-              Yangi test
-            </Button>
-          </CardHeader>
-          <CardContent>
-            {resource.data.tests.length === 0 ? (
-              <EmptyState title="Testlar yo'q" description="Admin test CRUD orqali yangi test yarating." />
-            ) : (
-              <div className="space-y-3">
-                {resource.data.tests.map((test) => (
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="questions">Question Bank</TabsTrigger>
+          <TabsTrigger value="categories">Categories</TabsTrigger>
+          <TabsTrigger value="lessons">Lessons</TabsTrigger>
+          <TabsTrigger value="settings">Settings</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="questions" className="space-y-6">
+          {tab === "__legacy_tests__" ? (
+            <AdminSurface
+            title="Tests"
+            description={`${filteredTests.length} ta test ko'rinmoqda. Formlar modalga ajratildi, list esa minimal kartalar ko'rinishida.`}
+          >
+            <div className="grid gap-4 p-5 lg:grid-cols-2">
+              {filteredTests.length === 0 ? (
+                <EmptyState title="Test topilmadi" description="Qidiruv va filtr bo'yicha mos test yo'q." />
+              ) : (
+                filteredTests.map((test) => (
                   <div key={test.id} className="rounded-2xl border border-[var(--border)] p-4">
                     <div className="flex items-start justify-between gap-3">
-                      <div>
+                      <div className="min-w-0">
                         <p className="font-medium">{test.title}</p>
-                        <p className="mt-1 text-sm text-[var(--muted-foreground)]">{test.description ?? "No description"}</p>
+                        <p className="mt-1 line-clamp-2 text-sm text-[var(--muted-foreground)]">{test.description ?? "No description"}</p>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        <Badge variant={test.is_active ? "success" : "outline"}>{test.is_active ? "Active" : "Inactive"}</Badge>
+                        <Badge variant={test.is_active ? "success" : "muted"}>{test.is_active ? "Active" : "Inactive"}</Badge>
                         {test.is_premium ? <Badge variant="warning">Premium</Badge> : null}
                       </div>
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button size="sm" variant="outline" onClick={() => openTestModal(test)}>Tahrirlash</Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={busy === test.id}
-                        onClick={() => void removeItem(() => deleteAdminTest(test.id), test.id, "Test o'chirilmadi.")}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        O'chirish
+                    <div className="mt-3 text-xs text-[var(--muted-foreground)]">
+                      {test.difficulty} • {test.duration ?? 0} daqiqa
+                    </div>
+                    <div className="mt-4 flex items-center justify-between gap-2">
+                      <Button size="sm" variant="outline" onClick={() => openTestModal(test)}>
+                        Manage
                       </Button>
+                      <AdminActionMenu
+                        items={[
+                          {
+                            label: test.is_active ? "Deactivate" : "Activate",
+                            disabled: busy === `test-status-${test.id}`,
+                            onClick: () =>
+                              void removeItem(
+                                () => updateAdminTest(test.id, { is_active: !test.is_active }),
+                                `test-status-${test.id}`,
+                                "Test holati yangilanmadi.",
+                              ),
+                          },
+                          {
+                            label: test.is_premium ? "Premiumni olib tashlash" : "Premium qilish",
+                            disabled: busy === `test-premium-${test.id}`,
+                            onClick: () =>
+                              void removeItem(
+                                () => updateAdminTest(test.id, { is_premium: !test.is_premium }),
+                                `test-premium-${test.id}`,
+                                "Test premium holati yangilanmadi.",
+                              ),
+                          },
+                          {
+                            label: "Delete",
+                            tone: "danger",
+                            disabled: busy === test.id,
+                            onClick: () => void removeItem(() => deleteAdminTest(test.id), test.id, "Test o'chirilmadi."),
+                          },
+                        ]}
+                      />
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <div>
-              <CardTitle>Kategoriyalar</CardTitle>
-              <CardDescription>{resource.data.categories.length} ta savol kategoriyasi</CardDescription>
+                ))
+              )}
             </div>
-            <Button onClick={() => openCategoryModal()}>
-              <Plus className="h-4 w-4" />
-              Yangi kategoriya
-            </Button>
-          </CardHeader>
-          <CardContent>
-            {resource.data.categories.length === 0 ? (
-              <EmptyState title="Kategoriya yo'q" description="Question categories shu yerda boshqariladi." />
-            ) : (
-              <div className="space-y-3">
-                {resource.data.categories.map((category) => (
-                  <div key={category.id} className="rounded-2xl border border-[var(--border)] p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-medium">{category.name}</p>
-                        <p className="mt-1 text-sm text-[var(--muted-foreground)]">{category.description ?? "No description"}</p>
-                      </div>
-                      <Badge variant={category.is_active ? "success" : "outline"}>{category.is_active ? "Active" : "Inactive"}</Badge>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button size="sm" variant="outline" onClick={() => openCategoryModal(category)}>Tahrirlash</Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={busy === category.id}
-                        onClick={() => void removeItem(() => deleteAdminQuestionCategory(category.id), category.id, "Kategoriya o'chirilmadi.")}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        O'chirish
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            </AdminSurface>
+          ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <Card>
-          <CardHeader className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <div>
-              <CardTitle>Lessonlar</CardTitle>
-              <CardDescription>{resource.data.lessons.length} ta lesson</CardDescription>
-            </div>
-            <Button onClick={() => openLessonModal()}>
-              <Plus className="h-4 w-4" />
-              Yangi lesson
-            </Button>
-          </CardHeader>
-          <CardContent>
-            {resource.data.lessons.length === 0 ? (
-              <EmptyState title="Lesson yo'q" description="Media upload bilan lesson kontentini biriktirishingiz mumkin." />
-            ) : (
-              <div className="space-y-3">
-                {resource.data.lessons.map((lesson) => (
-                  <div key={lesson.id} className="rounded-2xl border border-[var(--border)] p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-medium">{lesson.title}</p>
-                        <p className="mt-1 text-sm text-[var(--muted-foreground)]">{lesson.content_type} • {lesson.topic ?? "No topic"}</p>
-                        <p className="mt-1 text-xs text-[var(--muted-foreground)]">{lesson.content_url}</p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Badge variant={lesson.is_active ? "success" : "outline"}>{lesson.is_active ? "Active" : "Inactive"}</Badge>
-                        {lesson.is_premium ? <Badge variant="warning">Premium</Badge> : null}
-                      </div>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button size="sm" variant="outline" onClick={() => openLessonModal(lesson)}>Tahrirlash</Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={busy === lesson.id}
-                        onClick={() => void removeItem(() => deleteAdminLesson(lesson.id), lesson.id, "Lesson o'chirilmadi.")}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        O'chirish
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+          <AdminSurface
+            title="Question bank"
+            description={`${questionTotal} ta savol bankda mavjud. Joriy sahifada ${questionItems.length} ta savol ko'rsatilmoqda.`}
+            action={questionBankRefreshing ? <Badge variant="secondary">Yangilanmoqda...</Badge> : null}
+          >
+            {questionBankResource.error && questionItems.length > 0 ? (
+              <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-800">
+                Savollar yangilanmadi. Avvalgi natijalar ko&apos;rsatilmoqda.
               </div>
-            )}
-          </CardContent>
-        </Card>
+            ) : null}
 
-        <Card className="min-w-0">
-          <CardHeader className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <div>
-              <CardTitle>Savollar</CardTitle>
-              <CardDescription>{resource.data.questions.length} ta savol bankda</CardDescription>
-            </div>
-            <Button onClick={() => openQuestionModal()}>
-              <Plus className="h-4 w-4" />
-              Yangi savol
-            </Button>
-          </CardHeader>
-          <CardContent>
-            {resource.data.questions.length === 0 ? (
-              <EmptyState title="Savollar yo'q" description="Savol va javob variantlarini shu sahifada boshqaring." />
+            {questionBankLoading ? (
+              <QuestionBankLoadingState />
+            ) : questionBankResource.error && questionItems.length === 0 ? (
+              <div className="p-5">
+                <ErrorState
+                  title="Question Bank yuklanmadi"
+                  description="Savollar ro'yxatini olib bo'lmadi."
+                  error={questionBankResource.error}
+                  onRetry={() => void questionBankResource.reload({ force: true })}
+                />
+              </div>
             ) : (
-              <div className="space-y-3">
-                {resource.data.questions.map((question) => (
+              <div className="space-y-4">
+                <div className="grid gap-4 px-5 pt-5 lg:grid-cols-2">
+                  {questionItems.length === 0 ? (
+                    <div className="lg:col-span-2">
+                      <EmptyState
+                        title={debouncedQuestionQuery ? "Natija topilmadi" : "Savollar topilmadi"}
+                        description={
+                          debouncedQuestionQuery
+                            ? `"${debouncedQuestionQuery}" bo'yicha mos savol topilmadi.`
+                            : effectiveQuestionCategoryId
+                              ? "Tanlangan kategoriya bo'yicha hali savol yo'q."
+                              : "Question Bank hozircha bo'sh."
+                        }
+                        actionLabel="Yangi savol"
+                        onAction={() => openQuestionModal()}
+                      />
+                    </div>
+              ) : (
+                    questionItems.map((question) => (
                   <div key={question.id} className="rounded-2xl border border-[var(--border)] p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -613,35 +1065,343 @@ export function AdminContentPage() {
                           {question.topic ?? "No topic"} • {question.difficulty} • {question.answer_options.length} options
                         </p>
                       </div>
-                      <Badge variant="outline">{question.difficulty_percent}%</Badge>
+                      <Badge variant="muted">{question.difficulty_percent}%</Badge>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {question.answer_options.slice(0, 3).map((option) => (
-                        <Badge key={option.id} variant={option.is_correct ? "success" : "outline"}>
+                        <Badge key={option.id} variant={option.is_correct ? "success" : "muted"}>
                           {option.text}
                         </Badge>
                       ))}
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button size="sm" variant="outline" onClick={() => openQuestionModal(question)}>Tahrirlash</Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={busy === question.id}
-                        onClick={() => void removeItem(() => deleteAdminQuestion(question.id), question.id, "Savol o'chirilmadi.")}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        O'chirish
+                    <div className="mt-4 flex items-center justify-between gap-2">
+                      <Button size="sm" variant="outline" onClick={() => openQuestionModal(question)}>
+                        Manage
                       </Button>
+                      <AdminActionMenu
+                        items={[
+                          { label: "Edit", onClick: () => openQuestionModal(question) },
+                          {
+                            label: "Delete",
+                            tone: "danger",
+                            disabled: busy === question.id,
+                            onClick: () => void removeItem(() => deleteAdminQuestion(question.id), question.id, "Savol o'chirilmadi."),
+                          },
+                        ]}
+                      />
                     </div>
                   </div>
-                ))}
+                    ))
+                  )}
+                </div>
+
+                <QuestionBankPagination
+                  page={questionPage}
+                  total={questionTotal}
+                  limit={questionLimit}
+                  hasMore={questionHasMore}
+                  loading={questionBankRefreshing}
+                  onPageChange={setQuestionPage}
+                  onLimitChange={(nextLimit) => {
+                    setQuestionLimit(nextLimit);
+                    setQuestionPage(1);
+                  }}
+                />
               </div>
             )}
-          </CardContent>
-        </Card>
-      </div>
+          </AdminSurface>
+        </TabsContent>
 
+        <TabsContent value="categories">
+          <AdminSurface
+            title="Categories"
+            description={`${filteredCategories.length} ta kategoriya ko'rinmoqda. Coverage badge'lari savol va lesson bog'lanishini ko'rsatadi.`}
+          >
+            <div className="grid gap-4 p-5 lg:grid-cols-2">
+              {filteredCategories.length === 0 ? (
+                <EmptyState title="Kategoriya topilmadi" description="Qidiruv va filtr bo'yicha mos kategoriya yo'q." />
+              ) : (
+                filteredCategories.map((category) => (
+                  <div key={category.id} className="rounded-2xl border border-[var(--border)] p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium">{category.name}</p>
+                        <p className="mt-1 line-clamp-2 text-sm text-[var(--muted-foreground)]">{category.description ?? "No description"}</p>
+                      </div>
+                      <Badge variant={category.is_active ? "success" : "muted"}>{category.is_active ? "Active" : "Inactive"}</Badge>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Badge variant="muted">{categoryCoverage.get(category.id)?.questionCount ?? 0} savol</Badge>
+                      <Badge variant="muted">{categoryCoverage.get(category.id)?.lessonCount ?? 0} lesson</Badge>
+                    </div>
+                    <div className="mt-4 flex items-center justify-between gap-2">
+                      <Button size="sm" variant="outline" onClick={() => openCategoryModal(category)}>
+                        Manage
+                      </Button>
+                      <AdminActionMenu
+                        items={[
+                          {
+                            label: category.is_active ? "Deactivate" : "Activate",
+                            disabled: busy === `category-status-${category.id}`,
+                            onClick: () =>
+                              void removeItem(
+                                () => updateAdminQuestionCategory(category.id, { is_active: !category.is_active }),
+                                `category-status-${category.id}`,
+                                "Kategoriya holati yangilanmadi.",
+                              ),
+                          },
+                          {
+                            label: "Delete",
+                            tone: "danger",
+                            disabled: busy === category.id,
+                            onClick: () =>
+                              void removeItem(
+                                () => deleteAdminQuestionCategory(category.id),
+                                category.id,
+                                "Kategoriya o'chirilmadi.",
+                              ),
+                          },
+                        ]}
+                      />
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </AdminSurface>
+        </TabsContent>
+
+        <TabsContent value="lessons" className="space-y-6">
+          <AdminSurface
+            title="Lessons"
+            description={`${filteredLessons.length} ta lesson ko'rinmoqda. Qo'shimcha kontent URL va media upload modal ichida saqlanadi.`}
+          >
+            <div className="grid gap-4 p-5 lg:grid-cols-2">
+              {filteredLessons.length === 0 ? (
+                <EmptyState title="Lesson topilmadi" description="Qidiruv va filtr bo'yicha mos lesson yo'q." />
+              ) : (
+                filteredLessons.map((lesson) => (
+                  <div key={lesson.id} className="rounded-2xl border border-[var(--border)] p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium">{lesson.title}</p>
+                        <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                          {lesson.content_type} / {lesson.topic ?? "No topic"}
+                        </p>
+                        <p className="mt-1 line-clamp-1 text-xs text-[var(--muted-foreground)]">{lesson.content_url}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant={lesson.is_active ? "success" : "muted"}>{lesson.is_active ? "Active" : "Inactive"}</Badge>
+                        {lesson.is_premium ? <Badge variant="warning">Premium</Badge> : null}
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {lesson.section ? <Badge variant="muted">{lesson.section}</Badge> : null}
+                      {lesson.thumbnail_url ? <Badge variant="muted">Thumbnail</Badge> : null}
+                    </div>
+                    <div className="mt-4 flex items-center justify-between gap-2">
+                      <Button size="sm" variant="outline" onClick={() => openLessonModal(lesson)}>
+                        Manage
+                      </Button>
+                      <AdminActionMenu
+                        items={[
+                          {
+                            label: lesson.is_active ? "Deactivate" : "Activate",
+                            disabled: busy === `lesson-status-${lesson.id}`,
+                            onClick: () =>
+                              void removeItem(
+                                () => updateAdminLesson(lesson.id, { is_active: !lesson.is_active }),
+                                `lesson-status-${lesson.id}`,
+                                "Lesson holati yangilanmadi.",
+                              ),
+                          },
+                          {
+                            label: lesson.is_premium ? "Premiumni olib tashlash" : "Premium qilish",
+                            disabled: busy === `lesson-premium-${lesson.id}`,
+                            onClick: () =>
+                              void removeItem(
+                                () => updateAdminLesson(lesson.id, { is_premium: !lesson.is_premium }),
+                                `lesson-premium-${lesson.id}`,
+                                "Lesson premium holati yangilanmadi.",
+                              ),
+                          },
+                          {
+                            label: "Delete",
+                            tone: "danger",
+                            disabled: busy === lesson.id,
+                            onClick: () =>
+                              void removeItem(() => deleteAdminLesson(lesson.id), lesson.id, "Lesson o'chirilmadi."),
+                          },
+                        ]}
+                      />
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </AdminSurface>
+        </TabsContent>
+
+        <TabsContent value="settings" className="space-y-6">
+          <AdminSurface
+            title="Simulation control center"
+            description="Simulyatsiya ochilganda foydalanuvchiga beriladigan savollar soni, taymer va barcha limitlarni shu yerda boshqaring."
+            action={
+              <Button disabled={settingsBusy} onClick={() => void saveSimulationExamSettings()}>
+                Sozlamalarni saqlash
+              </Button>
+            }
+          >
+            <div className="space-y-5 p-5">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={hasQuestionBankGap ? "danger" : "success"}>
+                  Bank: {availableQuestionCount} savol
+                </Badge>
+                <Badge variant="secondary">
+                  Simulyatsiya: {configuredQuestionCount} savol / {configuredDurationMinutes} daqiqa
+                </Badge>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <label className="space-y-2">
+                  <span className="text-sm font-medium">Savollar soni</span>
+                  <Input
+                    type="number"
+                    min={10}
+                    max={120}
+                    value={simulationExamSettingsDraft.question_count}
+                    onChange={(event) =>
+                      setSimulationExamSettingsDraft((draft) => ({ ...draft, question_count: event.target.value }))
+                    }
+                  />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-sm font-medium">Taymer (daqiqa)</span>
+                  <Input
+                    type="number"
+                    min={5}
+                    max={180}
+                    value={simulationExamSettingsDraft.duration_minutes}
+                    onChange={(event) =>
+                      setSimulationExamSettingsDraft((draft) => ({ ...draft, duration_minutes: event.target.value }))
+                    }
+                  />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-sm font-medium">Mistake limit</span>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={simulationExamSettingsDraft.mistake_limit}
+                    onChange={(event) =>
+                      setSimulationExamSettingsDraft((draft) => ({ ...draft, mistake_limit: event.target.value }))
+                    }
+                  />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-sm font-medium">Violation limit</span>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={simulationExamSettingsDraft.violation_limit}
+                    onChange={(event) =>
+                      setSimulationExamSettingsDraft((draft) => ({ ...draft, violation_limit: event.target.value }))
+                    }
+                  />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-sm font-medium">Cooldown days</span>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={60}
+                    value={simulationExamSettingsDraft.cooldown_days}
+                    onChange={(event) =>
+                      setSimulationExamSettingsDraft((draft) => ({ ...draft, cooldown_days: event.target.value }))
+                    }
+                  />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-sm font-medium">Fast unlock price</span>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={5000}
+                    value={simulationExamSettingsDraft.fast_unlock_price}
+                    onChange={(event) =>
+                      setSimulationExamSettingsDraft((draft) => ({ ...draft, fast_unlock_price: event.target.value }))
+                    }
+                  />
+                </label>
+              </div>
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--muted)]/35 px-4 py-3 text-sm text-[var(--muted-foreground)]">
+                {hasQuestionBankGap
+                  ? `Ogohlantirish: bankda hozir ${availableQuestionCount} ta savol bor, lekin simulyatsiya ${configuredQuestionCount} ta savol so'ramoqda. Start paytida yetarli bank bo'lmasa session ochilmaydi.`
+                  : "Bu konfiguratsiya barcha yangi simulation sessionlar uchun darhol ishlaydi. Foydalanuvchi boshlagan mavjud sessionlar eski taymer bilan davom etadi."}
+              </div>
+            </div>
+          </AdminSurface>
+
+          <AdminSurface
+            title="Landing About video"
+            description="Dastlabki sahifadagi `about` tugmasi shu video URL ni ochadi. Fayl yuklasangiz URL maydoni avtomatik to'ladi."
+            action={
+              <Button disabled={settingsBusy} onClick={() => void saveSimulationExamSettings()}>
+                About videosini saqlash
+              </Button>
+            }
+          >
+            <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.95fr)]">
+              <div className="space-y-4">
+                <label className="space-y-2">
+                  <span className="text-sm font-medium">Video URL</span>
+                  <Input
+                    value={simulationExamSettingsDraft.intro_video_url}
+                    onChange={(event) =>
+                      setSimulationExamSettingsDraft((draft) => ({ ...draft, intro_video_url: event.target.value }))
+                    }
+                    placeholder="https://.../intro.mp4"
+                  />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-sm font-medium">Video yuklash</span>
+                  <Input
+                    type="file"
+                    accept="video/mp4,video/webm,video/quicktime"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) {
+                        void uploadIntroVideoAsset(file);
+                      }
+                    }}
+                  />
+                </label>
+                <div className="rounded-2xl border border-[var(--border)] bg-[var(--muted)]/35 px-4 py-3 text-sm text-[var(--muted-foreground)]">
+                  `about` bosilganda landing modal aynan shu videoni yuklaydi. Fayl yuklangandan keyin `About videosini saqlash`
+                  tugmasini bosing.
+                </div>
+              </div>
+              <div className="rounded-[1.25rem] border border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_96%,var(--background))] p-4">
+                <p className="text-sm font-medium text-[var(--foreground)]">Joriy preview</p>
+                {simulationExamSettingsDraft.intro_video_url ? (
+                  <video
+                    controls
+                    className="mt-3 aspect-video w-full rounded-[1rem] border border-[var(--border)] bg-black object-cover"
+                    src={simulationExamSettingsDraft.intro_video_url}
+                  >
+                    Brauzer video previewni qo&apos;llab-quvvatlamaydi.
+                  </video>
+                ) : (
+                  <div className="mt-3 flex aspect-video items-center justify-center rounded-[1rem] border border-dashed border-[var(--border)] bg-[var(--muted)]/35 px-4 text-center text-sm text-[var(--muted-foreground)]">
+                    Hali about videosi biriktirilmagan.
+                  </div>
+                )}
+              </div>
+            </div>
+          </AdminSurface>
+        </TabsContent>
+      </Tabs>
       <Modal open={testModalOpen} onClose={() => setTestModalOpen(false)} title={editingTest ? "Test tahrirlash" : "Yangi test"}>
         <div className="grid gap-4 md:grid-cols-2">
           <label className="space-y-2 md:col-span-2">
@@ -729,6 +1489,15 @@ export function AdminContentPage() {
             <Input value={lessonDraft.sort_order} onChange={(event) => setLessonDraft((draft) => ({ ...draft, sort_order: event.target.value }))} />
           </label>
           <label className="space-y-2 md:col-span-2">
+            <span className="text-sm font-medium">Category</span>
+            <Select value={selectedLessonCategoryId} onChange={(event) => applyLessonCategory(event.target.value)}>
+              <option value="">Custom</option>
+              {categoryOptions.map((category) => (
+                <option key={category.id} value={category.id}>{category.name}</option>
+              ))}
+            </Select>
+          </label>
+          <label className="space-y-2 md:col-span-2">
             <span className="text-sm font-medium">Content URL</span>
             <Input value={lessonDraft.content_url} onChange={(event) => setLessonDraft((draft) => ({ ...draft, content_url: event.target.value }))} />
           </label>
@@ -807,7 +1576,18 @@ export function AdminContentPage() {
           </label>
           <label className="space-y-2">
             <span className="text-sm font-medium">Category id</span>
-            <Select value={questionDraft.category_id} onChange={(event) => setQuestionDraft((draft) => ({ ...draft, category_id: event.target.value }))}>
+            <Select
+              value={questionDraft.category_id}
+              onChange={(event) => {
+                const nextCategoryId = event.target.value;
+                const matchedCategory = categoryOptions.find((category) => category.id === nextCategoryId);
+                setQuestionDraft((draft) => ({
+                  ...draft,
+                  category_id: nextCategoryId,
+                  category: matchedCategory?.name ?? draft.category,
+                }));
+              }}
+            >
               <option value="">Tanlanmagan</option>
               {categoryOptions.map((category) => (
                 <option key={category.id} value={category.id}>{category.name}</option>
@@ -878,7 +1658,7 @@ export function AdminContentPage() {
                 }
               >
                 <FileImage className="h-4 w-4" />
-                To'g'ri
+                To&apos;g&apos;ri
               </Button>
               <Button
                 size="sm"
@@ -891,7 +1671,7 @@ export function AdminContentPage() {
                 }
               >
                 <Trash2 className="h-4 w-4" />
-                O'chirish
+                O&apos;chirish
               </Button>
             </div>
           ))}
@@ -908,3 +1688,4 @@ export function AdminContentPage() {
     </div>
   );
 }
+

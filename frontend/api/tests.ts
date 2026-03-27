@@ -1,6 +1,5 @@
 import type {
   AttemptResult,
-  FreeTestStatus,
   LearningSession,
   TestDetail,
   TestListItem,
@@ -24,10 +23,6 @@ export function getTestDetail(testId: string) {
   return apiRequest<TestDetail>(`/tests/${testId}`, { method: "GET" });
 }
 
-export function getFreeTestStatus() {
-  return apiRequest<FreeTestStatus>("/tests/free-status", { method: "GET" });
-}
-
 export function startAttempt(payload: {
   test_id: string;
   pressure_mode?: boolean;
@@ -39,22 +34,7 @@ export function startAttempt(payload: {
   });
 }
 
-export function startAdaptive(payload: {
-  question_count: number;
-  pressure_mode?: boolean;
-  topic_preferences?: string[];
-}) {
-  return apiRequest<TestSession>("/tests/adaptive/start", {
-    method: "POST",
-    body: payload,
-  });
-}
-
-export function startFreeRandom() {
-  return apiRequest<TestSession>("/tests/free-random", { method: "GET" });
-}
-
-export function startLearningSession(questionCount = 20, topicPreferences?: string[]) {
+export function startLearningSession(questionCount: 20 | 30 | 40 = 20, topicPreferences?: string[]) {
   return apiRequest<LearningSession>("/learning/session", {
     method: "POST",
     body: {
