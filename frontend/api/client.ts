@@ -1,12 +1,9 @@
 "use client";
 
-import { AUTH_EXPIRED_EVENT } from "@/lib/auth-session";
+import { AUTH_EXPIRED_EVENT, hasAuthPresenceCookie } from "@/lib/auth-session";
 
 const ABSOLUTE_HTTP_URL = /^https?:\/\//i;
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE ||
-  process.env.NEXT_PUBLIC_API_URL ||
-  "/api";
+const DEFAULT_BROWSER_API_BASE = "/api";
 
 export class ApiError extends Error {
   status: number;
@@ -88,14 +85,46 @@ function sleep(delayMs: number) {
   return new Promise((resolve) => window.setTimeout(resolve, delayMs));
 }
 
+function getDefaultApiBaseUrl() {
+  if (typeof window !== "undefined") {
+    return DEFAULT_BROWSER_API_BASE;
+  }
+
+  return (
+    process.env.NEXT_PUBLIC_API_BASE ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    DEFAULT_BROWSER_API_BASE
+  );
+}
+
+function normalizeBaseUrl(baseUrl?: string) {
+  const candidate = baseUrl?.trim() ? baseUrl : getDefaultApiBaseUrl();
+
+  if (typeof window === "undefined" || !ABSOLUTE_HTTP_URL.test(candidate)) {
+    return candidate;
+  }
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.origin === window.location.origin) {
+      return parsed.pathname || "/";
+    }
+  } catch {
+    return DEFAULT_BROWSER_API_BASE;
+  }
+
+  return DEFAULT_BROWSER_API_BASE;
+}
+
 function buildUrl(
   path: string,
   query?: RequestOptions["query"],
-  baseUrl: string = API_BASE,
+  baseUrl?: string,
 ) {
-  const base = ABSOLUTE_HTTP_URL.test(baseUrl)
-    ? new URL(baseUrl)
-    : new URL(baseUrl, typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
+  const resolvedBaseUrl = normalizeBaseUrl(baseUrl);
+  const base = ABSOLUTE_HTTP_URL.test(resolvedBaseUrl)
+    ? new URL(resolvedBaseUrl)
+    : new URL(resolvedBaseUrl, typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
 
   const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
   const prefix = base.pathname.endsWith("/") ? base.pathname : `${base.pathname}/`;
@@ -109,13 +138,17 @@ function buildUrl(
     }
   }
 
-  return ABSOLUTE_HTTP_URL.test(baseUrl)
+  return ABSOLUTE_HTTP_URL.test(resolvedBaseUrl)
     ? base.toString()
     : `${base.pathname}${base.search}`;
 }
 
 async function tryRefreshSession() {
   if (typeof window === "undefined") {
+    return false;
+  }
+
+  if (!hasAuthPresenceCookie()) {
     return false;
   }
 
