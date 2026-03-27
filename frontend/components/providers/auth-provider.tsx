@@ -4,7 +4,11 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import { getCurrentUser, logout as logoutRequest } from "@/api/auth";
 import { ApiError } from "@/api/client";
-import { AUTH_EXPIRED_EVENT, AUTH_PRESENCE_COOKIE } from "@/lib/auth-session";
+import {
+  AUTH_EXPIRED_EVENT,
+  clearAuthPresenceCookie,
+  hasAuthPresenceCookie,
+} from "@/lib/auth-session";
 import type { User } from "@/types/user";
 
 const AUTH_USER_SNAPSHOT_KEY = "autotest.auth.user.v1";
@@ -21,24 +25,6 @@ type AuthContextValue = {
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-
-function hasAuthPresenceCookie() {
-  if (typeof document === "undefined") {
-    return false;
-  }
-
-  return document.cookie
-    .split(";")
-    .map((entry) => entry.trim())
-    .some((entry) => entry === `${AUTH_PRESENCE_COOKIE}=1`);
-}
-
-function clearAuthPresenceCookie() {
-  if (typeof document === "undefined") {
-    return;
-  }
-  document.cookie = `${AUTH_PRESENCE_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax`;
-}
 
 function readStoredUser() {
   if (typeof window === "undefined") {
