@@ -20,14 +20,16 @@ from models.attempt import Attempt
 from models.attempt_answer import AttemptAnswer
 from models.question import Question
 from models.user_question_history import UserQuestionHistory
-from models.user_skill import UserSkill
+from models.user_topic_stats import UserTopicStats
+from services.learning.intelligence_metrics import attempt_score_percent
 
 
 @dataclass
 class PassProbabilitySignals:
     recent_accuracy: float
-    difficulty_performance: float
     mastery_coverage: float
+    retention_strength: float
+    difficulty_performance: float
     weak_topic_ratio: float
     topic_balance: float
     learning_trend: float
@@ -35,7 +37,7 @@ class PassProbabilitySignals:
 
 @dataclass
 class PassProbabilityResult:
-    pass_probability: float  # 0.05 .. 0.95
+    pass_probability: float  # 0 .. 100
     signals: PassProbabilitySignals
 
 
@@ -45,30 +47,45 @@ def _clamp(value: float, low: float, high: float) -> float:
 
 def calculate_pass_probability_from_signals(
     recent_accuracy: float,
-    difficulty_performance: float,
     mastery_coverage: float,
+    retention_strength: float,
+    difficulty_performance: float,
     weak_topic_ratio: float,
     learning_trend: float,
-    retention_strength: float | None = None,
-    topic_balance: float | None = None,
+    topic_balance: float = 0.5,
 ) -> float:
     """
-    Logistic probability from normalized signals.
-
-    Extra dashboard signals are accepted for API compatibility. The
-    current lightweight model does not weight them directly yet.
-    Returns 0.05 .. 0.95
+    Stable pass probability from normalized signals.
+    Accuracy, coverage, and retention form the core signal while
+    difficulty, topic balance, weak-topic load, and short-term trend
+    apply smaller adjustments to avoid sudden jumps.
     """
-    z = (
-        (0.35 * _clamp(recent_accuracy, 0.0, 1.0))
-        + (0.25 * _clamp(difficulty_performance, 0.0, 1.0))
-        + (0.20 * _clamp(mastery_coverage, 0.0, 1.0))
-        - (0.15 * _clamp(weak_topic_ratio, 0.0, 1.0))
-        + (0.05 * _clamp(learning_trend, -1.0, 1.0))
+    accuracy = _clamp(recent_accuracy, 0.0, 1.0)
+    coverage = _clamp(mastery_coverage, 0.0, 1.0)
+    retention = _clamp(retention_strength, 0.0, 1.0)
+    difficulty = _clamp(difficulty_performance, 0.0, 1.0)
+    weak_ratio = _clamp(weak_topic_ratio, 0.0, 1.0)
+    balance = _clamp(topic_balance, 0.0, 1.0)
+    trend = _clamp(learning_trend, -1.0, 1.0)
+
+    core_signal = (accuracy * 0.45) + (coverage * 0.30) + (retention * 0.25)
+    support_signal = (
+        (difficulty - 0.5) * 0.10
+        + (balance - 0.5) * 0.08
+        - (weak_ratio * 0.10)
+        + (trend * 0.05)
     )
-    _ = retention_strength, topic_balance
-    probability = 1.0 / (1.0 + exp(-z))
+    anchor_signal = (accuracy * 0.40) + (coverage * 0.35) + (retention * 0.25)
+    probability = (core_signal * 0.72) + ((0.5 + support_signal) * 0.18) + (anchor_signal * 0.10)
     return _clamp(probability, 0.05, 0.95)
+
+
+def _retention_ratio(last_attempt_at: datetime | None, now_utc: datetime) -> float:
+    if last_attempt_at is None:
+        return 0.45
+    normalized = last_attempt_at if last_attempt_at.tzinfo is not None else last_attempt_at.replace(tzinfo=timezone.utc)
+    days_since = max((now_utc - normalized).total_seconds() / 86_400, 0.0)
+    return _clamp(exp(-days_since / 21.0), 0.15, 1.0)
 
 
 async def calculate_pass_probability(
@@ -78,15 +95,18 @@ async def calculate_pass_probability(
     request_id: str | None = None,
 ) -> PassProbabilityResult:
     """
-    Calculate user pass probability with a lightweight logistic model.
+    Calculate user pass probability with a stable blended model.
 
-    Model:
-      z = 0.35 * recent_accuracy
-        + 0.25 * difficulty_performance
-        + 0.20 * mastery_coverage
-        - 0.15 * weak_topic_ratio
-        + 0.05 * learning_trend
-      p = sigmoid(z), clamped to [0.05, 0.95]
+    Core signal:
+      - recent accuracy
+      - mastery coverage
+      - retention strength
+
+    Smaller adjustments:
+      - hard-question performance
+      - topic balance
+      - weak-topic load
+      - short-term learning trend
     """
     attempts_rows = (
         await db.execute(
@@ -102,7 +122,7 @@ async def calculate_pass_probability(
     ).all()
 
     score_pcts = [
-        (float(row.score) / max(1, int(row.question_count or 20))) * 100.0
+        attempt_score_percent(row.score, row.question_count)
         for row in attempts_rows
     ]
 
@@ -157,34 +177,33 @@ async def calculate_pass_probability(
 
     weak_topic_ratio = 0.0
     topic_balance = 0.0
-    skill_rows = (
+    retention_strength = 0.45
+    now_utc = datetime.now(timezone.utc)
+    topic_rows = (
         await db.execute(
-            select(UserSkill.skill_score, UserSkill.last_practice_at)
-            .where(UserSkill.user_id == user_id)
+            select(UserTopicStats.accuracy_rate, UserTopicStats.total_attempts, UserTopicStats.last_attempt_at)
+            .where(UserTopicStats.user_id == user_id)
             .limit(100)
         )
     ).all()
-    if skill_rows:
-        now_utc = datetime.now(timezone.utc)
-        effective_skills: list[float] = []
+    if topic_rows:
+        effective_accuracies: list[float] = []
+        retention_values: list[float] = []
         weak_count = 0
-        for row in skill_rows:
-            last_practice = row.last_practice_at
-            if last_practice is None:
-                days_since = 30.0
-            else:
-                if last_practice.tzinfo is None:
-                    last_practice = last_practice.replace(tzinfo=timezone.utc)
-                days_since = max(0.0, (now_utc - last_practice).total_seconds() / 86400.0)
-            decay = exp(-0.05 * days_since)
-            effective = _clamp(float(row.skill_score) * decay, 0.0, 1.0)
-            effective_skills.append(effective)
-            if effective < 0.55:
+        for row in topic_rows:
+            attempts = max(int(row.total_attempts or 0), 0)
+            coverage = _clamp(attempts / 12.0, 0.0, 1.0)
+            accuracy = _clamp(float(row.accuracy_rate or 0.0), 0.0, 1.0)
+            effective = _clamp((accuracy * 0.8) + (coverage * 0.2), 0.0, 1.0)
+            effective_accuracies.append(effective)
+            retention_values.append(_retention_ratio(row.last_attempt_at, now_utc))
+            if accuracy < 0.55:
                 weak_count += 1
-        weak_topic_ratio = _clamp(weak_count / len(effective_skills), 0.0, 1.0)
+        weak_topic_ratio = _clamp(weak_count / len(effective_accuracies), 0.0, 1.0)
+        retention_strength = _clamp(sum(retention_values) / len(retention_values), 0.0, 1.0)
 
-        avg_eff = sum(effective_skills) / len(effective_skills)
-        variance = sum((value - avg_eff) ** 2 for value in effective_skills) / len(effective_skills)
+        avg_eff = sum(effective_accuracies) / len(effective_accuracies)
+        variance = sum((value - avg_eff) ** 2 for value in effective_accuracies) / len(effective_accuracies)
         std_dev = variance ** 0.5
         topic_balance = _clamp(1.0 - std_dev, 0.0, 1.0)
 
@@ -198,18 +217,21 @@ async def calculate_pass_probability(
 
     probability = calculate_pass_probability_from_signals(
         recent_accuracy=recent_accuracy,
-        difficulty_performance=difficulty_performance,
         mastery_coverage=mastery_coverage,
+        retention_strength=retention_strength,
+        difficulty_performance=difficulty_performance,
         weak_topic_ratio=weak_topic_ratio,
         learning_trend=learning_trend,
+        topic_balance=topic_balance,
     )
 
     result = PassProbabilityResult(
-        pass_probability=round(probability, 4),
+        pass_probability=round(probability * 100.0, 1),
         signals=PassProbabilitySignals(
             recent_accuracy=round(recent_accuracy, 4),
-            difficulty_performance=round(difficulty_performance, 4),
             mastery_coverage=round(mastery_coverage, 4),
+            retention_strength=round(retention_strength, 4),
+            difficulty_performance=round(difficulty_performance, 4),
             weak_topic_ratio=round(weak_topic_ratio, 4),
             topic_balance=round(topic_balance, 4),
             learning_trend=round(learning_trend, 4),
@@ -224,7 +246,7 @@ async def calculate_pass_probability(
             user_id=user_id,
             metadata={
                 "probability": result.pass_probability,
-                "topics_count": len(skill_rows),
+                "topics_count": len(topic_rows),
             },
         )
 

@@ -4,11 +4,13 @@ import type { SimulationHistoryResponse, SimulationStartResponse } from "@/types
 export function startSimulationExam() {
   return apiRequest<SimulationStartResponse>("/simulation/start", {
     method: "POST",
+    baseUrl: "/api",
   });
 }
 
 export function getSimulationHistory() {
   return apiRequest<SimulationHistoryResponse>("/simulation/history", {
     method: "GET",
+    baseUrl: "/api",
   });
 }

@@ -7,7 +7,7 @@ export function Badge({
   variant = "secondary",
   ...props
 }: React.HTMLAttributes<HTMLDivElement> & {
-  variant?: "default" | "secondary" | "outline" | "success" | "warning";
+  variant?: "default" | "secondary" | "outline" | "success" | "warning" | "danger" | "muted";
 }) {
   const styles = {
     default: "bg-[var(--accent-brand)] text-[var(--accent-brand-contrast)]",
@@ -15,6 +15,8 @@ export function Badge({
     outline: "border border-[var(--border-color)] bg-transparent text-[var(--text-primary)]",
     success: "border border-[color-mix(in_srgb,var(--accent-green)_26%,transparent)] bg-[var(--accent-green-soft)] text-[var(--accent-green)]",
     warning: "border border-[color-mix(in_srgb,var(--accent-yellow)_26%,transparent)] bg-[var(--accent-yellow-soft)] text-[var(--accent-yellow)]",
+    danger: "border border-[color-mix(in_srgb,var(--accent-red)_26%,transparent)] bg-[var(--accent-red-soft)] text-[var(--accent-red)]",
+    muted: "border border-[var(--border-color)] bg-[var(--card-bg-muted)] text-[var(--muted-foreground)]",
   };
 
   return (

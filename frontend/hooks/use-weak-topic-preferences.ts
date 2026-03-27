@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import type { TopicMasteryState } from "@/lib/learning";
@@ -53,15 +53,22 @@ export function useWeakTopicPreferences(items: WeakTopicPreference[]) {
     false,
   );
   const [improvedTopics, setImprovedTopics] = useState<Record<string, true>>({});
-
-  const availableTopics = useMemo(() => items.map((item) => item.topic), [items]);
+  const normalizedItems = useMemo(
+    () =>
+      items.map((item) => ({
+        topic: item.topic,
+        state: item.state,
+        normalizedTopic: normalizeTopic(item.topic),
+      })),
+    [items],
+  );
   const availableTopicSet = useMemo(
-    () => new Set(availableTopics.map((topic) => normalizeTopic(topic))),
-    [availableTopics],
+    () => new Set(normalizedItems.map((item) => item.normalizedTopic)),
+    [normalizedItems],
   );
 
   useEffect(() => {
-    if (!selectedHydrated || items.length === 0) {
+    if (!selectedHydrated || normalizedItems.length === 0) {
       return;
     }
 
@@ -72,28 +79,28 @@ export function useWeakTopicPreferences(items: WeakTopicPreference[]) {
       }
       return filtered;
     });
-  }, [availableTopicSet, selectedHydrated, setSelectedTopics]);
+  }, [availableTopicSet, normalizedItems.length, selectedHydrated, setSelectedTopics]);
 
   useEffect(() => {
-    if (!selectedHydrated || !initializedHydrated || initialized || items.length === 0) {
+    if (!selectedHydrated || !initializedHydrated || initialized || normalizedItems.length === 0) {
       return;
     }
 
-    setSelectedTopics(uniqueTopics(items.slice(0, 2).map((item) => item.topic)));
+    setSelectedTopics(uniqueTopics(normalizedItems.slice(0, 2).map((item) => item.topic)));
     setInitialized(true);
-  }, [initialized, initializedHydrated, items, selectedHydrated, setInitialized, setSelectedTopics]);
+  }, [initialized, initializedHydrated, normalizedItems, selectedHydrated, setInitialized, setSelectedTopics]);
 
   useEffect(() => {
-    if (!topicStatesHydrated || items.length === 0) {
+    if (!topicStatesHydrated || normalizedItems.length === 0) {
       return;
     }
 
-    const visibleTopicKeys = new Set(items.map((item) => normalizeTopic(item.topic)));
+    const visibleTopicKeys = new Set(normalizedItems.map((item) => item.normalizedTopic));
     const nextTopicStates: Record<string, TopicMasteryState> = {};
     const nextImprovedTopics: Record<string, true> = {};
 
-    for (const item of items) {
-      const key = normalizeTopic(item.topic);
+    for (const item of normalizedItems) {
+      const key = item.normalizedTopic;
       const previousState = topicStates[key];
       nextTopicStates[key] = item.state;
       if (previousState && stateRank[item.state] > stateRank[previousState]) {
@@ -129,44 +136,69 @@ export function useWeakTopicPreferences(items: WeakTopicPreference[]) {
       return;
     }
 
-    setImprovedTopics(nextImprovedTopics);
+    const frameId = window.requestAnimationFrame(() => {
+      setImprovedTopics(nextImprovedTopics);
+    });
     const timeoutId = window.setTimeout(() => setImprovedTopics({}), 1000);
-    return () => window.clearTimeout(timeoutId);
-  }, [items, setTopicStates, topicStates, topicStatesHydrated]);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.clearTimeout(timeoutId);
+    };
+  }, [normalizedItems, setTopicStates, topicStates, topicStatesHydrated]);
 
   const selectedTopicSet = useMemo(
     () => new Set(selectedTopics.map((topic) => normalizeTopic(topic))),
     [selectedTopics],
   );
+  const isSelected = useCallback(
+    (topic: string) => selectedTopicSet.has(normalizeTopic(topic)),
+    [selectedTopicSet],
+  );
+  const isImproved = useCallback(
+    (topic: string) => Boolean(improvedTopics[normalizeTopic(topic)]),
+    [improvedTopics],
+  );
 
-  const toggleTopic = (topic: string) => {
+  const toggleTopic = useCallback((topic: string) => {
+    const normalizedTopic = normalizeTopic(topic);
+    if (!availableTopicSet.has(normalizedTopic)) {
+      return;
+    }
+
     setSelectedTopics((current) => {
-      const normalizedTopic = normalizeTopic(topic);
       const exists = current.some((item) => normalizeTopic(item) === normalizedTopic);
       if (exists) {
         return current.filter((item) => normalizeTopic(item) !== normalizedTopic);
       }
       return [...current, topic];
     });
-  };
+  }, [availableTopicSet, setSelectedTopics]);
 
-  const rememberTopic = (topic: string) => {
+  const rememberTopic = useCallback((topic: string) => {
+    const normalizedTopic = normalizeTopic(topic);
+    if (!availableTopicSet.has(normalizedTopic)) {
+      return;
+    }
+
     setSelectedTopics((current) => {
-      if (current.some((item) => normalizeTopic(item) === normalizeTopic(topic))) {
+      if (current.some((item) => normalizeTopic(item) === normalizedTopic)) {
         return current;
       }
       return [...current, topic];
     });
-  };
+  }, [availableTopicSet, setSelectedTopics]);
 
-  const clearSelection = () => setSelectedTopics([]);
+  const clearSelection = useCallback(() => setSelectedTopics([]), [setSelectedTopics]);
 
-  return {
-    selectedTopics,
-    isSelected: (topic: string) => selectedTopicSet.has(normalizeTopic(topic)),
-    isImproved: (topic: string) => Boolean(improvedTopics[normalizeTopic(topic)]),
-    toggleTopic,
-    rememberTopic,
-    clearSelection,
-  };
+  return useMemo(
+    () => ({
+      selectedTopics,
+      isSelected,
+      isImproved,
+      toggleTopic,
+      rememberTopic,
+      clearSelection,
+    }),
+    [clearSelection, isImproved, isSelected, rememberTopic, selectedTopics, toggleTopic],
+  );
 }

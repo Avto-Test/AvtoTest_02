@@ -3,15 +3,11 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
-import { getReviewQueue } from "@/api/analytics";
-import { getFreeTestStatus } from "@/api/tests";
 import { AppShell } from "@/components/app-shell";
 import { PracticeSessionExperience } from "@/components/practice-session-experience";
 import { useProgressSnapshot } from "@/components/providers/progress-provider";
-import { useAsyncResource } from "@/hooks/use-async-resource";
 import { useWeakTopicPreferences } from "@/hooks/use-weak-topic-preferences";
 import { useUser } from "@/hooks/use-user";
-import { buildAdaptiveStudyPlan } from "@/lib/adaptive-study-plan";
 import { resolveTopicMasteryState } from "@/lib/learning";
 import { startIntelligentPracticeSession, type PracticeSessionPayload } from "@/lib/practice-session";
 import { cn, formatRelativeTime } from "@/lib/utils";
@@ -91,7 +87,6 @@ function DashboardExProgress({
 
 function activityLabel(testTitle: string) {
   const normalizedTitle = testTitle.toLowerCase();
-  if (normalizedTitle.includes("random")) return "Random mashq";
   if (normalizedTitle.includes("lesson") || normalizedTitle.includes("learning")) return "Dars o'rganildi";
   return "Mashq bajarildi";
 }
@@ -173,21 +168,12 @@ function CircularProgress({ value }: { value: number }) {
 }
 
 function DashboardContent() {
-  const { user, authenticated, loading: authLoading, error: authError, refreshUser } = useUser();
+  const { authenticated, loading: authLoading, error: authError, refreshUser } = useUser();
   const progress = useProgressSnapshot();
   const [startingSession, setStartingSession] = useState(false);
   const [activeSession, setActiveSession] = useState<PracticeSessionPayload | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [animateBars, setAnimateBars] = useState(false);
-
-  const freeStatusResource = useAsyncResource(getFreeTestStatus, [authenticated], authenticated, {
-    cacheKey: "tests:free-status",
-    staleTimeMs: 15_000,
-  });
-  const reviewQueueResource = useAsyncResource(getReviewQueue, [authenticated], authenticated, {
-    cacheKey: "analytics:review-queue",
-    staleTimeMs: 30_000,
-  });
 
   const dashboardData = progress.dashboard;
   const weakTopics = useMemo(() => {
@@ -234,10 +220,8 @@ function DashboardContent() {
     setStartingSession(true);
     try {
       const response = await startIntelligentPracticeSession({
-        dashboard: progress.dashboard,
-        user,
-        freeStatus: freeStatusResource.data,
         topicPreferences: sessionTopics,
+        questionCount: 20,
       });
       setActiveSession(response);
     } catch (error) {
@@ -306,40 +290,25 @@ function DashboardContent() {
   const { dashboard, summary } = progress;
   const recentActivity = summary.last_attempts.slice(0, 1);
   const focusTopic = currentFocusTopic ?? "Chorrahalar";
-  const adaptivePlan = buildAdaptiveStudyPlan({
-    dashboard,
-    summary,
-    reviewQueue: reviewQueueResource.data,
-    focusTopic,
-    lessonTitle: null,
-    lessonTopic: focusTopic,
-  });
   const readinessScore = clampPercent(
     dashboard.simulation_status?.readiness_gate_score ?? dashboard.overview.readiness_score,
   );
-  const nextActionQuestionCount = Math.max(1, dashboard.recommendation.question_count || adaptivePlan.practiceQuestionCount || 12);
-  const quickSessionMinutes = Math.max(3, Math.round(nextActionQuestionCount / 4));
+  const nextActionQuestionCount = Math.max(5, Math.min(10, dashboard.recommendation.question_count || 8));
+  const quickSessionMinutes = Math.max(8, Math.round(nextActionQuestionCount * 1.5));
   const successChance = clampPercent(
     dashboard.overview.pass_probability ?? dashboard.overview.readiness_score ?? 70,
   );
-  const completionPercent = clampPercent(adaptivePlan.completionPercent);
-  const dailyPlanProgress = `${adaptivePlan.completedTaskCount}/${adaptivePlan.totalTaskCount}`;
   const highlightedTopic = focusTopic;
-  const highlightedTopicQuestionCount = dashboard.recommendation.kind === "repeated_mistake" ? 5 : Math.max(5, dashboard.recommendation.question_count || 12);
-  const rewardPolicy = dashboard.reward_policy ?? {
-    learning_path_answer: { min_coins: 3, max_coins: 5 },
-    learning_path_step: { min_coins: 10, max_coins: 20 },
-    learning_path_perfect_bonus: 15,
-    regular_test_answer: { min_coins: 1, max_coins: 2 },
-    regular_test_completion_bonus: 0,
-  };
-  const nextActionReason = dashboard.recommendation.reason ?? "Tizim siz uchun eng foydali keyingi mashqni tanladi.";
+  const highlightedTopicQuestionCount =
+    dashboard.recommendation.kind === "repeated_mistake"
+      ? 5
+      : Math.max(5, Math.min(10, dashboard.recommendation.question_count || 8));
   const nextActionLabel =
     dashboard.recommendation.kind === "repeated_mistake"
       ? "Takrorlangan xatolar"
       : dashboard.recommendation.kind === "weak_topic"
         ? "Zaif mavzu"
-        : "Umumiy mashq";
+        : "Review mashqi";
   const recentActivityItem = recentActivity[0] ?? null;
   const RecentActivityIcon = recentActivityItem ? activityIcon(activityLabel(recentActivityItem.test_title)) : FileText;
 
@@ -383,20 +352,13 @@ function DashboardContent() {
               <div className="mt-1 flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-lg shadow-emerald-500/30">
                 <Target className="size-5 text-white" />
               </div>
-              <div>
-                <h2 className="text-2xl font-bold text-foreground md:text-3xl">Keyingi qadam:</h2>
-                <h3 className="text-xl font-bold text-foreground md:text-2xl">
-                  {`${nextActionQuestionCount} ta savol mashqni boshlang`}
-                </h3>
-                <p className="mt-2 max-w-2xl text-sm text-muted-foreground">{nextActionReason}</p>
-              </div>
             </div>
 
             <div className="mb-6 ml-11 flex items-center gap-2 text-muted-foreground">
               <Clock className="size-4" />
-              <span className="text-sm">{`(${quickSessionMinutes} daqiqa`}</span>
+              <span className="text-sm">{`${quickSessionMinutes} daqiqa`}</span>
               <span className="text-sm">•</span>
-              <span className="text-sm">{`${successChance}% success chance)`}</span>
+              <span className="text-sm">{`${successChance}% o'tish ehtimoli`}</span>
             </div>
 
             <div className="mb-6 flex items-center gap-4">
@@ -409,10 +371,9 @@ function DashboardContent() {
                 {startingSession ? "Yuklanmoqda..." : "Mashqni boshlash"}
               </DashboardExButton>
 
-              <button className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground" type="button">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <X className="size-4" />
-                <span>Bugungi fokus tayyor</span>
-              </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-3 gap-4">
@@ -422,39 +383,24 @@ function DashboardContent() {
               </div>
 
               <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Kunlik Reja</p>
-                <p className="text-2xl font-bold text-foreground">{dailyPlanProgress}</p>
+                <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Qayta ko&apos;rish</p>
+                <p className="text-2xl font-bold text-foreground">{dashboard.overview.total_due}</p>
               </div>
 
               <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Bajarilgan</p>
-                <div className="flex items-center gap-2">
-                  <DashboardExProgress value={completionPercent} className="flex-1 bg-white/10" />
-                  <span className="text-lg font-bold text-foreground">{`${completionPercent}%`}</span>
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">{`Bajarilgan: ${completionPercent}%`}</p>
+                <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Fokus</p>
+                <p className="text-lg font-bold text-foreground">{highlightedTopic}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {dashboard.recommendation.kind === "repeated_mistake" ? "Takrorlangan xatolar ustuvor" : "Zaif mavzu ustuvor"}
+                </p>
               </div>
             </div>
 
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <div className="rounded-xl border border-emerald-500/15 bg-emerald-500/8 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Learning Path</p>
-                <p className="mt-2 text-sm text-foreground">
-                  {`+${rewardPolicy.learning_path_answer.min_coins}-${rewardPolicy.learning_path_answer.max_coins} coin / to'g'ri javob`}
-                </p>
-                <p className="mt-1 text-sm text-foreground">
-                  {`+${rewardPolicy.learning_path_step.min_coins}-${rewardPolicy.learning_path_step.max_coins} coin / bosqich`}
-                </p>
-                <p className="mt-1 text-xs text-emerald-300">{`PERFECT bonus: +${rewardPolicy.learning_path_perfect_bonus} coin`}</p>
               </div>
 
               <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Oddiy test</p>
-                <p className="mt-2 text-sm text-foreground">
-                  {`+${rewardPolicy.regular_test_answer.min_coins}-${rewardPolicy.regular_test_answer.max_coins} coin / to'g'ri javob`}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">Katta yakuniy bonus yo&apos;q.</p>
-                <p className="mt-1 text-xs text-muted-foreground">Tezkor urinish uchun yaxshi, lekin reward pastroq.</p>
               </div>
             </div>
           </div>
@@ -467,7 +413,7 @@ function DashboardContent() {
                 <Bot className="size-4 text-emerald-400" />
               </div>
               <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                AI Coach
+                Fokus tavsiyasi
               </span>
             </div>
 
@@ -484,6 +430,9 @@ function DashboardContent() {
                   <span className="text-sm font-medium text-emerald-400">{`${highlightedTopicQuestionCount} savol`}</span>
                   <ChevronRight className="ml-auto size-4 text-muted-foreground" />
                 </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Xatolar va qayta ko&apos;rish navbatiga tushgan savollar shu mavzudan boshlanadi.
+                </p>
               </div>
 
               <DashboardExButton
@@ -499,7 +448,7 @@ function DashboardContent() {
           <div className="h-full rounded-2xl border border-border bg-card p-5">
             <div className="mb-4 flex items-center gap-2">
               <div className="size-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-sm font-medium text-muted-foreground">Signal level:</span>
+              <span className="text-sm font-medium text-muted-foreground">Real imtihon:</span>
             </div>
 
             <div className="mb-4 flex items-center gap-3">
@@ -567,7 +516,7 @@ function DashboardContent() {
                       }
                     >
                       <ArrowRight className="mr-1.5 size-4" />
-                      {isHighlighted ? "5 savol mashq" : "Mashq qilish"}
+                      {isHighlighted ? "Review mashq" : "Mashq qilish"}
                     </DashboardExButton>
                   </div>
                 );

@@ -1,11 +1,14 @@
 "use client";
 
-import { Activity, BarChart3, Crown, Database, Sparkles } from "lucide-react";
+import { BookOpen, ClipboardList, Crown, RefreshCcw, Users } from "lucide-react";
+import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 
-import { getAdminAnalyticsSummary, getAdminTopTests } from "@/api/admin";
+import { getAdminAnalyticsSummary } from "@/api/admin";
+import { AdminStatCard, AdminSurface } from "@/features/admin/admin-ui";
 import { useAsyncResource } from "@/hooks/use-async-resource";
 import { Badge } from "@/shared/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Button } from "@/shared/ui/button";
+import { ChartContainer } from "@/shared/ui/chart-container";
 import { EmptyState } from "@/shared/ui/empty-state";
 import { ErrorState } from "@/shared/ui/error-state";
 import { PageHeader } from "@/shared/ui/page-header";
@@ -17,131 +20,224 @@ function LoadingState() {
     <div className="space-y-6">
       <Skeleton className="h-24 rounded-[1.75rem] bg-[var(--muted)]" />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Skeleton className="h-32 rounded-[1.75rem] bg-[var(--muted)]" />
-        <Skeleton className="h-32 rounded-[1.75rem] bg-[var(--muted)]" />
-        <Skeleton className="h-32 rounded-[1.75rem] bg-[var(--muted)]" />
-        <Skeleton className="h-32 rounded-[1.75rem] bg-[var(--muted)]" />
+        {Array.from({ length: 4 }).map((_, index) => (
+          <Skeleton key={index} className="h-32 rounded-[1.75rem] bg-[var(--muted)]" />
+        ))}
       </div>
-      <Skeleton className="h-[28rem] rounded-[1.75rem] bg-[var(--muted)]" />
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Skeleton className="h-[28rem] rounded-[1.75rem] bg-[var(--muted)]" />
+        <Skeleton className="h-[28rem] rounded-[1.75rem] bg-[var(--muted)]" />
+      </div>
     </div>
   );
 }
 
 export function AdminAnalyticsPage() {
   const summary = useAsyncResource(getAdminAnalyticsSummary, [], true);
-  const topTests = useAsyncResource(() => getAdminTopTests(12), [], true);
 
-  if (summary.loading || topTests.loading) {
+  if (summary.loading) {
     return <LoadingState />;
   }
 
-  if (summary.error || topTests.error || !summary.data || !topTests.data) {
+  if (summary.error || !summary.data) {
     return (
       <ErrorState
         title="Admin analytics yuklanmadi"
         description="Analitika ma'lumotini olib bo'lmadi."
-        error={summary.error ?? topTests.error}
-        onRetry={() => {
-          void summary.reload();
-          void topTests.reload();
-        }}
+        error={summary.error}
+        onRetry={() => void summary.reload()}
       />
     );
   }
 
   const stats = [
-    { label: "Jami foydalanuvchi", value: summary.data.total_users, icon: Database, tone: "text-[var(--primary)]" },
-    { label: "Premium user", value: summary.data.premium_users, icon: Crown, tone: "text-amber-500" },
-    { label: "Testlar", value: summary.data.total_tests, icon: BarChart3, tone: "text-[var(--accent)]" },
-    { label: "Urinishlar", value: summary.data.total_attempts, icon: Activity, tone: "text-sky-500" },
+    {
+      label: "Jami foydalanuvchi",
+      value: summary.data.total_users,
+      icon: Users,
+      caption: `${summary.data.active_users} faol foydalanuvchi`,
+      tone: "neutral" as const,
+    },
+    {
+      label: "Pullik foydalanuvchi",
+      value: summary.data.premium_users,
+      icon: Crown,
+      caption: "Faol pullik subscriptionga ega foydalanuvchilar",
+      tone: "warning" as const,
+    },
+    {
+      label: "Savollar",
+      value: summary.data.total_questions,
+      icon: BookOpen,
+      caption: "Question bank bo'yicha umumiy qamrov",
+      tone: "primary" as const,
+    },
+    {
+      label: "Arizalar",
+      value: summary.data.total_applications,
+      icon: ClipboardList,
+      caption: `${summary.data.pending_applications} pending, ${summary.data.new_leads} yangi lead`,
+      tone: "success" as const,
+    },
   ];
+
+  const userHealth = [
+    { label: "Faol", value: summary.data.active_users },
+    { label: "Pullik", value: summary.data.premium_users },
+    { label: "Faol emas", value: Math.max(summary.data.total_users - summary.data.active_users, 0) },
+  ];
+
+  const platformVolume = [
+    { label: "Users", value: summary.data.total_users },
+    { label: "Questions", value: summary.data.total_questions },
+    { label: "Applications", value: summary.data.total_applications },
+    { label: "Pending", value: summary.data.pending_applications },
+    { label: "New leads", value: summary.data.new_leads },
+  ];
+
+  const categoryPerformance = (summary.data.category_performance ?? []).map((item) => ({
+    name: item.category,
+    accuracy: item.accuracy,
+    attempts: item.attempts,
+    questionCount: item.question_count,
+  }));
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Analitika"
-        description="Platforma statistikasi va eng faol testlar shu yerda ko'rinadi."
+        description="Question bank, kategoriya natijalari va admin oqimlari bo'yicha aniq backend snapshot."
+        action={
+          <Button onClick={() => void summary.reload()}>
+            <RefreshCcw className="h-4 w-4" />
+            Yangilash
+          </Button>
+        }
       />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {stats.map((item) => (
-          <Card key={item.label}>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-sm text-[var(--muted-foreground)]">{item.label}</p>
-                  <p className="mt-2 text-3xl font-bold">{item.value}</p>
-                </div>
-                <div className={`rounded-2xl bg-[var(--muted)] p-3 ${item.tone}`}>
-                  <item.icon className="h-6 w-6" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <AdminStatCard
+            key={item.label}
+            label={item.label}
+            value={item.value}
+            caption={item.caption}
+            icon={item.icon}
+            tone={item.tone}
+          />
         ))}
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-        <Card className="min-w-0">
-          <CardHeader>
-            <CardTitle>Top testlar</CardTitle>
-            <CardDescription>Attempt count va average score bo‘yicha yuqori testlar</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {topTests.data.length === 0 ? (
-              <EmptyState title="Top testlar yo'q" description="Hozircha yetarli ma'lumot topilmadi." />
+      <div className="flex flex-wrap gap-2">
+        <Badge variant="muted">Hozirgi holat</Badge>
+        <Badge variant="outline">Test terminlari olib tashlangan</Badge>
+        <Badge variant="success">Backend aggregations only</Badge>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        <AdminSurface title="Foydalanuvchi holati" description="Faol, pullik va faol bo'lmagan foydalanuvchilar kesimi.">
+          <div className="p-5">
+            <ChartContainer className="h-72" minHeight={288}>
+              {({ width, height }) => (
+                <BarChart width={width} height={height} data={userHealth} margin={{ top: 12, right: 12, left: -12, bottom: 0 }}>
+                  <CartesianGrid vertical={false} stroke="color-mix(in oklab,var(--border) 90%,transparent)" />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                  <Tooltip
+                    cursor={{ fill: "color-mix(in oklab,var(--muted) 85%,transparent)" }}
+                    contentStyle={{
+                      borderRadius: 16,
+                      border: "1px solid var(--border)",
+                      background: "var(--card)",
+                    }}
+                  />
+                  <Bar dataKey="value" radius={[12, 12, 4, 4]} fill="var(--accent-green)" />
+                </BarChart>
+              )}
+            </ChartContainer>
+          </div>
+        </AdminSurface>
+
+        <AdminSurface title="Platforma hajmi" description="Murakkab chart emas, joriy biznes ko'rsatkichlari.">
+          <div className="p-5">
+            <ChartContainer className="h-72" minHeight={288}>
+              {({ width, height }) => (
+                <BarChart width={width} height={height} data={platformVolume} margin={{ top: 12, right: 12, left: -8, bottom: 0 }}>
+                  <CartesianGrid vertical={false} stroke="color-mix(in oklab,var(--border) 90%,transparent)" />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                  <Tooltip
+                    contentStyle={{
+                      borderRadius: 16,
+                      border: "1px solid var(--border)",
+                      background: "var(--card)",
+                    }}
+                  />
+                  <Bar dataKey="value" radius={[12, 12, 4, 4]} fill="var(--accent-yellow)" />
+                </BarChart>
+              )}
+            </ChartContainer>
+          </div>
+        </AdminSurface>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+        <AdminSurface title="Kategoriya natijalari" description="Eng past aniqlikka ega kategoriyalar birinchi o'rinda.">
+          <div className="p-5">
+            {categoryPerformance.length === 0 ? (
+              <EmptyState title="Kategoriya signali yo'q" description="Category performance paydo bo'lishi uchun ko'proq javoblar kerak." />
             ) : (
-              <div className="overflow-x-auto">
+              <ChartContainer className="h-80" minHeight={320}>
+                {({ width, height }) => (
+                  <BarChart width={width} height={height} data={categoryPerformance} margin={{ top: 12, right: 12, left: -8, bottom: 0 }}>
+                    <CartesianGrid vertical={false} stroke="color-mix(in oklab,var(--border) 90%,transparent)" />
+                    <XAxis dataKey="name" tickLine={false} axisLine={false} interval={0} angle={-18} textAnchor="end" height={72} />
+                    <YAxis allowDecimals={false} tickLine={false} axisLine={false} domain={[0, 100]} />
+                    <Tooltip
+                      contentStyle={{
+                        borderRadius: 16,
+                        border: "1px solid var(--border)",
+                        background: "var(--card)",
+                      }}
+                    />
+                    <Bar dataKey="accuracy" radius={[12, 12, 4, 4]} fill="var(--accent-red)" />
+                  </BarChart>
+                )}
+              </ChartContainer>
+            )}
+          </div>
+        </AdminSurface>
+
+        <AdminSurface title="Kategoriya jadvali" description="Aniqlik, urinishlar va savollar qamrovi bir joyda.">
+          <div className="p-5">
+            {categoryPerformance.length === 0 ? (
+              <EmptyState title="Kategoriya signali yo'q" description="Hozircha jadval uchun yetarli ma'lumot topilmadi." />
+            ) : (
+              <div className="overflow-hidden rounded-[1.35rem] border border-[var(--border)]/70">
                 <Table>
-                  <thead>
+                  <thead className="bg-[var(--muted)]/35">
                     <tr>
-                      <TableHead>Test</TableHead>
+                      <TableHead>Kategoriya</TableHead>
+                      <TableHead>Aniqlik</TableHead>
                       <TableHead>Urinishlar</TableHead>
-                      <TableHead>Average score</TableHead>
+                      <TableHead>Savollar</TableHead>
                     </tr>
                   </thead>
                   <tbody>
-                    {topTests.data.map((item) => (
-                      <TableRow key={item.test_id}>
-                        <TableCell>{item.title}</TableCell>
-                        <TableCell>{item.attempts_count}</TableCell>
-                        <TableCell>{item.average_score.toFixed(2)}%</TableCell>
+                    {categoryPerformance.map((item) => (
+                      <TableRow key={item.name}>
+                        <TableCell>{item.name}</TableCell>
+                        <TableCell>{typeof item.accuracy === "number" ? `${item.accuracy.toFixed(1)}%` : "Ma'lumot yo'q"}</TableCell>
+                        <TableCell>{item.attempts}</TableCell>
+                        <TableCell>{item.questionCount}</TableCell>
                       </TableRow>
                     ))}
                   </tbody>
                 </Table>
               </div>
             )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Coverage eslatmasi</CardTitle>
-            <CardDescription>Legacy paneldagi farqlar</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="rounded-2xl border border-[var(--border)] p-4">
-              <div className="flex items-center gap-3">
-                <div className="rounded-2xl bg-[color-mix(in_oklab,var(--accent)_14%,transparent)] p-3 text-[var(--accent)]">
-                  <Sparkles className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="font-medium">Analitika tayyor</p>
-                  <p className="text-sm text-[var(--muted-foreground)]">
-                    Bu sahifa asosiy ko'rsatkichlar va top testlar bilan ishlaydi.
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="rounded-2xl border border-[var(--border)] p-4">
-              <Badge variant="warning">Legacy mismatch</Badge>
-              <p className="mt-3 text-sm leading-7 text-[var(--muted-foreground)]">
-                Sahifa asosiy analitika va test natijalariga e'tibor qaratadi.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+          </div>
+        </AdminSurface>
       </div>
     </div>
   );

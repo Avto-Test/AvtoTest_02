@@ -29,9 +29,14 @@ export const LEARNING_PATH_TOPICS: LearningPathTopicDefinition[] = [
     aliases: ["yo'l chiziqlari", "yol chiziqlari", "chiziqlar"],
   },
   {
+    topic: "Chorrahalar",
+    description: "Chorrahalarda ustuvorlik va xavfsiz qaror qabul qilish.",
+    aliases: ["chorrahalar", "chorraha", "ustuvorlik", "yo'l ustuvorligi", "yol ustuvorligi"],
+  },
+  {
     topic: "Yo'l harakati qoidalari",
     description: "Asosiy qoidalar, ustuvorlik va xavfsiz harakat tamoyillari.",
-    aliases: ["yo'l harakati qoidalari", "yol harakati qoidalari", "yo'l qoidalari", "qoidalar"],
+    aliases: ["yo'l harakati qoidalari", "yol harakati qoidalari", "yo'l qoidalari", "qoidalar", "qoida"],
   },
   {
     topic: "Haydovchi madaniyati",
@@ -41,21 +46,23 @@ export const LEARNING_PATH_TOPICS: LearningPathTopicDefinition[] = [
   {
     topic: "Transport boshqaruvi",
     description: "Avtomobilni boshqarish, manevr va holatni nazorat qilish.",
-    aliases: ["transport boshqaruvi", "boshqaruv", "manevr", "transport"],
+    aliases: ["transport boshqaruvi", "boshqaruv", "manevr", "transport", "parkovka", "burilish qoidalari", "burilish"],
   },
   {
     topic: "Yo'l xavfsizligi",
     description: "Xatarni oldindan ko'rish va xavfsiz yechim topish.",
-    aliases: ["yo'l xavfsizligi", "yol xavfsizligi", "xavfsizlik"],
+    aliases: ["yo'l xavfsizligi", "yol xavfsizligi", "xavfsizlik", "xavfsiz haydash", "masofa saqlash", "tezlik rejimi", "qorong'ida haydash", "favqulodda vaziyat"],
   },
 ];
 
 export const PRIMARY_TOPIC_VISUALIZATION_TOPICS = [
   "Yo'l belgilari",
+  "Chorrahalar",
   "Yo'l chiziqlari",
   "Haydovchi madaniyati",
   "Transport boshqaruvi",
   "Yo'l harakati qoidalari",
+  "Yo'l xavfsizligi",
 ] as const;
 
 function normalizeTopic(value?: string | null) {

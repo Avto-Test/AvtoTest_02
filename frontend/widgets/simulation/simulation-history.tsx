@@ -6,16 +6,8 @@ import { formatRelativeTime } from "@/lib/utils";
 import { Badge } from "@/shared/ui/badge";
 import type { SimulationHistoryItem } from "@/types/simulation";
 
-type ExtendedSimulationHistoryItem = SimulationHistoryItem & {
-  question_count?: number;
-  disqualified?: boolean;
-  disqualification_reason?: string | null;
-  violation_count?: number;
-};
-
 type SimulationHistoryProps = {
-  items: ExtendedSimulationHistoryItem[];
-  questionCount: number;
+  items: SimulationHistoryItem[];
 };
 
 function humanizeViolationEvent(eventType?: string | null) {
@@ -62,7 +54,7 @@ function formatSimulationDate(value: string) {
   }).format(new Date(value));
 }
 
-export function SimulationHistory({ items, questionCount }: SimulationHistoryProps) {
+export function SimulationHistory({ items }: SimulationHistoryProps) {
   if (items.length === 0) {
     return (
       <div className="flex min-h-0 flex-col rounded-[14px] border border-[color-mix(in_oklab,var(--border)_76%,transparent)] bg-[color-mix(in_oklab,var(--card)_72%,transparent)] p-3 shadow-[0_20px_42px_-32px_rgba(15,23,42,0.18)] backdrop-blur-[12px]">
@@ -89,8 +81,7 @@ export function SimulationHistory({ items, questionCount }: SimulationHistoryPro
       <p className="mt-1 text-[13px] leading-[1.3] text-[var(--text-secondary)]">Oxirgi 3 ta simulyatsiya natijasi.</p>
       <div className="mt-3 space-y-2 overflow-y-auto pr-1">
         {items.map((entry) => {
-          const totalQuestions = entry.question_count ?? questionCount;
-          const correctCount = Math.max(0, totalQuestions - entry.mistakes);
+          const correctCount = Math.max(0, entry.question_count - entry.mistakes);
           const failureReason = humanizeFailureReason(entry.disqualification_reason);
           return (
             <div
@@ -100,7 +91,7 @@ export function SimulationHistory({ items, questionCount }: SimulationHistoryPro
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-[15px] font-bold leading-[1.3] text-[var(--text-primary)]">{correctCount} / {totalQuestions}</p>
+                      <p className="text-[15px] font-bold leading-[1.3] text-[var(--text-primary)]">{correctCount} / {entry.question_count}</p>
                     <Badge variant={entry.passed ? "success" : "warning"}>
                       {entry.passed ? "O'tdi" : "O'tmadi"}
                     </Badge>
@@ -131,13 +122,13 @@ export function SimulationHistory({ items, questionCount }: SimulationHistoryPro
                   </div>
                 </div>
               </div>
-              {!entry.passed && (failureReason || entry.violation_count) ? (
+              {!entry.passed && (failureReason || entry.violation_count > 0) ? (
                 <div className="mt-3 rounded-[12px] border border-[color-mix(in_oklab,var(--border)_68%,transparent)] bg-[color-mix(in_oklab,var(--card)_92%,transparent)] px-3 py-2">
                   <p className="text-[11px] text-[var(--text-tertiary)]">Sabab</p>
                   <p className="mt-1 text-[12px] font-medium leading-[1.35] text-[var(--text-primary)]">
                     {failureReason ?? "Imtihon muvaffaqiyatsiz yakunlandi."}
                   </p>
-                  {entry.violation_count ? (
+                  {entry.violation_count > 0 ? (
                     <p className="mt-1 text-[11px] leading-[1.35] text-[var(--text-secondary)]">
                       Qoidabuzarliklar: {entry.violation_count} ta
                     </p>

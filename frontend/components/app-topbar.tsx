@@ -7,7 +7,11 @@ import { Coins, Flame, LayoutDashboard, LogOut, Menu, Search, Settings2, Shield,
 import { type CSSProperties, type MouseEvent, useEffect, useRef, useState } from "react";
 
 import { useProgressSnapshot } from "@/components/providers/progress-provider";
+import { useExperimentVariant } from "@/components/providers/experiment-provider";
 import { useUser } from "@/hooks/use-user";
+import { trackEvent } from "@/lib/analytics";
+import { getUpgradeButtonLabel, UPGRADE_BUTTON_EXPERIMENT } from "@/lib/experiments";
+import { isSuperAdmin } from "@/lib/rbac";
 import { cn } from "@/lib/utils";
 import { formatSimulationCountdown } from "@/lib/simulation-status";
 import { NotificationBell } from "@/components/notification-bell";
@@ -105,7 +109,9 @@ function PremiumCtaWord({ label }: { label: string }) {
 
 function PremiumAction({ isPremium }: { isPremium: boolean }) {
   const router = useRouter();
-  const label = isPremium ? "Premium" : "Upgrade";
+  const variant = useExperimentVariant(UPGRADE_BUTTON_EXPERIMENT, "A");
+  const upgradeLabel = getUpgradeButtonLabel(variant);
+  const label = isPremium ? "Premium" : upgradeLabel;
   const [isLaunching, setIsLaunching] = useState(false);
   const navigationTimer = useRef<number | null>(null);
 
@@ -137,6 +143,10 @@ function PremiumAction({ isPremium }: { isPremium: boolean }) {
 
     event.preventDefault();
     setIsLaunching(true);
+    void trackEvent("premium_click", {
+      source: "app_topbar",
+      cta_label: upgradeLabel,
+    });
 
     navigationTimer.current = window.setTimeout(() => {
       navigationTimer.current = null;
@@ -176,7 +186,7 @@ function PremiumAction({ isPremium }: { isPremium: boolean }) {
     <Link
       href="/upgrade"
       className={cn("premium-cta premium-cta-upgrade hidden sm:inline-flex", isLaunching && "premium-cta-arming")}
-      aria-label="Upgrade"
+      aria-label={upgradeLabel}
       aria-disabled={isLaunching}
       onClick={handleUpgradeClick}
     >
@@ -208,10 +218,12 @@ function ProfileMenu({
   user,
   membershipLabel,
   onLogout,
+  upgradeActionLabel,
 }: {
   user: User;
   membershipLabel: string;
   onLogout: () => void;
+  upgradeActionLabel: string;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -231,14 +243,14 @@ function ProfileMenu({
       icon: Settings2,
     },
     {
-      href: user.is_admin ? "/admin" : "/dashboard",
-      label: user.is_admin ? "Admin" : "Dashboard",
-      description: user.is_admin ? "Boshqaruv paneli" : "Asosiy panelga qaytish",
-      icon: user.is_admin ? Shield : LayoutDashboard,
+      href: isSuperAdmin(user) ? "/admin" : "/dashboard",
+      label: isSuperAdmin(user) ? "Admin" : "Dashboard",
+      description: isSuperAdmin(user) ? "Boshqaruv paneli" : "Asosiy panelga qaytish",
+      icon: isSuperAdmin(user) ? Shield : LayoutDashboard,
     },
     {
       href: "/upgrade",
-      label: user.is_premium ? "Premium" : "Upgrade",
+      label: user.is_premium ? "Premium" : upgradeActionLabel,
       description: user.is_premium ? "Tarif va imkoniyatlarni ko'rish" : "Premium imkoniyatlarni ochish",
       icon: Sparkles,
     },
@@ -398,9 +410,11 @@ function ProfileMenu({
 export function AppTopbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
   const { user, logout, loading: authLoading, error: authError, sessionPresent } = useUser();
   const { gamification } = useProgressSnapshot();
+  const upgradeVariant = useExperimentVariant(UPGRADE_BUTTON_EXPERIMENT, "A");
   const pathname = usePathname();
   const [searchFocused, setSearchFocused] = useState(false);
   const isPremiumUser = Boolean(user?.is_premium);
+  const upgradeActionLabel = getUpgradeButtonLabel(upgradeVariant);
   const showLevelPanel = Boolean(user) && pathname !== "/simulation";
   const showSessionFallback = !user && (authLoading || sessionPresent || Boolean(authError));
 
@@ -409,7 +423,7 @@ export function AppTopbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
   const coinLabel = gamification ? `${gamification.coins.balance}` : "--";
   const streakLabel = gamification ? `${gamification.streak.current_streak}` : "--";
   const activeBoost = gamification?.active_xp_boost ?? null;
-  const membershipLabel = user?.is_admin ? "Administrator" : isPremiumUser ? "Premium" : "Bepul";
+  const membershipLabel = isSuperAdmin(user) ? "Administrator" : isPremiumUser ? "Premium" : "Bepul";
 
   return (
     <header className="sticky top-0 z-20 overflow-visible border-b border-[var(--border)]/60 bg-[color-mix(in_oklab,var(--background)_88%,transparent)] backdrop-blur-lg">
@@ -467,7 +481,12 @@ export function AppTopbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
             <ThemeToggle />
             {user ? <NotificationBell /> : null}
             {user ? (
-              <ProfileMenu user={user} membershipLabel={membershipLabel} onLogout={() => void logout()} />
+              <ProfileMenu
+                user={user}
+                membershipLabel={membershipLabel}
+                upgradeActionLabel={upgradeActionLabel}
+                onLogout={() => void logout()}
+              />
             ) : showSessionFallback ? (
               <>
                 <div className="hidden items-center gap-2 rounded-[0.95rem] border border-[var(--border)]/70 bg-[color-mix(in_oklab,var(--card)_70%,transparent)] px-3 py-2 text-[0.78rem] text-[var(--text-secondary)] sm:inline-flex">

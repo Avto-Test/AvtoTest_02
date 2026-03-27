@@ -1,3 +1,8 @@
+import type {
+  DrivingSchoolLeadStatus,
+  DrivingSchoolPartnerApplicationStatus,
+} from "@/types/statuses";
+
 export interface SchoolListItem {
   id: string;
   slug: string;
@@ -102,7 +107,7 @@ export interface SchoolLead {
   requested_category?: string | null;
   comment?: string | null;
   source: string;
-  status: string;
+  status: DrivingSchoolLeadStatus;
   created_at: string;
   updated_at: string;
   school_name?: string | null;
@@ -121,13 +126,14 @@ export interface SchoolPartnerApplicationCreate {
 export interface SchoolPartnerApplication {
   id: string;
   user_id?: string | null;
+  linked_school_id?: string | null;
   school_name: string;
   city: string;
   responsible_person: string;
   phone: string;
   email: string;
   note?: string | null;
-  status: string;
+  status: DrivingSchoolPartnerApplicationStatus;
   reviewed_by_id?: string | null;
   reviewed_at?: string | null;
   created_at: string;

@@ -3,9 +3,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import {
-  AlertTriangle,
   ArrowRight,
-  Bot,
   Circle,
   Check,
   ChevronLeft,
@@ -15,22 +13,19 @@ import {
   Eye,
   Gauge,
   LoaderCircle,
-  MessageSquareQuote,
-  ShieldCheck,
   Sparkles,
-  Target,
   Timer,
   XCircle,
 } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
-import { getCoachExplanation } from "@/api/ai-coach";
 import { submitLockedAnswer } from "@/api/answers";
 import { trackAnalyticsEvent } from "@/api/analytics";
 import { rewardPracticeAnswer } from "@/api/gamification";
 import { submitAttempt } from "@/api/tests";
 import { NotificationBell } from "@/components/notification-bell";
+import { useSessionAntiCheat } from "@/hooks/use-session-anti-cheat";
 import { useOptionalProgressSnapshot } from "@/components/providers/progress-provider";
 import { useShellUi } from "@/components/shell-ui-context";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -39,7 +34,7 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Modal } from "@/shared/ui/modal";
-import type { CoachExplanation, LiveRewardResponse } from "@/types/practice";
+import type { LiveRewardResponse } from "@/types/practice";
 import type { AttemptResult, DetailedAnswer, PublicQuestion } from "@/types/test";
 import type { User } from "@/types/user";
 
@@ -58,53 +53,9 @@ type QuestionRuntimeState = {
   isCorrect: boolean | null;
   locked: boolean;
   phase: "saving" | "resolved";
-  coach: CoachExplanation | null;
   reward: LiveRewardResponse | null;
   message: string | null;
 };
-
-type SafetyHint = {
-  eyebrow: string;
-  title: string;
-  tipTitle: string;
-  bullets: string[];
-};
-
-const SAFETY_HINTS: SafetyHint[] = [
-  {
-    eyebrow: "Xavfsiz haydash",
-    title: "Dars bo'yicha maslahat",
-    tipTitle: "Xavfsiz haydash",
-    bullets: [
-      "Oldingi avtomobil bilan xavfsiz oralig'ni doim saqlang.",
-      "Yomg'ir va tuman paytida masofani yanada oshiring.",
-      "Oyna va ko'zgularni toza ushlab, ko'rinishni yo'qotmang.",
-      "Tez javob emas, xavfsiz javob ustuvor bo'lsin.",
-    ],
-  },
-  {
-    eyebrow: "Nazorat birinchi",
-    title: "Haydash bo'yicha eslatma",
-    tipTitle: "Nazorat birinchi",
-    bullets: [
-      "Xavf boshlanishidan oldin tezlikni pasaytiring.",
-      "Belgi, chiziq va ustuvorlikni birinchi tekshiring.",
-      "Iloji bo'lsa tormozni to'g'ri chiziqda bosing.",
-      "Ko'rinish yomonlashsa, tezlik emas masofa hal qiladi.",
-    ],
-  },
-  {
-    eyebrow: "Imtihon fokusi",
-    title: "E'tibor nuqtasi",
-    tipTitle: "Imtihon fokusi",
-    bullets: [
-      "Avval butun vaziyatni ko'ring, keyin variantlarni o'qing.",
-      "Eng katta xavf manbasini birinchi toping.",
-      "Bir tanish so'zga aldanib shoshma-shosharlik qilmang.",
-      "Joy, ko'rinish va ustuvorlikni himoya qiladigan variantni tanlang.",
-    ],
-  },
-];
 
 const PRACTICE_SESSION_THEME_DARK = {
   "--page-gradient": "linear-gradient(180deg, #050708 0%, #071012 54%, #050708 100%)",
@@ -312,6 +263,10 @@ function getQuestionPresentation(question: PublicQuestion, index: number) {
   };
 }
 
+function optionFunctionLabel(index: number) {
+  return `F${index + 1}`;
+}
+
 type ScenarioFact = {
   label: string;
   tone: "neutral" | "success" | "warning";
@@ -337,31 +292,6 @@ function getScenarioFacts(question: PublicQuestion): ScenarioFact[] {
       icon: "speed",
     },
   ];
-}
-
-function buildFallbackCoach({
-  question,
-  correctText,
-  selectedText,
-  isCorrect,
-}: {
-  question: PublicQuestion;
-  correctText: string;
-  selectedText: string;
-  isCorrect: boolean;
-}): CoachExplanation {
-  const topicLabel = question.topic || question.category || "yo'l qoidasi";
-  return {
-    title: "AI Coach",
-    explanation: `"${correctText}" to'g'ri javob, chunki u ${topicLabel.toLowerCase()} vaziyatida eng xavfsiz qarorni bildiradi.`,
-    selected_feedback: isCorrect
-      ? null
-      : `Siz "${selectedText}" variantini tanladingiz. Bu ko'p uchraydigan chalg'ituvchi javob, lekin xavfsiz qoida baribir to'g'ri variantga olib keladi.`,
-    driving_tip: "Javob berishdan oldin ko'rinish, masofa va ustuvorlik signallarini birga tekshiring.",
-    motivation: isCorrect
-      ? "Yaxshi bajarilgan ish!"
-      : "Yaxshi ketayapsiz, keyingi savolda xavfsiz belgilarga ko'proq e'tibor bering.",
-  };
 }
 
 function completionMessage(result: AttemptResult) {
@@ -648,143 +578,6 @@ function MediaPanel({
   );
 }
 
-function CoachPanel({
-  state,
-  question,
-}: {
-  state: QuestionRuntimeState | undefined;
-  question: PublicQuestion;
-}) {
-  const hint = SAFETY_HINTS[(question.text.length + question.answer_options.length) % SAFETY_HINTS.length];
-  const statusTone = !state?.locked ? "neutral" : state.isCorrect ? "success" : "danger";
-  const headline = state?.locked
-    ? state.isCorrect
-      ? "To'g'ri qaror tasdiqlandi"
-      : "Qaror qayta ko'rib chiqilishi kerak"
-    : "AI coach sahnani kuzatmoqda";
-  const explanation = state?.locked
-    ? state.coach?.explanation ?? "AI coach siz tanlagan javob bo'yicha tushuntirish beradi."
-    : hint.bullets[0];
-  const drivingTip = state?.locked
-    ? state.coach?.driving_tip ?? hint.bullets[1]
-    : "Variant tanlangach, to'g'ri qaror va amaliy tavsiya shu panelda ko'rsatiladi.";
-  const feedbackMessage = state?.locked
-    ? state.message ?? (state.isCorrect ? "Javob xavfsiz mantiq bilan mos keldi." : "Chalg'ituvchi variant tanlangan.")
-    : "AI coach real vaqt rejimida xavfsizlik signallarini ajratadi.";
-  const selectedFeedback = state?.coach?.selected_feedback;
-  const ToneIcon = statusTone === "success" ? ShieldCheck : statusTone === "danger" ? AlertTriangle : Target;
-
-  return (
-    <div className="relative overflow-hidden rounded-[1.45rem] border border-[var(--border-color)] bg-[var(--session-surface-strong)] p-3 shadow-[var(--shadow-elevated)] backdrop-blur-2xl">
-      <div className="absolute -right-16 top-[-18%] h-40 w-40 rounded-full bg-[rgba(52,209,122,0.1)] blur-3xl" />
-      <div className="absolute -left-12 bottom-[-22%] h-32 w-32 rounded-full bg-[rgba(246,182,79,0.06)] blur-3xl" />
-      <div className="absolute inset-[1px] rounded-[calc(1.55rem-1px)] border border-white/[0.05] bg-[linear-gradient(180deg,rgba(255,255,255,0.02),transparent_18%,rgba(255,255,255,0.015)_100%)]" />
-
-      <div className="relative grid gap-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.92fr)_minmax(0,0.92fr)] xl:items-stretch">
-        <div className="flex min-w-0 items-start gap-3 rounded-[1.1rem] border border-white/[0.08] bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] px-3 py-2.5 shadow-[var(--shadow-soft)]">
-          <div className="relative mt-0.5">
-            <div className="absolute inset-0 rounded-[1rem] bg-[rgba(52,209,122,0.2)] blur-xl" />
-            <div
-              className={cn(
-                "relative flex h-9 w-9 shrink-0 items-center justify-center rounded-[0.9rem] border backdrop-blur-xl",
-                statusTone === "success" && "border-[rgba(52,209,122,0.24)] bg-[linear-gradient(180deg,rgba(52,209,122,0.24),rgba(52,209,122,0.08))] text-[var(--accent-green)]",
-                statusTone === "danger" && "border-[rgba(255,106,114,0.22)] bg-[linear-gradient(180deg,rgba(255,106,114,0.22),rgba(255,106,114,0.08))] text-[var(--accent-red)]",
-                statusTone === "neutral" && "border-white/[0.08] bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] text-[var(--foreground)]",
-              )}
-            >
-              <Bot className="h-4 w-4" />
-            </div>
-          </div>
-
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-[8px] font-semibold uppercase tracking-[0.24em] text-[var(--muted-foreground)]">
-                <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent-green)] shadow-[0_0_12px_rgba(52,209,122,0.9)]" />
-                AI Coach
-              </span>
-              <span
-                className={cn(
-                  "inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[8px] font-semibold uppercase tracking-[0.18em]",
-                  statusTone === "success" && "border-[rgba(52,209,122,0.18)] bg-[rgba(52,209,122,0.1)] text-[var(--accent-green)]",
-                  statusTone === "danger" && "border-[rgba(255,106,114,0.18)] bg-[rgba(255,106,114,0.1)] text-[var(--accent-red)]",
-                  statusTone === "neutral" && "border-white/[0.08] bg-white/[0.04] text-[var(--muted-foreground)]",
-                )}
-              >
-                <ToneIcon className="h-3 w-3" />
-                {statusTone === "success" ? "Tasdiqlandi" : statusTone === "danger" ? "Tuzatish" : "Kuzatmoqda"}
-              </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-[rgba(52,209,122,0.18)] bg-[rgba(52,209,122,0.1)] px-2.5 py-1 text-[10px] font-semibold text-[var(--accent-green)]">
-                <Sparkles className="h-3 w-3" />
-                Jonli yordam
-              </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold text-[var(--foreground)]/78">
-                <Target className="h-3 w-3 text-[var(--accent-yellow)]" />
-                {question.topic || question.category || hint.tipTitle}
-              </span>
-            </div>
-
-            <h3 className="mt-2 text-[1rem] font-semibold tracking-[-0.03em] text-[var(--foreground)]">{headline}</h3>
-            <p className="mt-1 text-[0.84rem] leading-5 text-[var(--foreground)]/82">{feedbackMessage}</p>
-          </div>
-        </div>
-
-        <div className="relative overflow-hidden rounded-[1.2rem] border border-white/[0.08] bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] px-3.5 py-3 shadow-[var(--shadow-soft)]">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(52,209,122,0.12),transparent_34%)]" />
-          <div className="relative flex items-start gap-2.5">
-            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.04] text-[var(--accent-green)]">
-              <MessageSquareQuote className="h-3.5 w-3.5" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-[9px] font-semibold uppercase tracking-[0.24em] text-[var(--muted-foreground)]">Asosiy tahlil</p>
-              <p className="mt-1 text-[0.78rem] leading-5 text-[var(--foreground)]/92">{explanation}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-1">
-          <div className="relative overflow-hidden rounded-[1.15rem] border border-white/[0.08] bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] px-3.5 py-3 shadow-[var(--shadow-soft)]">
-            <div className="flex items-start gap-2.5">
-              <div
-                className={cn(
-                  "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
-                  selectedFeedback ? "bg-[rgba(255,106,114,0.12)] text-[var(--accent-red)]" : "bg-[rgba(246,182,79,0.12)] text-[var(--accent-yellow)]",
-                )}
-              >
-                {selectedFeedback ? <AlertTriangle className="h-3.5 w-3.5" /> : <ShieldCheck className="h-3.5 w-3.5" />}
-              </div>
-              <div className="min-w-0">
-                <p className="text-[9px] font-semibold uppercase tracking-[0.24em] text-[var(--muted-foreground)]">
-                  {selectedFeedback ? "Tanlov tahlili" : "Signal"}
-                </p>
-                <p
-                  className={cn(
-                    "mt-1 text-[0.77rem] leading-5",
-                    selectedFeedback ? "text-[var(--accent-red)]/92" : "text-[var(--foreground)]/78",
-                  )}
-                >
-                  {selectedFeedback ?? hint.bullets[2]}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="relative overflow-hidden rounded-[1.15rem] border border-white/[0.08] bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015))] px-3.5 py-3 shadow-[var(--shadow-soft)]">
-            <div className="flex items-start gap-2.5">
-              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[rgba(52,209,122,0.12)] text-[var(--accent-green)]">
-                <Target className="h-3.5 w-3.5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[9px] font-semibold uppercase tracking-[0.24em] text-[var(--muted-foreground)]">Keyingi fokus</p>
-                <p className="mt-1 text-[0.77rem] leading-5 text-[var(--foreground)]/82">{drivingTip}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ResultSummary({
   result,
   onExit,
@@ -937,20 +730,6 @@ export function PracticeSessionExperience({
     });
   }, [currentQuestion.id]);
 
-  useEffect(() => {
-    if (result) {
-      return;
-    }
-
-    const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [result]);
-
   function captureCurrentQuestionTime() {
     const elapsed = Math.max(0, Date.now() - questionStartedAtRef.current);
     responseTimesRef.current[currentQuestion.id] = (responseTimesRef.current[currentQuestion.id] ?? 0) + elapsed;
@@ -1031,7 +810,7 @@ export function PracticeSessionExperience({
     return () => window.clearInterval(timer);
   }, [result]);
 
-  async function handleSelect(optionId: string) {
+  const handleSelect = useCallback(async (optionId: string) => {
     if (result || finalizing) {
       return;
     }
@@ -1042,8 +821,7 @@ export function PracticeSessionExperience({
       return;
     }
 
-    const selectedOption = question.answer_options.find((option) => option.id === optionId);
-    if (!selectedOption) {
+    if (!question.answer_options.find((option) => option.id === optionId)) {
       return;
     }
 
@@ -1060,7 +838,6 @@ export function PracticeSessionExperience({
         isCorrect: null,
         locked: false,
         phase: "saving",
-        coach: null,
         reward: null,
         message: "Javob saqlanmoqda...",
       },
@@ -1074,15 +851,7 @@ export function PracticeSessionExperience({
         response_time_ms: responseTime,
       });
 
-      const correctOption = question.answer_options.find((item) => item.id === answer.correct_option_id);
-      const fallbackCoach = buildFallbackCoach({
-        question,
-        correctText: correctOption?.text ?? "to'g'ri variant",
-        selectedText: selectedOption.text,
-        isCorrect: answer.is_correct,
-      });
-
-      const [, rewardResult, coachResult] = await Promise.allSettled([
+      const [, rewardResult] = await Promise.allSettled([
         trackAnalyticsEvent("practice_answer_submitted", {
           attempt_id: session.attemptId,
           question_id: question.id,
@@ -1098,11 +867,9 @@ export function PracticeSessionExperience({
           attempt_id: session.attemptId,
           question_id: question.id,
         }),
-        getCoachExplanation(session.attemptId, question.id),
       ]);
 
       const reward = rewardResult.status === "fulfilled" ? rewardResult.value : null;
-      const coach = coachResult.status === "fulfilled" ? coachResult.value : fallbackCoach;
 
       if (reward && (reward.xp_awarded > 0 || reward.coins_awarded > 0)) {
         void progressSnapshot?.reload();
@@ -1116,9 +883,8 @@ export function PracticeSessionExperience({
           isCorrect: answer.is_correct,
           locked: answer.locked,
           phase: "resolved",
-          coach,
           reward,
-          message: coach.motivation,
+          message: answer.is_correct ? "To'g'ri javob." : "Xato javob.",
         },
       }));
     } catch (error) {
@@ -1129,7 +895,16 @@ export function PracticeSessionExperience({
       });
       setActionError(error instanceof Error ? error.message : "Javobni saqlab bo'lmadi.");
     }
-  }
+  }, [
+    currentIndex,
+    currentQuestion,
+    finalizing,
+    progressSnapshot,
+    questionStates,
+    result,
+    session.attemptId,
+    session.questions.length,
+  ]);
 
   function navigateTo(index: number) {
     if (!result && index !== currentIndex) {
@@ -1152,6 +927,24 @@ export function PracticeSessionExperience({
     requestFinish(false);
   }
 
+  const handleFunctionKeyChoice = useCallback(
+    (index: number) => {
+      const option = currentQuestion?.answer_options[index];
+      if (!option || result || finalizing || pendingSave) {
+        return;
+      }
+      void handleSelect(option.id);
+    },
+    [currentQuestion, finalizing, handleSelect, pendingSave, result],
+  );
+
+  const antiCheat = useSessionAntiCheat({
+    enabled: !result,
+    attemptId: session.attemptId,
+    sessionLabel: "practice_session",
+    onFunctionKeyChoice: handleFunctionKeyChoice,
+  });
+
   const visitedCount = result?.reviewed_count ?? Object.keys(visitedQuestions).length;
   const answeredCount = result?.answered_count ?? lockedCount;
   const unansweredReviewedCount = result?.unanswered_count ?? Math.max(0, visitedCount - answeredCount);
@@ -1167,6 +960,11 @@ export function PracticeSessionExperience({
       ? "Sessiyani yakunlash"
       : "Keyingi savol";
   const questionHeadline = presentation.prompt || currentQuestion.text.trim();
+  const rawDifficultyPercent = Number(currentQuestion.difficulty_percent ?? 0);
+  const difficultyPercent = Number.isFinite(rawDifficultyPercent)
+    ? Math.max(0, Math.min(100, Math.round(rawDifficultyPercent)))
+    : 0;
+  const difficultyTooltip = `Qiyinlik darajasi: ${difficultyPercent}%`;
   const timerIsCritical = remainingSeconds <= 60;
   const timerIsWarning = remainingSeconds > 60 && remainingSeconds <= 300;
   const xpTotal = progressSnapshot?.gamification?.xp.total_xp ?? 0;
@@ -1353,6 +1151,12 @@ export function PracticeSessionExperience({
 
         <div className="flex-1 px-3 pb-3 pt-2.5 lg:px-5">
           <div className="mx-auto max-w-[1320px] space-y-2.5">
+            {antiCheat.warning ? (
+              <div className="rounded-[1.35rem] border border-[rgba(246,182,79,0.24)] bg-[linear-gradient(180deg,rgba(246,182,79,0.14),rgba(68,42,14,0.92))] px-4 py-3 text-sm text-[var(--foreground)] shadow-[0_18px_48px_-28px_rgba(246,182,79,0.3)]">
+                {antiCheat.warning.message}
+              </div>
+            ) : null}
+
             {actionError ? (
               <div className="rounded-[1.35rem] border border-[rgba(255,106,114,0.2)] bg-[linear-gradient(180deg,rgba(255,106,114,0.12),rgba(46,16,22,0.9))] px-4 py-3 text-sm text-[var(--foreground)] shadow-[0_18px_48px_-28px_rgba(255,106,114,0.3)]">
                 {actionError}
@@ -1382,6 +1186,22 @@ export function PracticeSessionExperience({
                         <h2 className="max-w-[38rem] text-[clamp(1.2rem,1.7vw,1.78rem)] font-semibold leading-[1.14] tracking-[-0.035em] text-[var(--foreground)]">
                           {questionHeadline}
                         </h2>
+                        <button
+                          type="button"
+                          title={difficultyTooltip}
+                          aria-label={difficultyTooltip}
+                          className="group relative mt-2 inline-flex w-full max-w-[8.75rem] cursor-help flex-col rounded-full focus:outline-none"
+                        >
+                          <span className="block h-[3px] w-full overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--foreground)_12%,transparent)]">
+                            <span
+                              className="block h-full rounded-full bg-[linear-gradient(90deg,#22c55e_0%,#facc15_62%,#ef4444_100%)] opacity-80"
+                              style={{ width: `${difficultyPercent}%` }}
+                            />
+                          </span>
+                          <span className="pointer-events-none absolute -top-7 left-0 hidden rounded-full border border-white/[0.08] bg-[rgba(10,14,19,0.94)] px-2 py-1 text-[0.65rem] font-medium text-[var(--muted-foreground)] shadow-[0_10px_24px_-18px_rgba(0,0,0,0.7)] group-hover:block group-focus:block">
+                            {difficultyTooltip}
+                          </span>
+                        </button>
                         <div className="mt-2.5 flex-1 space-y-2">
                           {currentQuestion.answer_options.map((option, index) => {
                             const runtimeState = questionStates[currentQuestion.id];
@@ -1443,7 +1263,7 @@ export function PracticeSessionExperience({
                                     isLockedInactive && "border-white/[0.06] bg-white/[0.03] text-[var(--muted-foreground)]/72",
                                   )}
                                 >
-                                  {String.fromCharCode(65 + index)}
+                                  {optionFunctionLabel(index)}
                                 </div>
 
                                 <span
@@ -1521,8 +1341,6 @@ export function PracticeSessionExperience({
                 <MediaPanel question={currentQuestion} />
               </div>
             </div>
-
-            <CoachPanel state={currentQuestionState} question={currentQuestion} />
           </div>
         </div>
       </div>

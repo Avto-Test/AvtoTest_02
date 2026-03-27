@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Check, Coins, Lock, LockOpen, Rocket, TimerReset } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useTheme } from "next-themes";
 
 import { ApiError } from "@/api/client";
 import { getEconomyOverview, reduceSimulationCooldown, unlockSimulationFastTrack } from "@/api/economy";
@@ -15,6 +16,7 @@ import { useAnalytics } from "@/hooks/use-analytics";
 import { useUser } from "@/hooks/use-user";
 import { resolveTopicMasteryState } from "@/lib/learning";
 import { formatSimulationCountdown } from "@/lib/simulation-status";
+import { cn } from "@/lib/utils";
 import { Button } from "@/shared/ui/button";
 import { ErrorState } from "@/shared/ui/error-state";
 import { Select } from "@/shared/ui/select";
@@ -28,6 +30,13 @@ type ActiveSession = {
   durationMinutes: number;
   questions: Awaited<ReturnType<typeof startSimulationExam>>["questions"];
   modeLabel: string;
+  startedAt?: string | null;
+  pressureMode: boolean;
+  mistakeLimit: number;
+  mistakeCount: number;
+  violationLimit: number;
+  violationCount: number;
+  savedAnswers: Awaited<ReturnType<typeof startSimulationExam>>["saved_answers"];
 };
 
 function resolveActionError(error: unknown) {
@@ -102,6 +111,7 @@ function buildReadinessMessage({
 
 function SimulationPageContent() {
   const { authenticated } = useUser();
+  const { resolvedTheme } = useTheme();
   const progress = useProgressSnapshot();
   const analytics = useAnalytics();
   const historyResource = useAsyncResource(getSimulationHistory, [authenticated], authenticated, {
@@ -121,7 +131,7 @@ function SimulationPageContent() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   const simulationStatus = analytics.dashboard?.simulation_status;
-  const questionCount = simulationStatus?.recommended_question_count ?? 40;
+  const configuredQuestionCount = simulationStatus?.recommended_question_count ?? 40;
   const cooldownOffer = economyResource.data?.simulation_cooldown_offer;
   const fastUnlockOffer = economyResource.data?.simulation_fast_unlock_offer;
   const historyItems = (historyResource.data?.items ?? []).slice(0, 3);
@@ -163,7 +173,14 @@ function SimulationPageContent() {
   const SimulationAccessIcon = canStartSimulation ? LockOpen : Lock;
   const simulationCtaClassName =
     "group relative inline-flex min-w-[20.5rem] items-center justify-between gap-3 overflow-hidden rounded-[12px] border border-emerald-300/18 bg-[linear-gradient(135deg,rgba(61,226,125,0.98)_0%,rgba(35,200,128,0.97)_44%,rgba(22,171,141,0.95)_100%)] px-6 py-3 text-[15px] font-semibold text-white shadow-[0_12px_30px_rgba(16,185,129,0.24)] transition-all duration-300 before:absolute before:inset-y-0 before:left-[-28%] before:w-[34%] before:-skew-x-[24deg] before:bg-white/20 before:opacity-0 before:blur-xl before:transition-all before:duration-500 hover:-translate-y-0.5 hover:brightness-110 hover:shadow-[0_18px_38px_rgba(16,185,129,0.32)] hover:before:left-[110%] hover:before:opacity-100 disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:translate-y-0";
-
+  const isLightTheme = resolvedTheme === "light";
+  const glassPanelClass =
+    "rounded-[14px] border border-[color-mix(in_oklab,var(--border)_76%,transparent)] bg-[color-mix(in_oklab,var(--card)_72%,transparent)] shadow-[0_20px_42px_-32px_rgba(15,23,42,0.18)] backdrop-blur-[12px]";
+  const glassRowClass =
+    "rounded-[14px] border border-[color-mix(in_oklab,var(--border)_72%,transparent)] bg-[color-mix(in_oklab,var(--card)_84%,transparent)]";
+  const surfaceTextPrimaryClass = "text-[var(--text-primary)]";
+  const surfaceTextSecondaryClass = "text-[var(--text-secondary)]";
+  const surfaceTextTertiaryClass = "text-[var(--text-tertiary)]";
   const startSimulation = async () => {
     setStarting(true);
     setActionError(null);
@@ -176,6 +193,13 @@ function SimulationPageContent() {
         durationMinutes: response.duration_minutes,
         questions: response.questions,
         modeLabel: "Simulation",
+        startedAt: response.started_at,
+        pressureMode: response.pressure_mode,
+        mistakeLimit: response.mistake_limit,
+        mistakeCount: response.mistake_count,
+        violationLimit: response.violation_limit,
+        violationCount: response.violation_count,
+        savedAnswers: response.saved_answers,
       });
     } catch (error) {
       setActionError(resolveActionError(error));
@@ -250,17 +274,21 @@ function SimulationPageContent() {
           backgroundImage: "url('/assets/road.png')",
           backgroundSize: "cover",
           backgroundPosition: "center center",
+          filter: isLightTheme ? "brightness(1.06) saturate(0.92)" : undefined,
         }}
       />
       <div className="absolute inset-0 bg-black/35" />
+      {isLightTheme ? (
+        <div className="absolute inset-0 bg-white/8 backdrop-blur-[3px]" />
+      ) : null}
 
       <div className="relative z-[2] flex min-h-screen flex-col">
         <div className="relative min-h-[21rem] px-4 pb-2 pt-10 sm:px-6 lg:min-h-[22rem] lg:px-[3.75rem] lg:pb-1 lg:pt-10">
           <div className="absolute right-4 top-[0.1rem] sm:right-6 sm:top-[0.05rem] lg:right-5 lg:top-0">
-            <div className="rounded-[10px] border border-white/6 bg-[rgba(20,20,20,0.55)] px-[10px] py-[6px] backdrop-blur-md">
-              <div className="flex items-center gap-4">
-                <span className="text-[12px] leading-[1.3] text-white/58">Keyingi level</span>
-                <span className="text-[1.1rem] font-semibold text-white">{nextLevelXp} XP</span>
+            <div className="rounded-[9px] border border-[color-mix(in_oklab,var(--border)_82%,transparent)] bg-[color-mix(in_oklab,var(--card)_80%,transparent)] px-[9px] py-[5px] backdrop-blur-md">
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] leading-[1.25] text-[var(--text-secondary)]">Keyingi level</span>
+                <span className="text-[1rem] font-semibold leading-none text-[var(--text-primary)]">{nextLevelXp} XP</span>
               </div>
             </div>
           </div>
@@ -316,6 +344,18 @@ function SimulationPageContent() {
               </div>
             ) : null}
 
+            <div className="max-w-[31rem] rounded-[12px] border border-white/10 bg-black/18 p-3 backdrop-blur-md">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-white/72">Savollar soni</p>
+                  <p className="mt-1 text-[13px] leading-[1.35] text-white/82">Admin belgilagan test formati.</p>
+                </div>
+                <span className="rounded-full border border-emerald-400/16 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200">
+                  {configuredQuestionCount} savol
+                </span>
+              </div>
+            </div>
+
             {canStartSimulation ? (
               <button
                 type="button"
@@ -353,24 +393,24 @@ function SimulationPageContent() {
         </div>
 
         <div className="grid gap-3 px-4 pb-4 sm:px-6 sm:pb-5 lg:grid-cols-[1fr_1fr] lg:px-[3.75rem] lg:pb-6">
-          <div className="rounded-[14px] border border-white/5 bg-[rgba(20,20,20,0.6)] p-3 backdrop-blur-[10px]">
+          <div className={cn(glassPanelClass, "p-3")}>
             <div>
-              <h3 className="text-[15px] font-semibold leading-[1.3] text-white">Tez ochish</h3>
-              <p className="mt-1 text-[13px] leading-[1.3] text-white/55">Learning Path tavsiya etiladi, coin esa tezkor yo&apos;l.</p>
+              <h3 className={cn("text-[15px] font-semibold leading-[1.3]", surfaceTextPrimaryClass)}>Tez ochish</h3>
+              <p className={cn("mt-1 text-[13px] leading-[1.3]", surfaceTextSecondaryClass)}>Learning Path tavsiya etiladi, coin esa tezkor yo&apos;l.</p>
             </div>
 
             <div className="mt-3 space-y-3">
-              <div className="rounded-[14px] border border-emerald-400/18 bg-[rgba(20,56,40,0.34)] p-[10px]">
+              <div className="rounded-[14px] border border-[color-mix(in_oklab,var(--accent-green)_18%,transparent)] bg-[color-mix(in_oklab,var(--accent-green-soft)_86%,transparent)] p-[10px]">
                 <div className="flex items-start gap-3">
                   <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-500/90">
                     <Check className="h-4 w-4 text-white" />
                   </div>
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[15px] font-medium leading-[1.3] text-white">Learning Path orqali</span>
-                      <span className="text-[12px] leading-[1.3] text-white/40">(tavsiya etiladi)</span>
+                      <span className={cn("text-[15px] font-medium leading-[1.3]", surfaceTextPrimaryClass)}>Learning Path orqali</span>
+                      <span className={cn("text-[12px] leading-[1.3]", surfaceTextTertiaryClass)}>(tavsiya etiladi)</span>
                     </div>
-                    <p className="mt-1.5 text-[13px] leading-[1.3] text-emerald-300">+ reward ko&apos;proq!</p>
+                    <p className="mt-1.5 text-[13px] leading-[1.3] text-[var(--accent-green)]">+ reward ko&apos;proq!</p>
                   </div>
                 </div>
               </div>
@@ -379,13 +419,16 @@ function SimulationPageContent() {
                 type="button"
                 onClick={() => void unlockWithCoins()}
                 disabled={unlocking || Boolean(fastUnlockOffer?.active)}
-                className="flex w-full items-center justify-between rounded-[14px] border border-white/5 bg-[rgba(18,18,18,0.78)] p-[10px] text-left transition-colors duration-200 hover:bg-[rgba(22,22,22,0.84)] disabled:cursor-not-allowed disabled:opacity-70"
+                className={cn(
+                  "flex w-full items-center justify-between p-[10px] text-left transition-colors duration-200 hover:bg-[color-mix(in_oklab,var(--card)_92%,var(--accent-yellow)_4%)] disabled:cursor-not-allowed disabled:opacity-70",
+                  glassRowClass,
+                )}
               >
                 <div className="flex items-center gap-3">
                   <div className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-500/18">
                     <Coins className="h-4 w-4 text-amber-300" />
                   </div>
-                  <span className="text-[15px] font-medium leading-[1.3] text-white">
+                  <span className={cn("text-[15px] font-medium leading-[1.3]", surfaceTextPrimaryClass)}>
                     {fastUnlockOffer?.active
                       ? "Coin unlock faol"
                       : unlocking
@@ -397,15 +440,15 @@ function SimulationPageContent() {
               </button>
             </div>
 
-            <div className="mt-3 rounded-[14px] border border-white/5 bg-[rgba(23,23,23,0.52)] p-3">
-              <h3 className="text-[15px] font-semibold leading-[1.3] text-white">Cooldown</h3>
+            <div className={cn("mt-3 p-3", glassRowClass)}>
+              <h3 className={cn("text-[15px] font-semibold leading-[1.3]", surfaceTextPrimaryClass)}>Cooldown</h3>
               <div className="mt-3 flex items-start gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/8">
-                  <Lock className="h-4 w-4 text-white/55" />
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_oklab,var(--card)_86%,var(--foreground)_4%)]">
+                  <Lock className="h-4 w-4 text-[var(--text-secondary)]" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[13px] leading-[1.3] text-white/88">{countdownText}</p>
-                  <p className="mt-1 text-[12px] leading-[1.3] text-white/42">Yana {simulationStatus?.cooldown_days ?? 14} kunlik kutish boshlanadi.</p>
+                  <p className={cn("text-[13px] leading-[1.3]", surfaceTextPrimaryClass)}>{countdownText}</p>
+                  <p className={cn("mt-1 text-[12px] leading-[1.3]", surfaceTextTertiaryClass)}>Yana {simulationStatus?.cooldown_days ?? 14} kunlik kutish boshlanadi.</p>
                 </div>
               </div>
 
@@ -440,9 +483,9 @@ function SimulationPageContent() {
           </div>
 
           {historyResource.error ? (
-            <div className="flex min-h-0 flex-col rounded-[14px] border border-white/4 bg-[rgba(20,20,20,0.6)] p-3 backdrop-blur-[10px]">
-              <h3 className="text-[15px] font-semibold leading-[1.3] text-white">So&apos;nggi imtihonlar</h3>
-              <div className="mt-3 flex flex-1 items-center justify-center rounded-[14px] border border-dashed border-white/10 bg-black/10 p-4 text-center text-[13px] leading-[1.3] text-white/70">
+            <div className={cn(glassPanelClass, "flex min-h-0 flex-col p-3")}>
+              <h3 className={cn("text-[15px] font-semibold leading-[1.3]", surfaceTextPrimaryClass)}>So&apos;nggi imtihonlar</h3>
+              <div className="mt-3 flex flex-1 items-center justify-center rounded-[14px] border border-dashed border-[color-mix(in_oklab,var(--border)_70%,transparent)] bg-[color-mix(in_oklab,var(--card)_72%,transparent)] p-4 text-center text-[13px] leading-[1.3] text-[var(--text-secondary)]">
                 Tarixni yuklab bo&apos;lmadi. Qayta urinib ko&apos;ring.
               </div>
               <Button onClick={() => void historyResource.reload()} className="mt-3 rounded-[10px] bg-white px-4 py-2.5 text-[13px] leading-[1.3] text-black hover:bg-white/90">
@@ -450,7 +493,7 @@ function SimulationPageContent() {
               </Button>
             </div>
           ) : (
-            <SimulationHistory items={historyItems} questionCount={questionCount} />
+            <SimulationHistory items={historyItems} />
           )}
         </div>
       </div>

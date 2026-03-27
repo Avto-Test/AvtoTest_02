@@ -80,7 +80,7 @@ function AnalyticsPageContent() {
         label: formatShortDate(item.date),
         readiness: Math.round(item.readiness_score),
         confidence: Math.round(item.confidence * 100),
-        passProbability: Math.round(item.pass_probability * 100),
+        passProbability: Math.round(item.pass_probability),
       })),
     [analytics.history],
   );
@@ -170,7 +170,7 @@ function AnalyticsPageContent() {
       <div className="grid gap-6 xl:grid-cols-2">
         <div className="rounded-xl border border-[var(--border)]/40 bg-[var(--card)] p-6 shadow-[var(--shadow-soft)] surface-hover-lift">
           <h3 className="text-section font-semibold">Aniqlik trendi</h3>
-          <p className="text-caption mt-1">So'nggi urinishlar bo'yicha.</p>
+          <p className="text-caption mt-1">So&apos;nggi urinishlar bo&apos;yicha.</p>
           <div className="mt-6">
             {accuracyTrend.length === 0 ? (
               <EmptyState title="Trend yo'q" description="Bir nechta urinishdan keyin ko'rinadi." />
@@ -256,7 +256,7 @@ function AnalyticsPageContent() {
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="rounded-xl border border-[var(--border)]/40 bg-[var(--card)] p-6 shadow-[var(--shadow-soft)] surface-hover-lift">
           <h3 className="text-section font-semibold">Mavzu mastery</h3>
-          <p className="text-caption mt-1">Qaysi mavzular kuchli, qaysilari ko'proq e'tibor talab qiladi.</p>
+          <p className="text-caption mt-1">Qaysi mavzular kuchli, qaysilari ko&apos;proq e&apos;tibor talab qiladi.</p>
 
           <div className="mt-6 rounded-[1.5rem] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--primary)_8%,transparent),color-mix(in_oklab,var(--card)_96%,transparent))] p-4">
             {topicMastery.length === 0 ? (
@@ -269,7 +269,7 @@ function AnalyticsPageContent() {
           {topicMastery.length > 0 ? (
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
               <div className="rounded-[1.25rem] bg-[color-mix(in_oklab,var(--muted)_82%,transparent)] px-4 py-4">
-                <p className="text-caption">Eng ko'p e'tibor kerak</p>
+                <p className="text-caption">Eng ko&apos;p e&apos;tibor kerak</p>
                 <p className="mt-2 font-semibold">{weakestTopic?.topic}</p>
                 <p className="text-caption mt-1">{weakestTopic?.mastery}% mastery</p>
               </div>
@@ -342,7 +342,7 @@ function AnalyticsPageContent() {
 
         <div className="rounded-xl border border-[var(--border)]/40 bg-[var(--card)] p-6 shadow-[var(--shadow-soft)] surface-hover-lift">
           <h3 className="text-section font-semibold">Simulyatsiya holati</h3>
-          <p className="text-caption mt-1">Imtihonga qanchalik yaqin ekaningizni bir qarashda ko'ring.</p>
+          <p className="text-caption mt-1">Imtihonga qanchalik yaqin ekaningizni bir qarashda ko&apos;ring.</p>
 
           <div className="mt-6 grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)] lg:items-center">
             <ReadinessRing

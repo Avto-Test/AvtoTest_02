@@ -73,6 +73,22 @@ export function resolveUserFacingNotice(input: unknown, fallback?: {
   }
 
   if (
+    normalized.includes("free plan faqat 20 ta savollik testlarni ochadi") ||
+    normalized.includes("20-question tests") ||
+    normalized.includes("30/40/50")
+  ) {
+    return {
+      badge: "Tarif cheklovi",
+      title: "Katta test rejimi premium uchun ochiladi",
+      description:
+        "Free tarifda faqat 20 ta savollik testlar ochiq. 30, 40 yoki 50 ta savollik rejimlar uchun Premium tarif kerak bo'ladi.",
+      tone: "warning",
+      actionLabel: "Premium tarifni ko'rish",
+      actionHref: "/settings",
+    };
+  }
+
+  if (
     status === 403 ||
     normalized.includes("premium required") ||
     normalized.includes("upgrade to premium") ||
@@ -122,6 +138,32 @@ export function resolveUserFacingNotice(input: unknown, fallback?: {
       description:
         "Server bilan bog'lanishda uzilish yuz berdi. Internet ulanishini tekshirib, bir necha soniyadan so'ng qayta urinib ko'ring.",
       tone: "info",
+    };
+  }
+
+  if (normalized.includes("request timed out") || normalized.includes("timed out")) {
+    return {
+      badge: "Server",
+      title: "Server javobi kechikdi",
+      description:
+        "So'rov juda uzoq davom etdi. Server ishlayotganini tekshirib, birozdan keyin qayta urinib ko'ring.",
+      tone: "info",
+    };
+  }
+
+  if (
+    status === 503 ||
+    normalized.includes("database schema is not initialized") ||
+    normalized.includes("ma'lumotlar bazasi tayyor emas") ||
+    normalized.includes("relation \"users\" does not exist") ||
+    normalized.includes("undefinedtableerror")
+  ) {
+    return {
+      badge: "Server",
+      title: "Server bazasi hali tayyor emas",
+      description:
+        "Tizim ishga tushgan, lekin ma'lumotlar bazasi migratsiyasi yakunlanmagan. Administrator `alembic upgrade head` ishga tushirishi kerak.",
+      tone: "warning",
     };
   }
 

@@ -8,6 +8,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { login } from "@/api/auth";
 import { AuthShell } from "@/features/auth/auth-shell";
 import { useUser } from "@/hooks/use-user";
+import { resolveUserFacingNotice } from "@/lib/user-facing-messages";
 import { Input } from "@/shared/ui/input";
 
 export function LoginPage() {
@@ -41,7 +42,11 @@ export function LoginPage() {
       router.replace(nextHref);
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Email yoki parol noto'g'ri.");
+      const notice = resolveUserFacingNotice(err, {
+        title: "Kirish muvaffaqiyatsiz",
+        description: "Email yoki parol noto'g'ri.",
+      });
+      setError(notice.description);
     } finally {
       setSubmitting(false);
     }

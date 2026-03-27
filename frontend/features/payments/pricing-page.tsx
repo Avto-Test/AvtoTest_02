@@ -12,7 +12,10 @@ import {
   getPlanHeadline,
   getPlanInterval,
 } from "@/features/payments/payment-catalog";
+import { useExperimentVariant } from "@/components/providers/experiment-provider";
 import { useAsyncResource } from "@/hooks/use-async-resource";
+import { trackEvent } from "@/lib/analytics";
+import { getUpgradeButtonLabel, UPGRADE_BUTTON_EXPERIMENT } from "@/lib/experiments";
 import { useUser } from "@/hooks/use-user";
 import { buttonStyles } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
@@ -132,6 +135,7 @@ function premiumCtaHref(authenticated: boolean, plan?: SubscriptionPlan) {
 export function PricingPage() {
   const { authenticated, loading, user } = useUser();
   const plansResource = useAsyncResource(getCheckoutPlans, [], true);
+  const upgradeVariant = useExperimentVariant(UPGRADE_BUTTON_EXPERIMENT, "A");
 
   const plans = useMemo(
     () => [...(plansResource.data ?? [])].sort((left, right) => left.sort_order - right.sort_order),
@@ -139,6 +143,7 @@ export function PricingPage() {
   );
 
   const isPremium = user?.is_premium === true;
+  const upgradeLabel = getUpgradeButtonLabel(upgradeVariant);
 
   return (
     <div className="min-h-screen bg-[var(--background)]">
@@ -153,15 +158,21 @@ export function PricingPage() {
               Premium tarifni tanlang
             </h1>
             <p className="mt-5 max-w-2xl text-base leading-8 text-[var(--muted-foreground)] sm:text-lg">
-              Sizga mos tarifni tanlang, promokod qo'llang va to'lovni bir necha bosqichda yakunlang.
+              Sizga mos tarifni tanlang, promokod qo&apos;llang va to&apos;lovni bir necha bosqichda yakunlang.
             </p>
 
             <div className="mt-8 flex flex-wrap gap-3">
               <Link
                 href={authenticated ? "/upgrade" : "/login?next=/upgrade"}
                 className={buttonStyles({ size: "lg" })}
+                onClick={() =>
+                  void trackEvent("premium_click", {
+                    source: "pricing_hero",
+                    cta_label: upgradeLabel,
+                  })
+                }
               >
-                Premiumni yoqish
+                {upgradeLabel}
                 <ArrowRight className="h-4 w-4" />
               </Link>
               <Link
@@ -179,7 +190,7 @@ export function PricingPage() {
                 <Sparkles className="h-5 w-5 text-[var(--accent)]" />
                 <div>
                   <p className="font-medium">Promokod</p>
-                  <p className="text-sm text-[var(--muted-foreground)]">Chegirma bo'lsa shu yerning o'zida qo'llanadi</p>
+                  <p className="text-sm text-[var(--muted-foreground)]">Chegirma bo&apos;lsa shu yerning o&apos;zida qo&apos;llanadi</p>
                 </div>
               </CardContent>
             </Card>
@@ -187,8 +198,8 @@ export function PricingPage() {
               <CardContent className="flex items-center gap-4 p-5">
                 <ShieldCheck className="h-5 w-5 text-sky-600" />
                 <div>
-                  <p className="font-medium">Xavfsiz to'lov</p>
-                  <p className="text-sm text-[var(--muted-foreground)]">To'lov himoyalangan oynada davom etadi</p>
+                  <p className="font-medium">Xavfsiz to&apos;lov</p>
+                  <p className="text-sm text-[var(--muted-foreground)]">To&apos;lov himoyalangan oynada davom etadi</p>
                 </div>
               </CardContent>
             </Card>
@@ -197,7 +208,7 @@ export function PricingPage() {
                 <Crown className="h-5 w-5 text-amber-500" />
                 <div>
                   <p className="font-medium">Darhol faollashadi</p>
-                  <p className="text-sm text-[var(--muted-foreground)]">To'lov yakunlangach premium imkoniyatlar ochiladi</p>
+                  <p className="text-sm text-[var(--muted-foreground)]">To&apos;lov yakunlangach premium imkoniyatlar ochiladi</p>
                 </div>
               </CardContent>
             </Card>
@@ -252,7 +263,7 @@ export function PricingPage() {
                   <CardContent className="p-8">
                     <h2 className="text-2xl font-bold">Premium plan topilmadi</h2>
                     <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--muted-foreground)]">
-                      Hozircha faol premium tarif ko'rinmayapti. Keyinroq qayta tekshirib ko'ring.
+                      Hozircha faol premium tarif ko&apos;rinmayapti. Keyinroq qayta tekshirib ko&apos;ring.
                     </p>
                     <div className="mt-6 flex flex-wrap gap-3">
                       <Link href="/dashboard" className={buttonStyles({ size: "lg", variant: "outline" })}>

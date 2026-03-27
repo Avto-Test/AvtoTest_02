@@ -17,6 +17,73 @@ import { ErrorState } from "@/shared/ui/error-state";
 import { PageHeader } from "@/shared/ui/page-header";
 import { Skeleton } from "@/shared/ui/skeleton";
 
+function normalizeLessonTopic(value?: string | null) {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+function stemLessonToken(token: string) {
+  for (const suffix of ["lari", "lar", "ning", "ni", "ga", "da", "dan"]) {
+    if (token.endsWith(suffix) && token.length > suffix.length + 2) {
+      return token.slice(0, -suffix.length);
+    }
+  }
+  return token;
+}
+
+function lessonTopicTokens(...values: Array<string | null | undefined>) {
+  const tokens = new Set<string>();
+  for (const value of values) {
+    const normalized = normalizeLessonTopic(value);
+    if (!normalized) {
+      continue;
+    }
+    tokens.add(normalized);
+    for (const token of normalized.split(/\s+/)) {
+      if (!token || token === "va") {
+        continue;
+      }
+      tokens.add(token);
+      tokens.add(stemLessonToken(token));
+    }
+  }
+  return tokens;
+}
+
+function lessonMatchesTopic(
+  selectedTopic: string | null,
+  lessonTopic?: string | null,
+  lessonSection?: string | null,
+) {
+  if (!selectedTopic) {
+    return true;
+  }
+
+  const normalizedSelected = normalizeLessonTopic(selectedTopic);
+  const lessonTopicKey = normalizeLessonTopic(lessonTopic);
+  const lessonSectionKey = normalizeLessonTopic(lessonSection);
+  if (normalizedSelected === lessonTopicKey || normalizedSelected === lessonSectionKey) {
+    return true;
+  }
+
+  const selectedTokens = lessonTopicTokens(selectedTopic);
+  const lessonTokens = lessonTopicTokens(lessonTopic, lessonSection);
+  for (const token of selectedTokens) {
+    if (!token) {
+      continue;
+    }
+    for (const lessonToken of lessonTokens) {
+      if (!lessonToken) {
+        continue;
+      }
+      if (token === lessonToken || token.includes(lessonToken) || lessonToken.includes(token)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 function LessonsPageContent() {
   const searchParams = useSearchParams();
   const selectedTopic = searchParams.get("topic");
@@ -29,25 +96,15 @@ function LessonsPageContent() {
 
   const filteredLessons = useMemo(() => {
     const lessons = lessonsResource.data?.lessons ?? [];
-    if (!selectedTopic) {
-      return lessons;
-    }
-
-    const normalized = selectedTopic.trim().toLowerCase();
-    return lessons.filter((lesson) => lesson.topic?.trim().toLowerCase() === normalized);
+    return lessons.filter((lesson) => lessonMatchesTopic(selectedTopic, lesson.topic, lesson.section));
   }, [lessonsResource.data?.lessons, selectedTopic]);
 
   const filteredSections = useMemo(() => {
     const sections = lessonsResource.data?.sections ?? [];
-    if (!selectedTopic) {
-      return sections;
-    }
-
-    const normalized = selectedTopic.trim().toLowerCase();
     return sections
       .map((section) => ({
         ...section,
-        lessons: section.lessons.filter((lesson) => lesson.topic?.trim().toLowerCase() === normalized),
+        lessons: section.lessons.filter((lesson) => lessonMatchesTopic(selectedTopic, lesson.topic, lesson.section)),
       }))
       .filter((section) => section.lessons.length > 0);
   }, [lessonsResource.data?.sections, selectedTopic]);
@@ -55,18 +112,15 @@ function LessonsPageContent() {
   const recommendedLessons = useMemo(() => {
     const lessonsById = new Map((lessonsResource.data?.lessons ?? []).map((lesson) => [lesson.id, lesson]));
     return (progress.dashboard?.lesson_recommendations ?? [])
-      .filter((recommendation) => {
-        if (!selectedTopic) {
-          return true;
-        }
-        return recommendation.topic?.trim().toLowerCase() === selectedTopic.trim().toLowerCase();
-      })
+      .filter((recommendation) => lessonMatchesTopic(selectedTopic, recommendation.topic, recommendation.section))
       .slice(0, 6)
       .map((recommendation) => ({
         recommendation,
         lesson:
           lessonsById.get(recommendation.lesson_id) ??
-          (lessonsResource.data?.lessons ?? []).find((lesson) => lesson.topic === recommendation.topic) ??
+          (lessonsResource.data?.lessons ?? []).find((lesson) =>
+            lessonMatchesTopic(recommendation.topic ?? selectedTopic, lesson.topic, lesson.section),
+          ) ??
           null,
       }));
   }, [lessonsResource.data?.lessons, progress.dashboard?.lesson_recommendations, selectedTopic]);
@@ -102,7 +156,7 @@ function LessonsPageContent() {
       {selectedTopic ? (
         <div className="flex flex-wrap items-center gap-2">
           <Badge>{selectedTopic}</Badge>
-          <p className="text-sm text-[var(--muted-foreground)]">Tanlangan mavzu bo'yicha darslar ko'rsatilmoqda.</p>
+          <p className="text-sm text-[var(--muted-foreground)]">Tanlangan mavzu bo&apos;yicha darslar ko&apos;rsatilmoqda.</p>
         </div>
       ) : null}
 
@@ -114,7 +168,7 @@ function LessonsPageContent() {
           </CardHeader>
           <CardContent className="space-y-3">
             {recommendedLessons.length === 0 ? (
-              <EmptyState title="Dars tavsiyasi yo'q" description="Analytics signaliga mos dars topilmadi." />
+              <EmptyState title="Dars tavsiyasi yo&apos;q" description="Analytics signaliga mos dars topilmadi." />
             ) : (
               recommendedLessons.map(({ recommendation, lesson }) => (
                 <div
@@ -152,7 +206,7 @@ function LessonsPageContent() {
 
         <Card className="card-hover-lift">
           <CardHeader>
-            <CardTitle>Darslar ro'yxati</CardTitle>
+            <CardTitle>Darslar ro&apos;yxati</CardTitle>
             <CardDescription>Barcha mavjud darslar va materiallar.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -200,17 +254,17 @@ function LessonsPageContent() {
 
       <Card className="card-hover-lift">
         <CardHeader>
-          <CardTitle>Bo'limlar</CardTitle>
-          <CardDescription>Premium foydalanuvchilar uchun darslar bo'yicha jamlangan bo'limlar.</CardDescription>
+          <CardTitle>Bo&apos;limlar</CardTitle>
+          <CardDescription>Premium foydalanuvchilar uchun darslar bo&apos;yicha jamlangan bo&apos;limlar.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {filteredSections.length === 0 ? (
             <EmptyState
-              title={lessonsResource.data.is_premium_user ? "Bo'lim topilmadi" : "Bo'limlar premium uchun ochiladi"}
+              title={lessonsResource.data.is_premium_user ? "Bo&apos;lim topilmadi" : "Bo&apos;limlar premium uchun ochiladi"}
               description={
                 lessonsResource.data.is_premium_user
-                  ? "Tanlangan mavzu bo'yicha bo'lim mavjud emas."
-                  : "Premium bo'lganda jamlangan bo'limlar shu yerda ko'rinadi."
+                  ? "Tanlangan mavzu bo&apos;yicha bo&apos;lim mavjud emas."
+                  : "Premium bo&apos;lganda jamlangan bo&apos;limlar shu yerda ko&apos;rinadi."
               }
             />
           ) : (

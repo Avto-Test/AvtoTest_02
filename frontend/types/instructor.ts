@@ -1,3 +1,8 @@
+import type {
+  DrivingInstructorApplicationStatus,
+  DrivingInstructorLeadStatus,
+} from "@/types/statuses";
+
 export interface InstructorListItem {
   id: string;
   slug: string;
@@ -102,7 +107,7 @@ export interface InstructorLead {
   requested_transmission?: string | null;
   comment?: string | null;
   source: string;
-  status: string;
+  status: DrivingInstructorLeadStatus;
   created_at: string;
   updated_at: string;
   instructor_name?: string | null;
@@ -135,6 +140,7 @@ export interface InstructorApplicationCreate {
 export interface InstructorApplication {
   id: string;
   user_id?: string | null;
+  linked_instructor_id?: string | null;
   full_name: string;
   phone: string;
   city: string;
@@ -148,7 +154,7 @@ export interface InstructorApplication {
   short_bio: string;
   profile_image_url: string;
   extra_image_urls: string[];
-  status: string;
+  status: DrivingInstructorApplicationStatus;
   rejection_reason?: string | null;
   reviewed_by_id?: string | null;
   reviewed_at?: string | null;
