@@ -19,7 +19,11 @@ from models.coin_wallet import CoinWallet
 from models.exam_simulation_attempt import ExamSimulationAttempt
 from models.xp_boost import XPBoost
 from services.gamification.rewards import ensure_wallets, get_active_xp_boost, serialize_active_xp_boost
-from services.learning.simulation_service import get_latest_exam_simulation
+from services.learning.simulation_service import (
+    get_latest_exam_simulation,
+    get_or_create_simulation_exam_settings,
+    resolve_simulation_fast_unlock_price,
+)
 
 COOLDOWN_REDUCTION_COST_PER_DAY = 40
 MAX_COOLDOWN_REDUCTION_DAYS = 5
@@ -28,7 +32,6 @@ XP_BOOST_MULTIPLIER = 1.2
 XP_BOOST_DURATION_MINUTES = 30
 FOCUS_PACK_COST = 35
 FOCUS_PACK_QUESTION_COUNT = 20
-SIMULATION_FAST_UNLOCK_COST = 120
 SIMULATION_FAST_UNLOCK_DURATION_HOURS = 24
 
 
@@ -123,6 +126,37 @@ class CoinSpendService:
         await self.db.flush()
         return wallet, transaction
 
+    async def spend_available_coins(
+        self,
+        user_id: UUID,
+        amount: int,
+        reason: str,
+        *,
+        occurred_at: datetime | None = None,
+    ) -> tuple[CoinWallet, CoinTransaction | None, int]:
+        if amount <= 0:
+            raise EconomyError("INVALID_AMOUNT", "Coin miqdori musbat bo'lishi kerak.")
+
+        event_time = occurred_at or datetime.now(timezone.utc)
+        _, wallet, _ = await ensure_wallets(self.db, user_id)
+        available_balance = max(0, int(wallet.balance))
+        spend_amount = min(amount, available_balance)
+
+        if spend_amount <= 0:
+            return wallet, None, 0
+
+        transaction = await self.record_transaction(
+            user_id,
+            spend_amount,
+            reason,
+            transaction_type="debit",
+            occurred_at=event_time,
+        )
+        wallet.balance = max(0, available_balance - spend_amount)
+        wallet.last_updated = event_time
+        await self.db.flush()
+        return wallet, transaction, spend_amount
+
 
 def _cooldown_remaining_seconds(simulation: ExamSimulationAttempt | None, *, now_utc: datetime) -> int:
     if simulation is None or simulation.next_available_at is None:
@@ -162,8 +196,17 @@ async def get_active_simulation_fast_unlock(
     transaction = result.scalar_one_or_none()
     if transaction is None:
         return None
+    transaction_created_at = transaction.created_at
+    if transaction_created_at.tzinfo is None:
+        transaction_created_at = transaction_created_at.replace(tzinfo=timezone.utc)
     if get_simulation_fast_unlock_expiry(transaction) <= now_utc:
         return None
+    latest_simulation = await get_latest_exam_simulation(db, user_id, include_unfinished=True)
+    if latest_simulation is not None:
+        activation_time = latest_simulation.started_at or latest_simulation.scheduled_at
+        activation_time = activation_time.replace(tzinfo=timezone.utc) if activation_time and activation_time.tzinfo is None else activation_time
+        if activation_time is not None and activation_time >= transaction_created_at:
+            return None
     return transaction
 
 
@@ -174,6 +217,8 @@ async def build_economy_overview(
 ) -> dict[str, object]:
     _, coin_wallet, _ = await ensure_wallets(db, user_id)
     now_utc = datetime.now(timezone.utc)
+    settings = await get_or_create_simulation_exam_settings(db)
+    fast_unlock_price = resolve_simulation_fast_unlock_price(settings)
     latest_simulation = await get_latest_exam_simulation(db, user_id, include_unfinished=False)
     active_boost = serialize_active_xp_boost(await get_active_xp_boost(db, user_id, now_utc=now_utc), now_utc=now_utc)
     active_fast_unlock = await get_active_simulation_fast_unlock(db, user_id=user_id, now_utc=now_utc)
@@ -214,7 +259,7 @@ async def build_economy_overview(
             "question_count": FOCUS_PACK_QUESTION_COUNT,
         },
         "simulation_fast_unlock_offer": {
-            "cost": SIMULATION_FAST_UNLOCK_COST,
+            "cost": fast_unlock_price,
             "duration_hours": SIMULATION_FAST_UNLOCK_DURATION_HOURS,
             "active": active_fast_unlock is not None,
             "expires_at": fast_unlock_expiry,
@@ -316,6 +361,8 @@ async def unlock_simulation_fast_track(
 ) -> SimulationFastUnlockResult:
     now_utc = datetime.now(timezone.utc)
     _, wallet, _ = await ensure_wallets(db, user_id)
+    settings = await get_or_create_simulation_exam_settings(db)
+    fast_unlock_price = resolve_simulation_fast_unlock_price(settings)
     active_unlock = await get_active_simulation_fast_unlock(db, user_id=user_id, now_utc=now_utc)
     if active_unlock is not None:
         return SimulationFastUnlockResult(
@@ -327,14 +374,14 @@ async def unlock_simulation_fast_track(
 
     wallet, _ = await CoinSpendService(db).spend_coins(
         user_id,
-        SIMULATION_FAST_UNLOCK_COST,
+        fast_unlock_price,
         f"simulation_fast_unlock:{uuid.uuid4()}",
         occurred_at=now_utc,
     )
     expires_at = now_utc + timedelta(hours=SIMULATION_FAST_UNLOCK_DURATION_HOURS)
     return SimulationFastUnlockResult(
         coin_balance=int(wallet.balance),
-        coins_spent=SIMULATION_FAST_UNLOCK_COST,
+        coins_spent=fast_unlock_price,
         expires_at=expires_at,
         already_active=False,
     )

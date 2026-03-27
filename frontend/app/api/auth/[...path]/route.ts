@@ -60,11 +60,33 @@ function shouldUseSecureCookies(request: NextRequest) {
   return request.nextUrl.protocol === "https:" || forwardedProto === "https" || forwardedSsl === "on";
 }
 
+function getCookieDomain() {
+  const explicitDomain = process.env.AUTH_COOKIE_DOMAIN?.trim();
+  if (explicitDomain) {
+    return explicitDomain;
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (!appUrl) {
+    return undefined;
+  }
+
+  try {
+    const hostname = new URL(appUrl).hostname.trim().toLowerCase();
+    if (!hostname || hostname === "localhost" || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)) {
+      return undefined;
+    }
+    return hostname;
+  } catch {
+    return undefined;
+  }
+}
+
 function setAuthCookies(response: NextResponse, request: NextRequest, payload: BackendTokenPayload) {
   const secure = shouldUseSecureCookies(request);
   const accessMaxAge = Math.max(payload.access_token_expires_in ?? 20 * 60, 60);
   const refreshMaxAge = Math.max(payload.refresh_token_expires_in ?? 14 * 24 * 60 * 60, 3600);
-  const domain = process.env.NODE_ENV === "production" ? "auto-drive.online" : undefined;
+  const domain = getCookieDomain();
 
   const cookieOptions = {
     httpOnly: true,
@@ -94,7 +116,7 @@ function setAuthCookies(response: NextResponse, request: NextRequest, payload: B
 
 function clearAuthCookies(response: NextResponse, request: NextRequest) {
   const secure = shouldUseSecureCookies(request);
-  const domain = process.env.NODE_ENV === "production" ? "auto-drive.online" : undefined;
+  const domain = getCookieDomain();
   const options = {
     httpOnly: true,
     secure,

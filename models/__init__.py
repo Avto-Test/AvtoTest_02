@@ -9,6 +9,7 @@ from models.attempt import Attempt
 from models.attempt_answer import AttemptAnswer
 from models.coin_transaction import CoinTransaction
 from models.coin_wallet import CoinWallet
+from models.experiment import Experiment
 from models.payment import Payment
 from models.question import Question
 from models.question_difficulty import QuestionDifficulty
@@ -24,6 +25,7 @@ from models.test import Test
 from models.user import User
 from models.user_role import UserRole
 from models.user_adaptive_profile import UserAdaptiveProfile
+from models.user_experiment import UserExperiment
 from models.user_notification import UserNotification
 from models.user_topic_stats import UserTopicStats
 from models.user_training_history import UserTrainingHistory
@@ -56,6 +58,7 @@ from models.driving_instructor_application import DrivingInstructorApplication
 from models.driving_instructor_registration_setting import DrivingInstructorRegistrationSetting
 from models.driving_instructor_complaint import DrivingInstructorComplaint
 from models.exam_simulation_attempt import ExamSimulationAttempt
+from models.simulation_exam_setting import SimulationExamSetting
 from models.user_achievement import UserAchievement
 from models.user_streak import UserStreak
 from models.xp_boost import XPBoost
@@ -82,6 +85,7 @@ __all__ = [
     "AttemptAnswer",
     "CoinTransaction",
     "CoinWallet",
+    "Experiment",
     "Payment",
     "Subscription",
     "UserTrainingHistory",
@@ -100,6 +104,7 @@ __all__ = [
     "Lesson",
     "Feedback",
     "UserAdaptiveProfile",
+    "UserExperiment",
     "UserNotification",
     "UserRole",
     "UserTopicStats",
@@ -117,6 +122,7 @@ __all__ = [
     "DrivingInstructorRegistrationSetting",
     "DrivingInstructorComplaint",
     "ExamSimulationAttempt",
+    "SimulationExamSetting",
     "UserAchievement",
     "UserStreak",
     "XPBoost",

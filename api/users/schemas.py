@@ -17,6 +17,7 @@ class UserMeResponse(BaseModel):
     is_verified: bool
     is_active: bool
     is_admin: bool
+    roles: list[str] = []
     is_premium: bool
     has_instructor_profile: bool = False
     has_school_profile: bool = False

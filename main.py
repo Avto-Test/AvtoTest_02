@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 import logging
 
-from fastapi import APIRouter, FastAPI, Request, Response
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -23,6 +23,7 @@ from api.answers.router import router as answers_router
 from api.attempts.router import router as attempts_router
 from api.auth.router import router as auth_router
 from api.economy.router import router as economy_router
+from api.experiments.router import router as experiments_router
 from api.feedback.router import router as feedback_router
 from api.gamification.router import router as gamification_router
 from api.notifications.router import router as notifications_router
@@ -33,6 +34,7 @@ from api.learning.router import router as learning_router
 from api.leaderboard.router import router as leaderboard_router
 from api.simulation.router import router as simulation_router
 from api.school_router import router as school_router
+from api.settings.router import router as settings_router
 from api.driving_schools.router import router as driving_schools_router
 from api.driving_schools.admin_router import router as admin_driving_schools_router
 from api.driving_instructors.router import router as driving_instructors_router
@@ -43,6 +45,7 @@ from api.violations.router import router as violations_router
 from core.config import settings
 from core.logging import setup_logging
 from core.monitoring import init_monitoring
+from database.readiness import verify_database_startup_ready
 from database.session import engine
 from middleware.error_handler import global_exception_handler, http_exception_handler
 from middleware.request_context import RequestContextMiddleware
@@ -63,6 +66,10 @@ async def lifespan(app: FastAPI):
     try:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
+            await verify_database_startup_ready(
+                conn,
+                require_migration_head=settings.normalized_environment != "testing",
+            )
             print("[OK] Database connection successful")
     except Exception as e:
         print(f"[ERROR] Database connection failed: {e}")
@@ -120,7 +127,6 @@ async def diagnostic_logging(request: Request, call_next):
     origin = request.headers.get("origin")
     method = request.method
     path = request.url.path
-    import logging
     logging.info(f"DIAGNOSTIC: {method} {path} | Origin: {origin}")
     response = await call_next(request)
     return response
@@ -156,9 +162,11 @@ api_router = APIRouter(prefix="/api")
 routers = [
     auth_router, admin_router, ai_coach_router, answers_router, attempts_router,
     legacy_analytics_router, user_analytics_router, admin_analytics_router,
+    experiments_router,
     economy_router, gamification_router, users_router, tests_router,
     violations_router, lessons_router, learning_router, leaderboard_router,
     simulation_router, feedback_router, notifications_router, school_router,
+    settings_router,
     driving_schools_router, admin_driving_schools_router,
     driving_instructors_router, admin_driving_instructors_router
 ]

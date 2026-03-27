@@ -150,5 +150,10 @@ class BulkSubmitResponse(BaseModel):
     avg_response_time: float | None = None
     cognitive_profile: str | None = None
     pressure_mode: bool = False
+    mistake_limit: int | None = None
+    violation_count: int | None = None
+    violation_limit: int | None = None
+    disqualified: bool = False
+    disqualification_reason: str | None = None
     reward_summary: RewardSummary | None = None
 

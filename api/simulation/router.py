@@ -13,14 +13,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from api.attempts.schemas import DetailedAnswer
 from api.auth.router import get_current_user
+from api.attempts.router import check_attempt_limit
 from api.simulation.schemas import (
     SimulationHistoryEntry,
     SimulationHistoryResponse,
     SimulationStartResponse,
 )
 from api.tests.router import (
-    QUESTION_COUNT_TO_MINUTES,
     _build_balanced_random_selection,
     _public_question_payload,
 )
@@ -33,6 +34,12 @@ from models.question import Question
 from models.test import Test
 from models.user import User
 from services.gamification.economy import get_active_simulation_fast_unlock
+from services.learning.simulation_service import (
+    resolve_simulation_duration_minutes,
+    resolve_simulation_question_count,
+    get_or_create_simulation_exam_settings,
+    resolve_simulation_limits,
+)
 
 router = APIRouter(prefix="/simulation", tags=["simulation"])
 
@@ -87,6 +94,31 @@ async def _load_attempt_questions(db: AsyncSession, attempt: Attempt):
     return ordered_questions
 
 
+def _build_saved_answers(*, attempt: Attempt, questions: list[Question]) -> list[DetailedAnswer]:
+    if not attempt.attempt_answers:
+        return []
+
+    question_map = {question.id: question for question in questions}
+    saved_answers: list[DetailedAnswer] = []
+    for answer in attempt.attempt_answers:
+        question = question_map.get(answer.question_id)
+        if question is None:
+            continue
+        correct_option = next((option for option in question.answer_options if option.is_correct), None)
+        if correct_option is None:
+            continue
+        saved_answers.append(
+            DetailedAnswer(
+                question_id=answer.question_id,
+                selected_option_id=answer.selected_option_id,
+                correct_option_id=correct_option.id,
+                is_correct=bool(answer.is_correct),
+                dynamic_difficulty_score=float(question.dynamic_difficulty_score or 0.5),
+            )
+        )
+    return saved_answers
+
+
 @router.post("/start", response_model=SimulationStartResponse, status_code=status.HTTP_201_CREATED)
 async def start_simulation(
     current_user: User = Depends(get_current_user),
@@ -94,7 +126,7 @@ async def start_simulation(
 ) -> SimulationStartResponse:
     existing_result = await db.execute(
         select(ExamSimulationAttempt)
-        .options(selectinload(ExamSimulationAttempt.attempt))
+        .options(selectinload(ExamSimulationAttempt.attempt).selectinload(Attempt.attempt_answers))
         .where(
             ExamSimulationAttempt.user_id == current_user.id,
             ExamSimulationAttempt.finished_at.is_(None),
@@ -106,8 +138,14 @@ async def start_simulation(
     existing_simulation = existing_result.scalar_one_or_none()
     if existing_simulation is not None and existing_simulation.attempt is not None:
         questions = await _load_attempt_questions(db, existing_simulation.attempt)
-        duration_minutes = QUESTION_COUNT_TO_MINUTES.get(existing_simulation.question_count, 40)
-        duration_minutes = max(5, int(round(duration_minutes * 0.8))) if existing_simulation.pressure_mode else duration_minutes
+        settings = await get_or_create_simulation_exam_settings(db)
+        duration_minutes = (
+            max(5, int(round(existing_simulation.attempt.time_limit_seconds / 60)))
+            if existing_simulation.attempt.time_limit_seconds
+            else resolve_simulation_duration_minutes(settings)
+        )
+        saved_answers = _build_saved_answers(attempt=existing_simulation.attempt, questions=questions)
+        mistake_limit, violation_limit = resolve_simulation_limits(existing_simulation)
         return SimulationStartResponse(
             id=existing_simulation.id,
             question_count=existing_simulation.question_count,
@@ -115,6 +153,14 @@ async def start_simulation(
             questions=[_public_question_payload(question) for question in questions],
             scheduled_at=existing_simulation.scheduled_at,
             started_at=existing_simulation.started_at,
+            pressure_mode=bool(existing_simulation.pressure_mode),
+            mistake_limit=mistake_limit,
+            mistake_count=int(existing_simulation.mistake_count or 0),
+            violation_limit=violation_limit,
+            violation_count=int(existing_simulation.violation_count or 0),
+            disqualified=bool(existing_simulation.disqualified),
+            disqualification_reason=existing_simulation.disqualification_reason,
+            saved_answers=saved_answers,
         )
 
     dashboard = await get_dashboard(current_user=current_user, db=db)
@@ -133,11 +179,12 @@ async def start_simulation(
             },
         )
 
-    question_count = simulation_status.recommended_question_count
+    settings = await get_or_create_simulation_exam_settings(db)
+    question_count = resolve_simulation_question_count(settings)
     pressure_mode = simulation_status.recommended_pressure_mode
-    duration_minutes = QUESTION_COUNT_TO_MINUTES.get(question_count, max(10, int(round(question_count * 1.25))))
-    if pressure_mode:
-        duration_minutes = max(5, int(round(duration_minutes * 0.8)))
+    duration_minutes = resolve_simulation_duration_minutes(settings)
+    await check_attempt_limit(current_user, db)
+    mistake_limit, violation_limit = resolve_simulation_limits(None, settings)
 
     questions_result = await db.execute(
         select(Question)
@@ -178,6 +225,8 @@ async def start_simulation(
         pass_probability_snapshot=dashboard.overview.pass_probability,
         question_count=question_count,
         pressure_mode=pressure_mode,
+        mistake_limit=mistake_limit,
+        violation_limit=violation_limit,
     )
 
     db.add(attempt)
@@ -206,6 +255,14 @@ async def start_simulation(
         questions=[_public_question_payload(question) for question in selected_questions],
         scheduled_at=simulation.scheduled_at,
         started_at=simulation.started_at,
+        pressure_mode=pressure_mode,
+        mistake_limit=mistake_limit,
+        mistake_count=0,
+        violation_limit=violation_limit,
+        violation_count=0,
+        disqualified=False,
+        disqualification_reason=None,
+        saved_answers=[],
     )
 
 
@@ -233,10 +290,14 @@ async def get_simulation_history(
             SimulationHistoryEntry(
                 attempt_id=simulation.id,
                 date=simulation.finished_at or simulation.started_at or simulation.scheduled_at,
+                question_count=simulation.question_count,
                 score=score_percent,
                 mistakes=simulation.mistake_count,
+                violation_count=int(simulation.violation_count or 0),
                 pass_probability_snapshot=simulation.pass_probability_snapshot,
                 passed=simulation.passed,
+                disqualified=bool(simulation.disqualified),
+                disqualification_reason=simulation.disqualification_reason,
             )
         )
 

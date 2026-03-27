@@ -3,9 +3,80 @@ AUTOTEST Driving Instructors Schemas
 """
 
 from datetime import datetime
+from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+
+from core.admin_statuses import (
+    DrivingInstructorApplicationStatus,
+    DrivingInstructorComplaintStatus,
+    DrivingInstructorLeadStatus,
+    coerce_status_value,
+    parse_status_value,
+)
+
+
+def _parse_instructor_lead_status(value: object) -> DrivingInstructorLeadStatus:
+    return parse_status_value(DrivingInstructorLeadStatus, value)
+
+
+def _coerce_instructor_lead_status(value: object) -> DrivingInstructorLeadStatus:
+    return coerce_status_value(
+        DrivingInstructorLeadStatus,
+        value,
+        context="driving_instructor_lead.status",
+        fallback=DrivingInstructorLeadStatus.NEW,
+    )
+
+
+def _parse_instructor_complaint_status(value: object) -> DrivingInstructorComplaintStatus:
+    return parse_status_value(DrivingInstructorComplaintStatus, value)
+
+
+def _coerce_instructor_complaint_status(value: object) -> DrivingInstructorComplaintStatus:
+    return coerce_status_value(
+        DrivingInstructorComplaintStatus,
+        value,
+        context="driving_instructor_complaint.status",
+        fallback=DrivingInstructorComplaintStatus.NEW,
+    )
+
+
+def _parse_instructor_application_status(value: object) -> DrivingInstructorApplicationStatus:
+    return parse_status_value(DrivingInstructorApplicationStatus, value)
+
+
+def _coerce_instructor_application_status(value: object) -> DrivingInstructorApplicationStatus:
+    return coerce_status_value(
+        DrivingInstructorApplicationStatus,
+        value,
+        context="driving_instructor_application.status",
+        fallback=DrivingInstructorApplicationStatus.PENDING,
+    )
+
+
+DrivingInstructorLeadStatusRequest = Annotated[DrivingInstructorLeadStatus, BeforeValidator(_parse_instructor_lead_status)]
+DrivingInstructorLeadStatusResponse = Annotated[
+    DrivingInstructorLeadStatus,
+    BeforeValidator(_coerce_instructor_lead_status),
+]
+DrivingInstructorComplaintStatusRequest = Annotated[
+    DrivingInstructorComplaintStatus,
+    BeforeValidator(_parse_instructor_complaint_status),
+]
+DrivingInstructorComplaintStatusResponse = Annotated[
+    DrivingInstructorComplaintStatus,
+    BeforeValidator(_coerce_instructor_complaint_status),
+]
+DrivingInstructorApplicationStatusRequest = Annotated[
+    DrivingInstructorApplicationStatus,
+    BeforeValidator(_parse_instructor_application_status),
+]
+DrivingInstructorApplicationStatusResponse = Annotated[
+    DrivingInstructorApplicationStatus,
+    BeforeValidator(_coerce_instructor_application_status),
+]
 
 
 class DrivingInstructorCatalogItemResponse(BaseModel):
@@ -114,7 +185,7 @@ class DrivingInstructorLeadResponse(BaseModel):
     requested_transmission: str | None = None
     comment: str | None = None
     source: str
-    status: str
+    status: DrivingInstructorLeadStatusResponse
     created_at: datetime
     updated_at: datetime
     instructor_name: str | None = None
@@ -124,7 +195,7 @@ class DrivingInstructorLeadResponse(BaseModel):
 
 
 class DrivingInstructorLeadUpdate(BaseModel):
-    status: str = Field(..., min_length=2, max_length=30)
+    status: DrivingInstructorLeadStatusRequest
 
 
 class DrivingInstructorComplaintCreate(BaseModel):
@@ -142,7 +213,7 @@ class DrivingInstructorComplaintResponse(BaseModel):
     phone: str | None = None
     reason: str
     comment: str | None = None
-    status: str
+    status: DrivingInstructorComplaintStatusResponse
     created_at: datetime
     updated_at: datetime
     instructor_name: str | None = None
@@ -152,7 +223,7 @@ class DrivingInstructorComplaintResponse(BaseModel):
 
 
 class DrivingInstructorComplaintUpdate(BaseModel):
-    status: str = Field(..., min_length=2, max_length=30)
+    status: DrivingInstructorComplaintStatusRequest
 
 
 class DrivingInstructorReviewCreate(BaseModel):
@@ -185,6 +256,7 @@ class DrivingInstructorApplicationCreate(BaseModel):
 class DrivingInstructorApplicationResponse(BaseModel):
     id: UUID
     user_id: UUID | None = None
+    linked_instructor_id: UUID | None = None
     full_name: str
     phone: str
     city: str
@@ -198,7 +270,7 @@ class DrivingInstructorApplicationResponse(BaseModel):
     short_bio: str
     profile_image_url: str
     extra_image_urls: list[str] = Field(default_factory=list)
-    status: str
+    status: DrivingInstructorApplicationStatusResponse
     rejection_reason: str | None = None
     reviewed_by_id: UUID | None = None
     reviewed_at: datetime | None = None
@@ -211,8 +283,9 @@ class DrivingInstructorApplicationResponse(BaseModel):
 
 
 class DrivingInstructorApplicationUpdate(BaseModel):
-    status: str = Field(..., min_length=2, max_length=30)
+    status: DrivingInstructorApplicationStatusRequest
     rejection_reason: str | None = Field(default=None, max_length=4000)
+    linked_instructor_id: UUID | None = None
 
 
 class DrivingInstructorRegistrationSettingsResponse(BaseModel):

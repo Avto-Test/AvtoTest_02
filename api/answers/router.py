@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,8 +14,10 @@ from api.auth.router import get_current_user
 from database.session import get_db
 from models.attempt import Attempt
 from models.attempt_answer import AttemptAnswer
+from models.exam_simulation_attempt import ExamSimulationAttempt
 from models.question import Question
 from models.user import User
+from services.learning.simulation_service import resolve_simulation_limits, terminate_simulation_attempt
 
 router = APIRouter(prefix="/answers", tags=["answers"])
 
@@ -52,12 +56,22 @@ async def _get_attempt_question(
     return attempt, question
 
 
+async def _get_simulation_attempt(
+    *,
+    attempt_id,
+    db: AsyncSession,
+) -> ExamSimulationAttempt | None:
+    return await db.get(ExamSimulationAttempt, attempt_id)
+
+
 def _build_locked_response(
     *,
     answer: AttemptAnswer,
     correct_option_id,
     already_answered: bool,
+    simulation: ExamSimulationAttempt | None = None,
 ) -> SubmitLockedAnswerResponse:
+    mistake_limit, violation_limit = resolve_simulation_limits(simulation)
     return SubmitLockedAnswerResponse(
         answer_id=answer.id,
         attempt_id=answer.attempt_id,
@@ -67,6 +81,14 @@ def _build_locked_response(
         is_correct=bool(answer.is_correct),
         locked=True,
         already_answered=already_answered,
+        mistake_count=int(simulation.mistake_count or 0) if simulation is not None else 0,
+        mistake_limit=mistake_limit if simulation is not None else 0,
+        violation_count=int(simulation.violation_count or 0) if simulation is not None else 0,
+        violation_limit=violation_limit if simulation is not None else 0,
+        attempt_finished=bool(simulation is not None and simulation.finished_at is not None),
+        passed=simulation.passed if simulation is not None and simulation.finished_at is not None else None,
+        disqualified=bool(simulation.disqualified) if simulation is not None else False,
+        disqualification_reason=simulation.disqualification_reason if simulation is not None else None,
     )
 
 
@@ -92,6 +114,8 @@ async def submit_locked_answer(
     if correct_option is None:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Correct option is not configured.")
 
+    simulation = await _get_simulation_attempt(attempt_id=attempt.id, db=db) if attempt.mode == "simulation" else None
+
     existing_answer = (
         await db.execute(
             select(AttemptAnswer).where(
@@ -105,6 +129,7 @@ async def submit_locked_answer(
             answer=existing_answer,
             correct_option_id=correct_option.id,
             already_answered=True,
+            simulation=simulation,
         )
 
     answer = AttemptAnswer(
@@ -114,11 +139,25 @@ async def submit_locked_answer(
         is_correct=bool(selected_option.is_correct),
     )
     db.add(answer)
+    if simulation is not None and not bool(selected_option.is_correct):
+        simulation.mistake_count = int(simulation.mistake_count or 0) + 1
+        mistake_limit, _ = resolve_simulation_limits(simulation)
+        if simulation.mistake_count >= mistake_limit:
+            await terminate_simulation_attempt(
+                db,
+                attempt,
+                finished_at=datetime.now(timezone.utc),
+                reason="mistake_limit_reached",
+                disqualified=False,
+            )
     await db.commit()
     await db.refresh(answer)
+    if simulation is not None:
+        await db.refresh(simulation)
 
     return _build_locked_response(
         answer=answer,
         correct_option_id=correct_option.id,
         already_answered=False,
+        simulation=simulation,
     )

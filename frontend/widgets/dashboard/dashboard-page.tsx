@@ -173,7 +173,7 @@ function CircularProgress({ value }: { value: number }) {
 }
 
 function DashboardContent() {
-  const { user, authenticated } = useUser();
+  const { user, authenticated, loading: authLoading, error: authError, refreshUser } = useUser();
   const progress = useProgressSnapshot();
   const [startingSession, setStartingSession] = useState(false);
   const [activeSession, setActiveSession] = useState<PracticeSessionPayload | null>(null);
@@ -266,7 +266,7 @@ function DashboardContent() {
     );
   }
 
-  if (progress.dashboardLoading) {
+  if (authLoading || progress.dashboardLoading || progress.summaryLoading) {
     return (
       <div className="space-y-6">
         <div className="h-80 animate-pulse rounded-2xl bg-[var(--muted)]/60" />
@@ -278,10 +278,26 @@ function DashboardContent() {
     );
   }
 
-  if (progress.dashboardError || !progress.dashboard || !progress.summary) {
+  if (!authenticated) {
+    return (
+      <ErrorState
+        title={authError ? "Sessiya tekshirilmadi" : "Kirish talab qilinadi"}
+        description={
+          authError
+            ? "Foydalanuvchi sessiyasini serverdan tekshirib bo'lmadi. Qayta urinib ko'ring yoki qayta kiring."
+            : "Dashboardni ko'rish uchun hisobingizga qayta kiring."
+        }
+        error={authError ?? new Error("Unauthorized")}
+        onRetry={authError ? () => void refreshUser() : undefined}
+      />
+    );
+  }
+
+  if (progress.dashboardError || progress.summaryError || !progress.dashboard || !progress.summary) {
     return (
       <ErrorState
         description="Asosiy sahifa ma'lumotlari yuklanmadi."
+        error={progress.dashboardError ?? progress.summaryError}
         onRetry={() => void progress.reload()}
       />
     );

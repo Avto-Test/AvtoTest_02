@@ -28,7 +28,7 @@ function AdminSidebar({
   onNavigate?: () => void;
 }) {
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-16 items-center justify-between border-b border-[var(--sidebar-border)] px-4">
         <Link href="/admin" className="flex min-w-0 items-center gap-3" onClick={onNavigate}>
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,var(--primary),var(--accent))] text-[var(--primary-foreground)] shadow-[var(--shadow-soft)]">
@@ -54,7 +54,7 @@ function AdminSidebar({
         </Button>
       </div>
 
-      <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
+      <nav className="admin-scroll-area min-h-0 flex-1 space-y-6 overflow-y-auto px-3 py-4">
         {adminNavigation.map((section) => (
           <div key={section.title} className="space-y-1">
             {!collapsed ? (
@@ -138,11 +138,11 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="page-shell min-h-screen bg-[var(--background)] p-3 text-[var(--foreground)] sm:p-4 lg:p-5">
-      <div className="grid min-h-[calc(100vh-1.5rem)] gap-4 lg:grid-cols-[auto_minmax(0,1fr)]">
+    <div className="page-shell h-[100dvh] overflow-hidden bg-[var(--background)] p-3 text-[var(--foreground)] sm:p-4 lg:p-5">
+      <div className="grid h-full min-h-0 gap-3 lg:grid-cols-[auto_minmax(0,1fr)]">
         <aside
           className={cn(
-            "hidden overflow-hidden rounded-[2rem] border border-[var(--sidebar-border)] bg-[var(--sidebar)] shadow-[var(--shadow-soft)] lg:block",
+            "hidden h-full min-h-0 overflow-hidden rounded-[2rem] border border-[color:color-mix(in_oklab,var(--sidebar-border)_74%,transparent)] bg-[var(--sidebar)] shadow-[var(--shadow-soft)] lg:block",
             collapsed ? "w-24" : "w-80",
           )}
         >
@@ -153,8 +153,9 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           />
         </aside>
 
-        <div className="min-w-0 overflow-hidden rounded-[2rem] border border-[var(--border)] bg-[var(--content-bg)] shadow-[var(--shadow-soft)]">
-          <header className="border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--card)_96%,var(--background))] px-4 py-4 backdrop-blur-xl sm:px-6">
+        <div className="min-w-0 h-full min-h-0 overflow-hidden rounded-[2rem] border border-[color:color-mix(in_oklab,var(--border)_76%,transparent)] bg-[var(--content-bg)] shadow-[var(--shadow-soft)]">
+          <div className="flex h-full min-h-0 flex-col">
+          <header className="shrink-0 border-b border-[color:color-mix(in_oklab,var(--border)_72%,transparent)] bg-[color-mix(in_oklab,var(--card)_96%,var(--background))] px-4 py-3 backdrop-blur-xl sm:px-6">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex min-w-0 items-start gap-3">
                 <Button
@@ -167,17 +168,16 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                 </Button>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="success">Admin shell</Badge>
+                    <Badge variant="success">Admin workspace</Badge>
                     <Badge variant="outline" className="border-[var(--border)] text-[var(--muted-foreground)]">
                       {currentItem.label}
                     </Badge>
                   </div>
-                  <h1 className="mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">{currentItem.label}</h1>
-                  <p className="mt-1 max-w-3xl text-sm leading-7 text-[var(--muted-foreground)]">{currentItem.description}</p>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted-foreground)]">{currentItem.description}</p>
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                 <ThemeToggle />
                 <Link href="/dashboard">
                   <Button variant="outline" className="border-[var(--border)] bg-transparent text-[var(--foreground)] hover:bg-[var(--muted)]">
@@ -204,7 +204,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             </div>
           </header>
 
-          <main className="min-w-0 overflow-x-hidden px-4 py-5 sm:px-6 lg:px-7">{children}</main>
+          <main className="admin-scroll-area min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-5 sm:px-6 lg:px-7">{children}</main>
+          </div>
         </div>
       </div>
 

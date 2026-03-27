@@ -244,6 +244,58 @@ textarea {
   background: var(--page-gradient);
 }
 
+.admin-scroll-area {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--text-tertiary) 34%, transparent) transparent;
+}
+
+.admin-scroll-area::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+.admin-scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.admin-scroll-area::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--text-tertiary) 28%, transparent);
+  background-clip: padding-box;
+}
+
+.admin-scroll-area:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--text-secondary) 38%, transparent);
+  background-clip: padding-box;
+}
+
+.subtle-scroll-area {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--text-tertiary) 22%, transparent) transparent;
+}
+
+.subtle-scroll-area::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.subtle-scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.subtle-scroll-area::-webkit-scrollbar-thumb {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--text-tertiary) 20%, transparent);
+  background-clip: padding-box;
+}
+
+.subtle-scroll-area:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--text-secondary) 28%, transparent);
+  background-clip: padding-box;
+}
+
 .chart-tooltip {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);

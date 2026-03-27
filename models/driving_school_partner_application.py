@@ -13,6 +13,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database.base import Base
 
 if TYPE_CHECKING:
+    from models.driving_school import DrivingSchool
     from models.user import User
 
 
@@ -29,6 +30,12 @@ class DrivingSchoolPartnerApplication(Base):
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    linked_school_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("driving_schools.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
@@ -61,7 +68,7 @@ class DrivingSchoolPartnerApplication(Base):
     status: Mapped[str] = mapped_column(
         String(30),
         nullable=False,
-        default="new",
+        default="PENDING",
         index=True,
     )
     reviewed_by_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -87,6 +94,7 @@ class DrivingSchoolPartnerApplication(Base):
     )
 
     user: Mapped["User | None"] = relationship("User", foreign_keys=[user_id])
+    linked_school: Mapped["DrivingSchool | None"] = relationship("DrivingSchool", foreign_keys=[linked_school_id])
     reviewed_by: Mapped["User | None"] = relationship("User", foreign_keys=[reviewed_by_id])
 
     def __repr__(self) -> str:

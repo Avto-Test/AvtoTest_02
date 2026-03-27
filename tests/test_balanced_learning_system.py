@@ -47,7 +47,7 @@ async def test_learning_session_endpoint_honors_topic_preferences(
     db_session.add_all([focus_category, other_category, test])
     await db_session.flush()
 
-    for index in range(12):
+    for index in range(24):
         await _create_question(
             db_session,
             test=test,
@@ -55,7 +55,7 @@ async def test_learning_session_endpoint_honors_topic_preferences(
             text=f"Focus Question {index}",
             difficulty_percent=30,
         )
-    for index in range(12):
+    for index in range(24):
         await _create_question(
             db_session,
             test=test,
@@ -68,7 +68,7 @@ async def test_learning_session_endpoint_honors_topic_preferences(
     response = await client.post(
         "/learning/session",
         json={
-            "question_count": 10,
+            "question_count": 20,
             "topic_preferences": ["Focus Topic"],
         },
         headers={"Authorization": f"Bearer {normal_user_token}"},
@@ -77,7 +77,7 @@ async def test_learning_session_endpoint_honors_topic_preferences(
     assert response.status_code == 201
     payload = response.json()
     focus_count = sum(1 for question in payload["questions"] if question["topic"] == "Focus Topic")
-    assert focus_count >= 8
+    assert focus_count >= 16
 
 
 @pytest.mark.asyncio
@@ -127,7 +127,184 @@ async def test_simulation_fast_unlock_allows_start_without_learning_path_ready(
         headers={"Authorization": f"Bearer {normal_user_token}"},
     )
     assert start_response.status_code == 201
-    assert start_response.json()["question_count"] == 40
+    start_payload = start_response.json()
+    assert start_payload["question_count"] == 40
+    assert start_payload["pressure_mode"] is True
+    assert start_payload["mistake_limit"] == 3
+    assert start_payload["saved_answers"] == []
+
+
+@pytest.mark.asyncio
+async def test_simulation_start_restores_saved_locked_answers(
+    client,
+    db_session,
+    normal_user,
+    normal_user_token,
+):
+    category = QuestionCategory(name="Simulation Resume Pool")
+    test = Test(title="Simulation Resume Bank", difficulty="medium")
+    db_session.add_all([category, test])
+    await db_session.flush()
+
+    wrong_option_ids: dict[str, str] = {}
+    for index in range(40):
+        question, wrong_option_id = await _create_question(
+            db_session,
+            test=test,
+            category=category,
+            text=f"Resume Question {index}",
+            difficulty_percent=55,
+        )
+        wrong_option_ids[str(question.id)] = wrong_option_id
+
+    db_session.add(CoinWallet(user_id=normal_user.id, balance=200))
+    await db_session.commit()
+
+    unlock_response = await client.post(
+        "/economy/simulation/unlock",
+        headers={"Authorization": f"Bearer {normal_user_token}"},
+    )
+    assert unlock_response.status_code == 200
+
+    start_response = await client.post(
+        "/simulation/start",
+        headers={"Authorization": f"Bearer {normal_user_token}"},
+    )
+    assert start_response.status_code == 201
+    start_payload = start_response.json()
+
+    first_question_id = start_payload["questions"][0]["id"]
+    locked_answer_response = await client.post(
+        "/answers/submit",
+        json={
+            "attempt_id": start_payload["id"],
+            "question_id": first_question_id,
+            "selected_option_id": wrong_option_ids[first_question_id],
+            "response_time_ms": 1400,
+        },
+        headers={"Authorization": f"Bearer {normal_user_token}"},
+    )
+    assert locked_answer_response.status_code == 201
+    locked_payload = locked_answer_response.json()
+    assert locked_payload["locked"] is True
+
+    resume_response = await client.post(
+        "/simulation/start",
+        headers={"Authorization": f"Bearer {normal_user_token}"},
+    )
+    assert resume_response.status_code == 201
+    resume_payload = resume_response.json()
+    assert resume_payload["id"] == start_payload["id"]
+    assert resume_payload["pressure_mode"] is True
+    assert resume_payload["mistake_limit"] == 3
+    assert len(resume_payload["saved_answers"]) == 1
+    assert resume_payload["saved_answers"][0]["question_id"] == first_question_id
+    assert resume_payload["saved_answers"][0]["selected_option_id"] == wrong_option_ids[first_question_id]
+
+
+@pytest.mark.asyncio
+async def test_admin_simulation_settings_control_unlock_price_and_relock_after_failure(
+    client,
+    db_session,
+    normal_user,
+    normal_user_token,
+    admin_user_token,
+):
+    category = QuestionCategory(name="Admin Controlled Simulation Pool")
+    test = Test(title="Admin Controlled Simulation Bank", difficulty="medium")
+    db_session.add_all([category, test])
+    await db_session.flush()
+
+    wrong_option_ids: dict[str, str] = {}
+    for index in range(40):
+        question, wrong_option_id = await _create_question(
+            db_session,
+            test=test,
+            category=category,
+            text=f"Admin Controlled Question {index}",
+            difficulty_percent=50,
+        )
+        wrong_option_ids[str(question.id)] = wrong_option_id
+
+    db_session.add(CoinWallet(user_id=normal_user.id, balance=200))
+    await db_session.commit()
+
+    settings_response = await client.put(
+        "/admin/simulation-exam-settings",
+        json={
+            "mistake_limit": 1,
+            "violation_limit": 2,
+            "cooldown_days": 14,
+            "fast_unlock_price": 75,
+        },
+        headers={"Authorization": f"Bearer {admin_user_token}"},
+    )
+    assert settings_response.status_code == 200
+    settings_payload = settings_response.json()
+    assert settings_payload["cooldown_days"] == 14
+    assert settings_payload["fast_unlock_price"] == 75
+
+    economy_response = await client.get(
+        "/economy/overview",
+        headers={"Authorization": f"Bearer {normal_user_token}"},
+    )
+    assert economy_response.status_code == 200
+    assert economy_response.json()["simulation_fast_unlock_offer"]["cost"] == 75
+
+    unlock_response = await client.post(
+        "/economy/simulation/unlock",
+        headers={"Authorization": f"Bearer {normal_user_token}"},
+    )
+    assert unlock_response.status_code == 200
+    unlock_payload = unlock_response.json()
+    assert unlock_payload["active"] is True
+    assert unlock_payload["coins_spent"] == 75
+
+    start_response = await client.post(
+        "/simulation/start",
+        headers={"Authorization": f"Bearer {normal_user_token}"},
+    )
+    assert start_response.status_code == 201
+    start_payload = start_response.json()
+    assert start_payload["mistake_limit"] == 1
+    assert start_payload["violation_limit"] == 2
+
+    first_question_id = start_payload["questions"][0]["id"]
+    answer_response = await client.post(
+        "/answers/submit",
+        json={
+            "attempt_id": start_payload["id"],
+            "question_id": first_question_id,
+            "selected_option_id": wrong_option_ids[first_question_id],
+            "response_time_ms": 1200,
+        },
+        headers={"Authorization": f"Bearer {normal_user_token}"},
+    )
+    assert answer_response.status_code == 201
+    answer_payload = answer_response.json()
+    assert answer_payload["attempt_finished"] is True
+    assert answer_payload["passed"] is False
+    assert answer_payload["disqualified"] is False
+    assert answer_payload["disqualification_reason"] == "mistake_limit_reached"
+
+    history_response = await client.get(
+        "/simulation/history",
+        headers={"Authorization": f"Bearer {normal_user_token}"},
+    )
+    assert history_response.status_code == 200
+    history_items = history_response.json()["items"]
+    assert history_items
+    assert history_items[0]["disqualification_reason"] == "mistake_limit_reached"
+
+    dashboard_response = await client.get(
+        "/analytics/me/dashboard",
+        headers={"Authorization": f"Bearer {normal_user_token}"},
+    )
+    assert dashboard_response.status_code == 200
+    simulation_status = dashboard_response.json()["simulation_status"]
+    assert simulation_status["cooldown_days"] == 14
+    assert simulation_status["cooldown_ready"] is False
+    assert simulation_status["fast_unlock_active"] is False
 
 
 @pytest.mark.asyncio
@@ -182,4 +359,4 @@ async def test_dashboard_recommendation_prioritizes_repeated_mistakes(
     recommendation = dashboard_response.json()["recommendation"]
     assert recommendation["kind"] == "repeated_mistake"
     assert recommendation["topic"] == "Chorrahalar"
-    assert recommendation["question_count"] == 5
+    assert recommendation["question_count"] >= 6

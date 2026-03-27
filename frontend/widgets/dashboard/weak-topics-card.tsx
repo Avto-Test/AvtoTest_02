@@ -21,6 +21,7 @@ type WeakTopicsCardProps = {
   items: WeakTopicCardItem[];
   onToggleTopic: (topic: string) => void;
   onLessonOpen: (topic: string) => void;
+  className?: string;
 };
 
 function progressSegments(state: TopicMasteryState) {
@@ -34,14 +35,18 @@ export function WeakTopicsCard({
   items,
   onToggleTopic,
   onLessonOpen,
+  className,
 }: WeakTopicsCardProps) {
   return (
     <Surface
       variant="secondary"
       padding="md"
-      className="h-full rounded-[1.45rem] border-[color:color-mix(in_srgb,var(--border)_24%,transparent)]"
+      className={cn(
+        "h-full rounded-[1.4rem] border-[color:color-mix(in_srgb,var(--border)_24%,transparent)] p-5",
+        className,
+      )}
     >
-      <div className="mb-4">
+      <div className="mb-3.5">
         <h3 className="text-section font-semibold">Zaif mavzular</h3>
         <p className="text-caption mt-1">
           Mashqdan oldin qaysi mavzularga e&apos;tibor berishni tanlang.
@@ -54,7 +59,7 @@ export function WeakTopicsCard({
           description="Mavzular yaxshilangach bu ro'yxat qisqaradi."
         />
       ) : (
-        <div className="space-y-2.5">
+        <div className="space-y-2.25">
           {items.map((item) => {
             const masteryMeta = masteryStateMeta(item.state);
             const activeSegments = progressSegments(item.state);
@@ -63,7 +68,7 @@ export function WeakTopicsCard({
               <div
                 key={item.topic}
                 className={cn(
-                  "rounded-[1rem] border bg-[var(--muted)]/36 p-3.5 transition-all",
+                  "rounded-[0.95rem] border bg-[var(--muted)]/36 p-3 transition-all",
                   item.selected
                     ? "border-[var(--primary)]/40 bg-[var(--primary-soft)]"
                     : "border-[var(--border)]/60",
@@ -88,9 +93,9 @@ export function WeakTopicsCard({
                     <Check className="h-3 w-3" />
                   </span>
 
-                  <div className="min-w-0 flex-1 space-y-2">
+                  <div className="min-w-0 flex-1 space-y-1.75">
                     <div className="flex items-start justify-between gap-2">
-                      <h4 className="text-[0.95rem] font-semibold">{item.topic}</h4>
+                      <h4 className="text-[0.92rem] font-semibold">{item.topic}</h4>
                       <span
                         className={cn(
                           "shrink-0 rounded-full px-2.25 py-0.5 text-[0.68rem] font-medium",
@@ -131,7 +136,7 @@ export function WeakTopicsCard({
                       className={buttonStyles({
                         variant: "outline",
                         size: "sm",
-                        className: "mt-1.5 rounded-lg",
+                        className: "mt-1 rounded-lg",
                       })}
                     >
                       <BookOpen className="h-3.5 w-3.5" />
@@ -143,7 +148,7 @@ export function WeakTopicsCard({
             );
           })}
 
-          <p className="text-caption rounded-lg bg-[var(--muted)]/60 px-4 py-2.5 text-center">
+          <p className="text-caption rounded-lg bg-[var(--muted)]/60 px-3.5 py-2 text-center">
             Tanlangan mavzular bugungi mashqda hisobga olinadi.
           </p>
         </div>

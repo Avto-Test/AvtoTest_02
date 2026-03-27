@@ -3,9 +3,55 @@ AUTOTEST Driving Schools Schemas
 """
 
 from datetime import datetime
+from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, EmailStr, Field
+
+from core.admin_statuses import (
+    DrivingSchoolLeadStatus,
+    DrivingSchoolPartnerApplicationStatus,
+    coerce_status_value,
+    parse_status_value,
+)
+
+
+def _parse_school_lead_status(value: object) -> DrivingSchoolLeadStatus:
+    return parse_status_value(DrivingSchoolLeadStatus, value)
+
+
+def _coerce_school_lead_status(value: object) -> DrivingSchoolLeadStatus:
+    return coerce_status_value(
+        DrivingSchoolLeadStatus,
+        value,
+        context="driving_school_lead.status",
+        fallback=DrivingSchoolLeadStatus.NEW,
+    )
+
+
+def _parse_school_partner_application_status(value: object) -> DrivingSchoolPartnerApplicationStatus:
+    return parse_status_value(DrivingSchoolPartnerApplicationStatus, value)
+
+
+def _coerce_school_partner_application_status(value: object) -> DrivingSchoolPartnerApplicationStatus:
+    return coerce_status_value(
+        DrivingSchoolPartnerApplicationStatus,
+        value,
+        context="driving_school_partner_application.status",
+        fallback=DrivingSchoolPartnerApplicationStatus.PENDING,
+    )
+
+
+DrivingSchoolLeadStatusRequest = Annotated[DrivingSchoolLeadStatus, BeforeValidator(_parse_school_lead_status)]
+DrivingSchoolLeadStatusResponse = Annotated[DrivingSchoolLeadStatus, BeforeValidator(_coerce_school_lead_status)]
+DrivingSchoolPartnerApplicationStatusRequest = Annotated[
+    DrivingSchoolPartnerApplicationStatus,
+    BeforeValidator(_parse_school_partner_application_status),
+]
+DrivingSchoolPartnerApplicationStatusResponse = Annotated[
+    DrivingSchoolPartnerApplicationStatus,
+    BeforeValidator(_coerce_school_partner_application_status),
+]
 
 
 class DrivingSchoolCatalogItemResponse(BaseModel):
@@ -116,7 +162,7 @@ class DrivingSchoolLeadResponse(BaseModel):
     requested_category: str | None = None
     comment: str | None = None
     source: str
-    status: str
+    status: DrivingSchoolLeadStatusResponse
     created_at: datetime
     updated_at: datetime
     school_name: str | None = None
@@ -126,7 +172,7 @@ class DrivingSchoolLeadResponse(BaseModel):
 
 
 class DrivingSchoolLeadUpdate(BaseModel):
-    status: str = Field(..., min_length=2, max_length=30)
+    status: DrivingSchoolLeadStatusRequest
 
 
 class DrivingSchoolReviewCreate(BaseModel):
@@ -152,13 +198,14 @@ class DrivingSchoolPartnerApplicationCreate(BaseModel):
 class DrivingSchoolPartnerApplicationResponse(BaseModel):
     id: UUID
     user_id: UUID | None = None
+    linked_school_id: UUID | None = None
     school_name: str
     city: str
     responsible_person: str
     phone: str
     email: str
     note: str | None = None
-    status: str
+    status: DrivingSchoolPartnerApplicationStatusResponse
     reviewed_by_id: UUID | None = None
     reviewed_at: datetime | None = None
     created_at: datetime
@@ -168,7 +215,8 @@ class DrivingSchoolPartnerApplicationResponse(BaseModel):
 
 
 class DrivingSchoolPartnerApplicationUpdate(BaseModel):
-    status: str = Field(..., min_length=2, max_length=30)
+    status: DrivingSchoolPartnerApplicationStatusRequest
+    linked_school_id: UUID | None = None
 
 
 class DrivingSchoolCreate(BaseModel):

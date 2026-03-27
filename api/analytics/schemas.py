@@ -3,6 +3,8 @@ AUTOTEST Analytics Schemas
 Pydantic schemas for analytics endpoints
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 from uuid import UUID
 
@@ -46,7 +48,7 @@ class AnalyticsOverview(BaseModel):
     current_training_level: str # "beginner" | "intermediate" | "advanced"
     readiness_score: float = 0.0 # 0-100
     pass_probability: float = 0.0 # 0-100
-    pass_prediction_label: str = "High Risk of Failing"
+    pass_prediction_label: str = "Xavf yuqori"
     adaptive_intelligence_strength: float = 0.0 # 0-100
     total_due: int = 0
     
@@ -77,7 +79,7 @@ class Recommendation(BaseModel):
     action_label: str | None = None
     kind: str = "general_practice"
     reason: str | None = None
-    question_count: int = 12
+    question_count: int = 8
 
 
 class RewardRange(BaseModel):
@@ -189,7 +191,7 @@ class IntelligenceSnapshot(BaseModel):
     attempt_id: UUID
     date: datetime
     score: float
-    pass_probability: float  # Clamped [0,1]
+    pass_probability: float  # 0-100
     probability_source: str  # "ml" | "rule"
     confidence: float
     readiness_score: float
@@ -220,18 +222,169 @@ class DashboardResponse(BaseModel):
 
 # ========== Admin Analytics ==========
 
+class AdminMetricTrendSnapshot(BaseModel):
+    """Simple current-vs-previous metric window snapshot for lightweight trend analysis."""
+
+    current: float = Field(..., description="Metric value in the current UTC day window.")
+    previous: float = Field(..., description="Metric value in the previous UTC day window.")
+    sample_size_current: int | None = Field(
+        default=None,
+        description="Optional sample size supporting the current window value.",
+    )
+    sample_size_previous: int | None = Field(
+        default=None,
+        description="Optional sample size supporting the previous window value.",
+    )
+
+
+class AdminCategoryPerformanceItem(BaseModel):
+    category: str
+    accuracy: float = Field(..., ge=0, le=100)
+    attempts: int = Field(..., ge=0)
+    question_count: int = Field(..., ge=0)
+
+
+class AdminGrowthConversionRates(BaseModel):
+    """Core funnel conversion rates expressed in percent on a 0-100 scale."""
+
+    activation_rate: float = Field(
+        ...,
+        ge=0,
+        le=100,
+        description="Active users divided by registered users.",
+    )
+    engagement_rate: float = Field(
+        ...,
+        ge=0,
+        le=100,
+        description="Engaged users divided by active users.",
+    )
+    payment_rate: float = Field(
+        ...,
+        ge=0,
+        le=100,
+        description="Successful payers divided by engaged users.",
+    )
+
+
+class AdminGrowthDropOffs(BaseModel):
+    """Raw user-count drop-offs between key funnel stages."""
+
+    registration_to_activity: int = Field(..., ge=0)
+    activity_to_engagement: int = Field(..., ge=0)
+    engagement_to_premium_click: int = Field(..., ge=0)
+    engagement_to_payment: int = Field(..., ge=0)
+
+
+class AdminGrowthSummary(BaseModel):
+    """Backend-driven growth funnel snapshot for admin conversion analysis."""
+
+    registered_users: int = Field(
+        ...,
+        ge=0,
+        description="Count of users created in the selected window.",
+    )
+    active_users: int = Field(
+        ...,
+        ge=0,
+        description="Distinct users with at least one session attempt started in the selected window.",
+    )
+    engaged_users: int = Field(
+        ...,
+        ge=0,
+        description="Distinct users with two or more session attempts started in the selected window.",
+    )
+    premium_clicks: int = Field(
+        ...,
+        ge=0,
+        description="Distinct signed-in users who triggered an upgrade click in the selected window.",
+    )
+    successful_payments: int = Field(
+        ...,
+        ge=0,
+        description="Distinct users with at least one successful payment in the selected window.",
+    )
+    conversion_rates: AdminGrowthConversionRates
+    drop_offs: AdminGrowthDropOffs
+
+
+class AdminExperimentVariantSummary(BaseModel):
+    """Variant-level experiment outcome summary."""
+
+    assigned_users: int = Field(..., ge=0)
+    clicks: int = Field(..., ge=0)
+    payments: int = Field(..., ge=0)
+    conversion_rate: float = Field(..., ge=0, le=100)
+
+
+class AdminExperimentSummary(BaseModel):
+    """Admin-facing A/B experiment performance snapshot."""
+
+    experiment: str = Field(..., min_length=1)
+    winner: str | None = Field(default=None, description="Winning variant when significance rules are met.")
+    confidence_level: str = Field(..., min_length=1)
+    recommendation: str = Field(..., min_length=1)
+    days_running: int = Field(..., ge=0)
+    minimum_duration_met: bool
+    minimum_sample_met: bool
+    variant_A: AdminExperimentVariantSummary
+    variant_B: AdminExperimentVariantSummary
+
+
 class AdminAnalyticsSummary(BaseModel):
-    """Global platform statistics."""
-    total_users: int
-    premium_users: int
-    free_users: int
-    total_tests: int
-    total_attempts: int
+    """Canonical admin KPI snapshot sourced only from backend database aggregations."""
+
+    total_users: int = Field(..., description="Count of all rows in the users table.")
+    active_users: int = Field(
+        ...,
+        description="Count of users where users.is_active = TRUE.",
+    )
+    premium_users: int = Field(
+        ...,
+        description="Count of distinct users with an active paid subscription where plan != free.",
+    )
+    total_questions: int = Field(
+        ...,
+        description="Count of all question-bank rows in the questions table.",
+    )
+    total_applications: int = Field(
+        ...,
+        description="Combined count of driving school partner applications and instructor applications.",
+    )
+    pending_applications: int = Field(
+        ...,
+        description="Combined count of marketplace applications currently in PENDING status.",
+    )
+    new_leads: int = Field(
+        ...,
+        description="Combined count of school and instructor leads created in the last 7 days.",
+    )
+    average_accuracy: float | None = Field(
+        default=None,
+        description=(
+            "Average percentage score across completed learning attempts in the current UTC day window."
+        ),
+    )
+    accuracy_trend: AdminMetricTrendSnapshot | None = Field(
+        default=None,
+        description="Current UTC day accuracy snapshot compared with the previous UTC day.",
+    )
+    active_users_trend: AdminMetricTrendSnapshot | None = Field(
+        default=None,
+        description=(
+            "Distinct users with completed learning activity in the current UTC day compared with the previous UTC day."
+        ),
+    )
+    applications_trend: AdminMetricTrendSnapshot | None = Field(
+        default=None,
+        description="Combined application inflow in the current UTC day compared with the previous UTC day.",
+    )
+    category_performance: list[AdminCategoryPerformanceItem] = Field(
+        default_factory=list,
+        description="Weakest question-bank categories by answer accuracy.",
+    )
 
 
-class TopTestAnalytics(BaseModel):
-    """Analytics for a specific test (admin view)."""
-    test_id: UUID
-    title: str
-    attempts_count: int
-    average_score: float
+AdminAnalyticsSummary.model_rebuild()
+AdminGrowthSummary.model_rebuild()
+AdminExperimentSummary.model_rebuild()
