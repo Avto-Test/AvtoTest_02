@@ -49,9 +49,14 @@ def calculate_pass_probability_from_signals(
     mastery_coverage: float,
     weak_topic_ratio: float,
     learning_trend: float,
+    retention_strength: float | None = None,
+    topic_balance: float | None = None,
 ) -> float:
     """
     Logistic probability from normalized signals.
+
+    Extra dashboard signals are accepted for API compatibility. The
+    current lightweight model does not weight them directly yet.
     Returns 0.05 .. 0.95
     """
     z = (
@@ -61,6 +66,7 @@ def calculate_pass_probability_from_signals(
         - (0.15 * _clamp(weak_topic_ratio, 0.0, 1.0))
         + (0.05 * _clamp(learning_trend, -1.0, 1.0))
     )
+    _ = retention_strength, topic_balance
     probability = 1.0 / (1.0 + exp(-z))
     return _clamp(probability, 0.05, 0.95)
 
