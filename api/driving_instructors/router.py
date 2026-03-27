@@ -36,6 +36,12 @@ from api.driving_instructors.schemas import (
     DrivingInstructorReviewResponse,
     DrivingInstructorUpdate,
 )
+from core.admin_statuses import (
+    DrivingInstructorApplicationStatus,
+    DrivingInstructorComplaintStatus,
+    DrivingInstructorLeadStatus,
+    coerce_status_value,
+)
 from core.config import settings
 from core.public_urls import resolve_public_upload_url
 from database.session import get_db
@@ -365,6 +371,7 @@ async def my_instructor_summary(
         app_payload = DrivingInstructorApplicationResponse(
             id=latest_application.id,
             user_id=latest_application.user_id,
+            linked_instructor_id=latest_application.linked_instructor_id,
             full_name=latest_application.full_name,
             phone=latest_application.phone,
             city=latest_application.city,
@@ -753,7 +760,7 @@ async def submit_instructor_lead(
         requested_transmission=_normalize_transmission(payload.requested_transmission) if payload.requested_transmission else None,
         comment=payload.comment.strip() if payload.comment else None,
         source="web",
-        status="new",
+        status=DrivingInstructorLeadStatus.NEW.value,
     )
     db.add(lead)
     await db.flush()
@@ -896,7 +903,7 @@ async def submit_instructor_complaint(
         phone=payload.phone.strip() if payload.phone else None,
         reason=payload.reason.strip(),
         comment=payload.comment.strip() if payload.comment else None,
-        status="new",
+        status=DrivingInstructorComplaintStatus.NEW.value,
     )
     db.add(complaint)
     await db.flush()
@@ -940,13 +947,14 @@ async def submit_instructor_application(
     if len(payload.extra_image_urls) < 1:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Kamida 1 ta qoshimcha rasm kerak")
 
-    active_application_statuses = {"new", "pending", "reviewing", "approved"}
+    active_application_statuses = {
+        DrivingInstructorApplicationStatus.PENDING,
+        DrivingInstructorApplicationStatus.APPROVED,
+    }
     status_labels = {
-        "new": "kutilmoqda",
-        "pending": "kutilmoqda",
-        "reviewing": "korib chiqilmoqda",
-        "approved": "tasdiqlangan",
-        "rejected": "rad etilgan",
+        DrivingInstructorApplicationStatus.PENDING: "kutilmoqda",
+        DrivingInstructorApplicationStatus.APPROVED: "tasdiqlangan",
+        DrivingInstructorApplicationStatus.REJECTED: "rad etilgan",
     }
 
     if optional_user is not None:
@@ -975,7 +983,12 @@ async def submit_instructor_application(
     duplicate_result = await db.execute(duplicate_stmt)
     latest_application = duplicate_result.scalars().first()
     if latest_application is not None:
-        latest_status = (latest_application.status or "").strip().lower()
+        latest_status = coerce_status_value(
+            DrivingInstructorApplicationStatus,
+            latest_application.status,
+            context="driving_instructor_application.duplicate_check",
+            fallback=DrivingInstructorApplicationStatus.PENDING,
+        )
         if latest_status in active_application_statuses:
             status_text = status_labels.get(latest_status, latest_status)
             raise HTTPException(
@@ -998,7 +1011,7 @@ async def submit_instructor_application(
         short_bio=payload.short_bio.strip(),
         profile_image_url=payload.profile_image_url.strip(),
         extra_images_json=json.dumps(payload.extra_image_urls),
-        status="pending",
+        status=DrivingInstructorApplicationStatus.PENDING.value,
         submitted_from="web",
     )
     db.add(row)
@@ -1024,7 +1037,10 @@ async def submit_instructor_application(
                 notification_type="driving_instructor_application_submitted",
                 title="Arizangiz qabul qilindi",
                 message="Instruktor sifatida royxatdan otish arizangiz qabul qilindi.",
-                payload={"application_id": str(row.id), "status": "pending"},
+                payload={
+                    "application_id": str(row.id),
+                    "status": DrivingInstructorApplicationStatus.PENDING.value,
+                },
             )
         )
 
@@ -1034,6 +1050,7 @@ async def submit_instructor_application(
     return DrivingInstructorApplicationResponse(
         id=row.id,
         user_id=row.user_id,
+        linked_instructor_id=row.linked_instructor_id,
         full_name=row.full_name,
         phone=row.phone,
         city=row.city,

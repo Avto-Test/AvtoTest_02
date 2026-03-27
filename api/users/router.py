@@ -53,6 +53,9 @@ async def get_my_profile(
     school_result = await db.execute(
         select(DrivingSchool.id).where(DrivingSchool.owner_user_id == current_user.id)
     )
+    from core.rbac import get_effective_role_names
+
+    roles = await get_effective_role_names(current_user, db)
     return {
         "id": current_user.id,
         "email": current_user.email,
@@ -60,6 +63,7 @@ async def get_my_profile(
         "is_verified": current_user.is_verified,
         "is_active": current_user.is_active,
         "is_admin": current_user.is_admin,
+        "roles": roles,
         "is_premium": current_user.is_premium,
         "has_instructor_profile": instructor_result.scalar_one_or_none() is not None,
         "has_school_profile": school_result.scalar_one_or_none() is not None,

@@ -1,15 +1,20 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import { getCurrentUser, logout as logoutRequest } from "@/api/auth";
+import { ApiError } from "@/api/client";
 import { AUTH_EXPIRED_EVENT, AUTH_PRESENCE_COOKIE } from "@/lib/auth-session";
 import type { User } from "@/types/user";
+
+const AUTH_USER_SNAPSHOT_KEY = "autotest.auth.user.v1";
 
 type AuthContextValue = {
   user: User | null;
   loading: boolean;
   authenticated: boolean;
+  sessionPresent: boolean;
+  error: unknown;
   refreshUser: () => Promise<User | null>;
   clearUser: () => void;
   logout: () => Promise<void>;
@@ -33,6 +38,36 @@ function clearAuthPresenceCookie() {
     return;
   }
   document.cookie = `${AUTH_PRESENCE_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax`;
+}
+
+function readStoredUser() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const raw = window.localStorage.getItem(AUTH_USER_SNAPSHOT_KEY);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw) as User;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredUser(user: User | null) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (!user) {
+    window.localStorage.removeItem(AUTH_USER_SNAPSHOT_KEY);
+    return;
+  }
+
+  window.localStorage.setItem(AUTH_USER_SNAPSHOT_KEY, JSON.stringify(user));
 }
 
 async function hasServerSession() {
@@ -59,16 +94,42 @@ async function hasServerSession() {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => (hasAuthPresenceCookie() ? readStoredUser() : null));
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<unknown>(null);
+  const [sessionPresent, setSessionPresent] = useState(() => hasAuthPresenceCookie());
+  const userRef = useRef<User | null>(user);
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   const refreshUser = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const nextUser = await getCurrentUser();
       setUser(nextUser);
+      setSessionPresent(true);
+      writeStoredUser(nextUser);
       return nextUser;
-    } catch {
+    } catch (nextError) {
+      const nextHasSession = hasAuthPresenceCookie();
+      const fallbackUser = userRef.current ?? (nextHasSession ? readStoredUser() : null);
+      setSessionPresent(nextHasSession);
+      setError(nextError);
+
+      if (nextError instanceof ApiError && (nextError.status === 401 || nextError.status === 403 || !nextHasSession)) {
+        setUser(null);
+        writeStoredUser(null);
+        return null;
+      }
+
+      if (fallbackUser) {
+        setUser(fallbackUser);
+        return fallbackUser;
+      }
+
       setUser(null);
       return null;
     } finally {
@@ -78,7 +139,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const clearUser = useCallback(() => {
     setUser(null);
+    setSessionPresent(false);
     setLoading(false);
+    setError(null);
+    writeStoredUser(null);
     clearAuthPresenceCookie();
   }, []);
 
@@ -97,7 +161,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     void (async () => {
-      const hasSession = hasAuthPresenceCookie() ? await hasServerSession() : false;
+      const cookieSession = hasAuthPresenceCookie();
+      const cachedUser = cookieSession ? readStoredUser() : null;
+
+      if (cachedUser) {
+        setUser(cachedUser);
+        setSessionPresent(true);
+      }
+
+      const hasSession = cookieSession ? await hasServerSession() : false;
 
       if (cancelled) {
         return;
@@ -105,10 +177,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (!hasSession) {
         setUser(null);
+        setSessionPresent(false);
         setLoading(false);
+        setError(null);
+        writeStoredUser(null);
         return;
       }
 
+      setSessionPresent(true);
       await refreshUser();
     })();
 
@@ -130,12 +206,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       user,
       loading,
-      authenticated: Boolean(user),
+      authenticated: Boolean(user) || sessionPresent,
+      sessionPresent,
+      error,
       refreshUser,
       clearUser,
       logout,
     }),
-    [clearUser, loading, logout, refreshUser, user],
+    [clearUser, error, loading, logout, refreshUser, sessionPresent, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

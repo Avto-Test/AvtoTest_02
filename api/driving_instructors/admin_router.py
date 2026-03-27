@@ -35,6 +35,13 @@ from api.driving_instructors.schemas import (
     DrivingInstructorReviewResponse,
     DrivingInstructorUpdate,
 )
+from core.admin_statuses import (
+    DrivingInstructorApplicationStatus,
+    DrivingInstructorComplaintStatus,
+    DrivingInstructorLeadStatus,
+    ensure_status_transition,
+    status_display_label,
+)
 from core.public_urls import resolve_public_upload_url
 from database.session import get_db
 from models.driving_instructor import DrivingInstructor
@@ -94,6 +101,43 @@ def _user_display_name(user: User | None) -> str | None:
     if user.email:
         return user.email.split("@")[0]
     return None
+
+
+async def _get_linked_instructor_or_404(db: AsyncSession, instructor_id: UUID) -> DrivingInstructor:
+    result = await db.execute(select(DrivingInstructor).where(DrivingInstructor.id == instructor_id))
+    instructor = result.scalar_one_or_none()
+    if instructor is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Linked instructor not found")
+    return instructor
+
+
+def _to_application_response(row: DrivingInstructorApplication) -> DrivingInstructorApplicationResponse:
+    return DrivingInstructorApplicationResponse(
+        id=row.id,
+        user_id=row.user_id,
+        linked_instructor_id=row.linked_instructor_id,
+        full_name=row.full_name,
+        phone=row.phone,
+        city=row.city,
+        region=row.region,
+        gender=row.gender,
+        years_experience=row.years_experience,
+        transmission=row.transmission,
+        car_model=row.car_model,
+        hourly_price_cents=row.hourly_price_cents,
+        currency=row.currency,
+        short_bio=row.short_bio,
+        profile_image_url=row.profile_image_url,
+        extra_image_urls=json.loads(row.extra_images_json or "[]"),
+        status=row.status,
+        rejection_reason=row.rejection_reason,
+        reviewed_by_id=row.reviewed_by_id,
+        reviewed_at=row.reviewed_at,
+        submitted_from=row.submitted_from,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        user_email=row.user.email if row.user else None,
+    )
 
 
 async def _unique_slug(db: AsyncSession, base: str, exclude_id: UUID | None = None) -> str:
@@ -226,6 +270,17 @@ def _to_admin_response(row: DrivingInstructor, promo_redemption_count: int = 0) 
         rating_avg=rating_avg,
         promo_redemption_count=promo_redemption_count,
         media_items=sorted(row.media_items, key=lambda i: (i.sort_order, i.created_at)),
+        reviews=[
+            DrivingInstructorReviewResponse(
+                id=review.id,
+                rating=review.rating,
+                comment=review.comment,
+                is_visible=review.is_visible,
+                created_at=review.created_at,
+                user_display_name=None,
+            )
+            for review in sorted(row.reviews, key=lambda item: item.created_at, reverse=True)
+        ],
     )
 
 
@@ -477,34 +532,7 @@ async def list_applications(
         .order_by(DrivingInstructorApplication.created_at.desc())
     )
     rows = list(result.scalars().all())
-    return [
-        DrivingInstructorApplicationResponse(
-            id=row.id,
-            user_id=row.user_id,
-            full_name=row.full_name,
-            phone=row.phone,
-            city=row.city,
-            region=row.region,
-            gender=row.gender,
-            years_experience=row.years_experience,
-            transmission=row.transmission,
-            car_model=row.car_model,
-            hourly_price_cents=row.hourly_price_cents,
-            currency=row.currency,
-            short_bio=row.short_bio,
-            profile_image_url=row.profile_image_url,
-            extra_image_urls=json.loads(row.extra_images_json or "[]"),
-            status=row.status,
-            rejection_reason=row.rejection_reason,
-            reviewed_by_id=row.reviewed_by_id,
-            reviewed_at=row.reviewed_at,
-            submitted_from=row.submitted_from,
-            created_at=row.created_at,
-            updated_at=row.updated_at,
-            user_email=row.user.email if row.user else None,
-        )
-        for row in rows
-    ]
+    return [_to_application_response(row) for row in rows]
 
 
 @router.put("/applications/{application_id}", response_model=DrivingInstructorApplicationResponse)
@@ -523,18 +551,30 @@ async def update_application(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
 
-    normalized_status = payload.status.strip().lower()
-    if normalized_status not in {"pending", "approved", "rejected"}:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid status")
+    try:
+        next_status = ensure_status_transition(
+            DrivingInstructorApplicationStatus,
+            row.status,
+            payload.status,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
-    row.status = normalized_status
+    row.status = next_status.value
     row.rejection_reason = payload.rejection_reason.strip() if payload.rejection_reason else None
     row.reviewed_by_id = admin_user.id
     row.reviewed_at = datetime.now(timezone.utc)
 
-    if normalized_status == "approved":
-        instructor = None
-        if row.user_id is not None:
+    instructor: DrivingInstructor | None = None
+    if payload.linked_instructor_id is not None:
+        instructor = await _get_linked_instructor_or_404(db, payload.linked_instructor_id)
+        row.linked_instructor_id = instructor.id
+
+    if next_status == DrivingInstructorApplicationStatus.APPROVED:
+        if instructor is None and row.linked_instructor_id is not None:
+            instructor = await _get_linked_instructor_or_404(db, row.linked_instructor_id)
+
+        if instructor is None and row.user_id is not None:
             instructor_result = await db.execute(select(DrivingInstructor).where(DrivingInstructor.user_id == row.user_id))
             instructor = instructor_result.scalar_one_or_none()
 
@@ -619,6 +659,8 @@ async def update_application(
             if instructor.approved_at is None:
                 instructor.approved_at = datetime.now(timezone.utc)
 
+        row.linked_instructor_id = instructor.id
+
     if row.user_id is not None:
         db.add(
             UserNotification(
@@ -627,44 +669,24 @@ async def update_application(
                 title="Instruktor arizasi holati yangilandi",
                 message=(
                     "Arizangiz tasdiqlandi. Profilingiz katalogda korinadi."
-                    if normalized_status == "approved"
+                    if next_status == DrivingInstructorApplicationStatus.APPROVED
                     else (
                         f"Arizangiz rad etildi: {row.rejection_reason or 'Izoh berilmagan'}"
-                        if normalized_status == "rejected"
-                        else "Arizangiz korib chiqilmoqda."
+                        if next_status == DrivingInstructorApplicationStatus.REJECTED
+                        else f"Arizangiz holati: {status_display_label(row.status)}"
                     )
                 ),
-                payload={"application_id": str(row.id), "status": normalized_status},
+                payload={
+                    "application_id": str(row.id),
+                    "status": row.status,
+                    "linked_instructor_id": str(row.linked_instructor_id) if row.linked_instructor_id else None,
+                },
             )
         )
 
     await db.commit()
     await db.refresh(row)
-    return DrivingInstructorApplicationResponse(
-        id=row.id,
-        user_id=row.user_id,
-        full_name=row.full_name,
-        phone=row.phone,
-        city=row.city,
-        region=row.region,
-        gender=row.gender,
-        years_experience=row.years_experience,
-        transmission=row.transmission,
-        car_model=row.car_model,
-        hourly_price_cents=row.hourly_price_cents,
-        currency=row.currency,
-        short_bio=row.short_bio,
-        profile_image_url=row.profile_image_url,
-        extra_image_urls=json.loads(row.extra_images_json or "[]"),
-        status=row.status,
-        rejection_reason=row.rejection_reason,
-        reviewed_by_id=row.reviewed_by_id,
-        reviewed_at=row.reviewed_at,
-        submitted_from=row.submitted_from,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-        user_email=row.user.email if row.user else None,
-    )
+    return _to_application_response(row)
 
 
 @router.get("/leads", response_model=list[DrivingInstructorLeadResponse])
@@ -718,7 +740,12 @@ async def update_lead_status(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found")
 
-    row.status = payload.status.strip().lower()
+    try:
+        next_status = ensure_status_transition(DrivingInstructorLeadStatus, row.status, payload.status)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    row.status = next_status.value
     row.updated_at = datetime.now(timezone.utc)
 
     if row.user_id is not None:
@@ -727,7 +754,7 @@ async def update_lead_status(
                 user_id=row.user_id,
                 notification_type="driving_instructor_lead_status",
                 title="Instruktor sorovi holati yangilandi",
-                message=f"{row.instructor.full_name if row.instructor else 'Instruktor'} boyicha sorov holati: {row.status}",
+                message=f"{row.instructor.full_name if row.instructor else 'Instruktor'} boyicha sorov holati: {status_display_label(row.status)}",
                 payload={"lead_id": str(row.id), "status": row.status},
             )
         )
@@ -879,7 +906,16 @@ async def update_complaint_status(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Complaint not found")
 
-    row.status = payload.status.strip().lower()
+    try:
+        next_status = ensure_status_transition(
+            DrivingInstructorComplaintStatus,
+            row.status,
+            payload.status,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    row.status = next_status.value
     row.updated_at = datetime.now(timezone.utc)
 
     if row.user_id is not None:
@@ -888,7 +924,7 @@ async def update_complaint_status(
                 user_id=row.user_id,
                 notification_type="driving_instructor_complaint_status",
                 title="Shikoyat holati yangilandi",
-                message=f"{row.instructor.full_name if row.instructor else 'Instruktor'} boyicha shikoyat holati: {row.status}",
+                message=f"{row.instructor.full_name if row.instructor else 'Instruktor'} boyicha shikoyat holati: {status_display_label(row.status)}",
                 payload={"complaint_id": str(row.id), "status": row.status},
             )
         )

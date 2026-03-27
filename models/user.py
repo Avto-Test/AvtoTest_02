@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from models.attempt import Attempt
     from models.coin_transaction import CoinTransaction
     from models.coin_wallet import CoinWallet
+    from models.experiment import Experiment
     from models.exam_simulation_attempt import ExamSimulationAttempt
     from models.feedback import Feedback
     from models.leaderboard_snapshot import LeaderboardSnapshot
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     from models.user_achievement import UserAchievement
     from models.user_role import UserRole
     from models.user_adaptive_profile import UserAdaptiveProfile
+    from models.user_experiment import UserExperiment
     from models.user_notification import UserNotification
     from models.user_streak import UserStreak
     from models.verification_token import VerificationToken
@@ -197,6 +199,11 @@ class User(Base):
     )
     school_memberships: Mapped[list["SchoolMembership"]] = relationship(
         "SchoolMembership",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    experiment_assignments: Mapped[list["UserExperiment"]] = relationship(
+        "UserExperiment",
         back_populates="user",
         cascade="all, delete-orphan",
     )

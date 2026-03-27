@@ -396,12 +396,13 @@ function ProfileMenu({
 }
 
 export function AppTopbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
-  const { user, logout } = useUser();
+  const { user, logout, loading: authLoading, error: authError, sessionPresent } = useUser();
   const { gamification } = useProgressSnapshot();
   const pathname = usePathname();
   const [searchFocused, setSearchFocused] = useState(false);
   const isPremiumUser = Boolean(user?.is_premium);
   const showLevelPanel = Boolean(user) && pathname !== "/simulation";
+  const showSessionFallback = !user && (authLoading || sessionPresent || Boolean(authError));
 
   const levelLabel = gamification ? `Lvl ${gamification.xp.level}` : "--";
   const xpLabel = gamification ? `${gamification.xp.total_xp} XP` : "--";
@@ -412,7 +413,12 @@ export function AppTopbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
 
   return (
     <header className="sticky top-0 z-20 overflow-visible border-b border-[var(--border)]/60 bg-[color-mix(in_oklab,var(--background)_88%,transparent)] backdrop-blur-lg">
-      <div className="relative px-4 pb-1 pt-2 sm:px-5 lg:px-7">
+      <div
+        className={cn(
+          "relative px-4 pt-2 sm:px-5 lg:px-7",
+          showLevelPanel ? "pb-10 sm:pb-11 lg:pb-[3.05rem]" : "pb-1",
+        )}
+      >
         <div className="flex flex-wrap items-center gap-2.5 xl:flex-nowrap">
           <div className="flex min-w-0 items-center gap-2">
             <Button variant="ghost" size="icon" className="-ml-1 h-8 w-8 shrink-0 lg:hidden" onClick={onMenuToggle}>
@@ -432,6 +438,12 @@ export function AppTopbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
                     value={`x${activeBoost.multiplier.toFixed(1)} - ${formatSimulationCountdown(activeBoost.remaining_seconds)}`}
                   />
                 ) : null}
+              </div>
+            ) : showSessionFallback ? (
+              <div className="hidden max-w-full flex-wrap gap-1.5 sm:flex">
+                <div className="h-[3.25rem] w-[5.5rem] animate-pulse rounded-[1rem] bg-[color-mix(in_oklab,var(--card)_66%,transparent)]" />
+                <div className="h-[3.25rem] w-[5.5rem] animate-pulse rounded-[1rem] bg-[color-mix(in_oklab,var(--card)_66%,transparent)]" />
+                <div className="h-[3.25rem] w-[5.5rem] animate-pulse rounded-[1rem] bg-[color-mix(in_oklab,var(--card)_66%,transparent)]" />
               </div>
             ) : null}
           </div>
@@ -454,16 +466,26 @@ export function AppTopbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
             {user ? <PremiumAction isPremium={isPremiumUser} /> : null}
             <ThemeToggle />
             {user ? <NotificationBell /> : null}
-            {user ? <ProfileMenu user={user} membershipLabel={membershipLabel} onLogout={() => void logout()} /> : null}
+            {user ? (
+              <ProfileMenu user={user} membershipLabel={membershipLabel} onLogout={() => void logout()} />
+            ) : showSessionFallback ? (
+              <>
+                <div className="hidden items-center gap-2 rounded-[0.95rem] border border-[var(--border)]/70 bg-[color-mix(in_oklab,var(--card)_70%,transparent)] px-3 py-2 text-[0.78rem] text-[var(--text-secondary)] sm:inline-flex">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--accent-green)]" />
+                  Sessiya
+                </div>
+                <div className="h-9 w-9 animate-pulse rounded-[0.95rem] border border-[var(--border)]/70 bg-[color-mix(in_oklab,var(--card)_70%,transparent)]" />
+              </>
+            ) : null}
           </div>
         </div>
 
         {showLevelPanel ? (
-          <div className="pointer-events-none absolute right-4 top-[calc(100%-1.35rem)] z-[3] sm:right-5 sm:top-[calc(100%-1.45rem)] lg:right-7 lg:top-[calc(100%-1.5rem)]">
-            <div className="rounded-[10px] border border-white/6 bg-[rgba(20,20,20,0.55)] px-[10px] py-[6px] shadow-[0_12px_28px_-22px_rgba(0,0,0,0.55)] backdrop-blur-md">
-              <div className="flex items-center gap-4">
-                <span className="text-[12px] leading-[1.3] text-white/58">Keyingi level</span>
-                <span className="text-[1.1rem] font-semibold text-white">{gamification ? `${gamification.xp.xp_to_next_level} XP` : "--"}</span>
+          <div className="pointer-events-none absolute bottom-1.5 right-4 z-[3] sm:bottom-2 sm:right-5 lg:bottom-2 lg:right-7">
+            <div className="rounded-[9px] border border-[color-mix(in_oklab,var(--border)_84%,transparent)] bg-[color-mix(in_oklab,var(--card)_88%,transparent)] px-[9px] py-[5px] shadow-[0_10px_22px_-20px_rgba(15,23,42,0.2)] backdrop-blur-md">
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] leading-[1.25] text-[var(--text-secondary)]">Keyingi level</span>
+                <span className="text-[1rem] font-semibold leading-none text-[var(--text-primary)]">{gamification ? `${gamification.xp.xp_to_next_level} XP` : "--"}</span>
               </div>
             </div>
           </div>

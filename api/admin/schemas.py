@@ -194,6 +194,24 @@ class AdminQuestionWithOptionsResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AdminQuestionOut(AdminQuestionWithOptionsResponse):
+    """Paginated admin question item."""
+
+    model_config = {"from_attributes": True}
+
+
+class PaginatedQuestionsResponse(BaseModel):
+    """Paginated admin question list response."""
+
+    items: list[AdminQuestionOut]
+    total: int = Field(..., ge=0)
+    offset: int = Field(..., ge=0)
+    limit: int = Field(..., ge=1, le=200)
+    has_more: bool
+
+    model_config = {"from_attributes": True}
+
+
 class AdminTestDetailResponse(BaseModel):
     """Admin test detail with full question tree."""
     id: UUID
@@ -239,6 +257,18 @@ class AdminUserSubscriptionUpdate(BaseModel):
     plan: str = Field(default="premium", max_length=50)
     status: str = Field(default="active", max_length=50)
     expires_at: datetime | None = None
+
+
+class AdminPaymentSummaryResponse(BaseModel):
+    """Admin finance KPI snapshot for dashboard payment visibility."""
+
+    total_revenue_cents: int = Field(..., ge=0)
+    total_payments: int = Field(..., ge=0)
+    successful_payments: int = Field(..., ge=0)
+    failed_payments: int = Field(..., ge=0)
+    pending_payments: int = Field(default=0, ge=0)
+    conversion_rate: float = Field(..., ge=0, le=100)
+    currency: str = Field(default="UZS", min_length=3, max_length=10)
 
 
 # ========== Subscription Plan Schemas ==========
@@ -360,6 +390,36 @@ class ViolationLogResponse(BaseModel):
     test_title: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+class SimulationExamSettingsResponse(BaseModel):
+    """Admin-managed simulation exam rules."""
+
+    id: int
+    question_count: int
+    duration_minutes: int
+    mistake_limit: int
+    violation_limit: int
+    cooldown_days: int
+    fast_unlock_price: int
+    intro_video_url: str | None = None
+    updated_by_id: UUID | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SimulationExamSettingsUpdate(BaseModel):
+    """Partial update payload for simulation exam rules."""
+
+    question_count: int | None = Field(default=None, ge=10, le=120)
+    duration_minutes: int | None = Field(default=None, ge=5, le=180)
+    mistake_limit: int | None = Field(default=None, ge=1, le=20)
+    violation_limit: int | None = Field(default=None, ge=1, le=10)
+    cooldown_days: int | None = Field(default=None, ge=1, le=60)
+    fast_unlock_price: int | None = Field(default=None, ge=1, le=5000)
+    intro_video_url: str | None = Field(default=None, max_length=2000)
 
 
 # ========== Question Category Schemas ==========

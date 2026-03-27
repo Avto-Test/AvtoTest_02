@@ -21,3 +21,11 @@ class SubmitLockedAnswerResponse(BaseModel):
     is_correct: bool
     locked: bool = True
     already_answered: bool = False
+    mistake_count: int = 0
+    mistake_limit: int = 0
+    violation_count: int = 0
+    violation_limit: int = 0
+    attempt_finished: bool = False
+    passed: bool | None = None
+    disqualified: bool = False
+    disqualification_reason: str | None = None

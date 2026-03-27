@@ -30,6 +30,7 @@ frontend/route_dirs.txt
 frontend/tmp_served.css
 frontend/tsc_output.txt
 frontend/*.tar
+frontend/*.tar.gz
 frontend/*.png
 frontend/*.log
 uploads/

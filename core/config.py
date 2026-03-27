@@ -10,12 +10,41 @@ from pathlib import Path
 from typing import Any, Union
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from database.safety import normalize_environment_name, validate_database_target
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
+ENVIRONMENT_FILE_MAP = {
+    "development": ".env.dev",
+    "testing": ".env.test",
+    "production": ".env.prod",
+}
+
+
+def _resolve_settings_files() -> tuple[str, ...]:
+    """Load the environment-specific dotenv file with safe precedence."""
+
+    explicit_env_file = os.getenv("APP_ENV_FILE", "").strip()
+    if explicit_env_file:
+        env_file = Path(explicit_env_file)
+        if not env_file.is_absolute():
+            env_file = BASE_DIR / env_file
+        return (str(env_file),)
+
+    environment = normalize_environment_name(os.getenv("ENVIRONMENT"))
+    if environment == "testing":
+        return (str(BASE_DIR / ENVIRONMENT_FILE_MAP["testing"]),)
+    if environment == "production":
+        return (str(BASE_DIR / ENVIRONMENT_FILE_MAP["production"]),)
+
+    return (
+        str(BASE_DIR / ENVIRONMENT_FILE_MAP["development"]),
+        str(BASE_DIR / ".env"),
+        str(BASE_DIR / ".env.local"),
+    )
 
 
 class Settings(BaseSettings):
@@ -53,9 +82,18 @@ class Settings(BaseSettings):
     
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/autotest"
+    EXPECTED_DATABASE_NAME: str = ""
+    BACKUP_DIR: str = str(BASE_DIR / "backups")
+    BACKUP_RETENTION_COUNT: int = 14
+    PG_DUMP_PATH: str = "pg_dump"
     
     # Logging
     LOG_LEVEL: str = "INFO"
+    LOG_QUESTION_UPDATE_COMPARISON: bool = False
+    USE_PROGRESS_TRACKING_ONLY: bool = False
+    DRY_RUN: bool = False
+    USE_CANONICAL_ATTEMPT_FINALIZER: bool = False
+    SHADOW_ATTEMPT_FLOW_COMPARE: bool = False
 
     # Monitoring
     SENTRY_DSN: str = ""
@@ -68,7 +106,7 @@ class Settings(BaseSettings):
 
     @property
     def normalized_environment(self) -> str:
-        return self.ENVIRONMENT.strip().lower()
+        return normalize_environment_name(self.ENVIRONMENT)
 
     @property
     def is_development(self) -> bool:
@@ -162,6 +200,7 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_production_settings(self) -> "Settings":
         self.ENVIRONMENT = self.normalized_environment
+        self.EXPECTED_DATABASE_NAME = self.EXPECTED_DATABASE_NAME.strip()
 
         # Email aliases fallback (no-op if EMAIL_* already explicitly configured).
         if not self.EMAIL_HOST and self.SMTP_HOST:
@@ -206,6 +245,18 @@ class Settings(BaseSettings):
         if not self.SENTRY_ENVIRONMENT:
             self.SENTRY_ENVIRONMENT = self.ENVIRONMENT
 
+        if self.ENVIRONMENT == "production" and not self.EXPECTED_DATABASE_NAME:
+            raise ValueError("EXPECTED_DATABASE_NAME must be set when ENVIRONMENT=production")
+
+        try:
+            validate_database_target(
+                self.DATABASE_URL,
+                self.ENVIRONMENT,
+                self.EXPECTED_DATABASE_NAME or None,
+            )
+        except RuntimeError as exc:
+            raise ValueError(str(exc)) from exc
+
         if self.ENVIRONMENT == "production" and not self.ENABLE_EMAIL_VERIFICATION:
             raise ValueError("ENABLE_EMAIL_VERIFICATION cannot be disabled when ENVIRONMENT=production")
 
@@ -237,7 +288,7 @@ class Settings(BaseSettings):
         return self
 
     model_config = SettingsConfigDict(
-        env_file=(str(BASE_DIR / ".env"), str(BASE_DIR / ".env.local")),
+        env_file=_resolve_settings_files(),
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore"

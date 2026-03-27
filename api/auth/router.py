@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -31,7 +32,6 @@ from core.config import settings
 from core.email import send_password_reset_email, send_verification_email
 from core.security import (
     create_access_token,
-    decode_access_token as decode_access_token,
     decode_access_token_payload,
     generate_refresh_token,
     get_password_hash_async,
@@ -41,6 +41,8 @@ from core.security import (
 from database.session import get_db
 from models.pending_registration import PendingRegistration
 from models.refresh_session import RefreshSession
+from models.driving_instructor import DrivingInstructor
+from models.driving_school import DrivingSchool
 from models.user import User
 from models.verification_token import VerificationToken
 from services.gamification.rewards import award_daily_login
@@ -74,6 +76,13 @@ def _credentials_exception() -> HTTPException:
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Autentifikatsiya ma'lumotlari tasdiqlanmadi",
         headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _database_unavailable_exception() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Ma'lumotlar bazasi tayyor emas. Administrator `alembic upgrade head` ishga tushirishi kerak.",
     )
 
 
@@ -407,11 +416,32 @@ async def get_current_user(
 async def get_my_profile_via_auth(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> User:
+) -> dict:
     """Backward-compatible profile endpoint."""
     await award_daily_login(db, current_user.id)
+    instructor_result = await db.execute(
+        select(DrivingInstructor.id).where(DrivingInstructor.user_id == current_user.id)
+    )
+    school_result = await db.execute(
+        select(DrivingSchool.id).where(DrivingSchool.owner_user_id == current_user.id)
+    )
+    from core.rbac import get_effective_role_names
+
+    roles = await get_effective_role_names(current_user, db)
     await db.commit()
-    return current_user
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "full_name": current_user.full_name,
+        "is_verified": current_user.is_verified,
+        "is_active": current_user.is_active,
+        "is_admin": current_user.is_admin,
+        "roles": roles,
+        "is_premium": current_user.is_premium,
+        "has_instructor_profile": instructor_result.scalar_one_or_none() is not None,
+        "has_school_profile": school_result.scalar_one_or_none() is not None,
+        "created_at": current_user.created_at,
+    }
 
 
 @router.post("/register", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
@@ -518,103 +548,108 @@ async def login(
     """Login with email and password and issue a rotated session pair."""
     normalized_email = user_data.email.strip().lower()
     request_ip = _get_request_ip(request)
+    try:
+        result = await db.execute(select(User).where(User.email == normalized_email))
+        user = result.scalar_one_or_none()
 
-    result = await db.execute(select(User).where(User.email == normalized_email))
-    user = result.scalar_one_or_none()
-
-    if user is None:
-        pending_result = await db.execute(
-            select(PendingRegistration).where(PendingRegistration.email == normalized_email)
-        )
-        pending = pending_result.scalar_one_or_none()
-        if pending is not None:
+        if user is None:
+            pending_result = await db.execute(
+                select(PendingRegistration).where(PendingRegistration.email == normalized_email)
+            )
+            pending = pending_result.scalar_one_or_none()
+            if pending is not None:
+                _log_auth_event(
+                    logging.WARNING,
+                    event="login_failed",
+                    email=normalized_email,
+                    ip_address=request_ip,
+                    error="email_unverified",
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Email tasdiqlanmagan",
+                )
             _log_auth_event(
                 logging.WARNING,
                 event="login_failed",
                 email=normalized_email,
                 ip_address=request_ip,
-                error="email_unverified",
+                error="invalid_credentials",
             )
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Email tasdiqlanmagan",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Email yoki parol noto'g'ri",
+                headers={"WWW-Authenticate": "Bearer"},
             )
-        _log_auth_event(
-            logging.WARNING,
-            event="login_failed",
-            email=normalized_email,
-            ip_address=request_ip,
-            error="invalid_credentials",
-        )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Email yoki parol noto'g'ri",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
 
-    if not await verify_password_async(user_data.password, user.hashed_password):
+        if not await verify_password_async(user_data.password, user.hashed_password):
+            _log_auth_event(
+                logging.WARNING,
+                event="login_failed",
+                user_id=str(user.id),
+                email=normalized_email,
+                ip_address=request_ip,
+                error="invalid_credentials",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Email yoki parol noto'g'ri",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        if not user.is_verified:
+            if _should_bypass_email_verification():
+                user.is_verified = True
+                user.is_active = True
+                logger.info("[DEV MODE] Email verification skipped for %s", normalized_email)
+            else:
+                _log_auth_event(
+                    logging.WARNING,
+                    event="login_failed",
+                    user_id=str(user.id),
+                    email=normalized_email,
+                    ip_address=request_ip,
+                    error="email_unverified",
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Email tasdiqlanmagan",
+                )
+
+        if not user.is_active:
+            if _should_bypass_email_verification():
+                user.is_active = True
+            else:
+                _log_auth_event(
+                    logging.WARNING,
+                    event="login_failed",
+                    user_id=str(user.id),
+                    email=normalized_email,
+                    ip_address=request_ip,
+                    error="inactive_user",
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Foydalanuvchi faol emas",
+                )
+
+        token_pair, refresh_session = await _issue_auth_tokens(db=db, user=user, request=request)
+        await db.commit()
         _log_auth_event(
-            logging.WARNING,
-            event="login_failed",
+            logging.INFO,
+            event="login_success",
             user_id=str(user.id),
             email=normalized_email,
+            session_id=str(refresh_session.id),
+            family_id=str(refresh_session.family_id),
             ip_address=request_ip,
-            error="invalid_credentials",
         )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Email yoki parol noto'g'ri",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    if not user.is_verified:
-        if _should_bypass_email_verification():
-            user.is_verified = True
-            user.is_active = True
-            logger.info("[DEV MODE] Email verification skipped for %s", normalized_email)
-        else:
-            _log_auth_event(
-                logging.WARNING,
-                event="login_failed",
-                user_id=str(user.id),
-                email=normalized_email,
-                ip_address=request_ip,
-                error="email_unverified",
-            )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Email tasdiqlanmagan",
-            )
-
-    if not user.is_active:
-        if _should_bypass_email_verification():
-            user.is_active = True
-        else:
-            _log_auth_event(
-                logging.WARNING,
-                event="login_failed",
-                user_id=str(user.id),
-                email=normalized_email,
-                ip_address=request_ip,
-                error="inactive_user",
-            )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Foydalanuvchi faol emas",
-            )
-
-    token_pair, refresh_session = await _issue_auth_tokens(db=db, user=user, request=request)
-    await db.commit()
-    _log_auth_event(
-        logging.INFO,
-        event="login_success",
-        user_id=str(user.id),
-        email=normalized_email,
-        session_id=str(refresh_session.id),
-        family_id=str(refresh_session.family_id),
-        ip_address=request_ip,
-    )
-    return token_pair
+        return token_pair
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        logger.error("Database error during login for %s: %s", normalized_email, exc)
+        raise _database_unavailable_exception() from exc
 
 
 @router.post("/refresh", response_model=Token)

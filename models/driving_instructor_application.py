@@ -13,6 +13,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database.base import Base
 
 if TYPE_CHECKING:
+    from models.driving_instructor import DrivingInstructor
     from models.user import User
 
 
@@ -29,6 +30,12 @@ class DrivingInstructorApplication(Base):
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    linked_instructor_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("driving_instructors.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
@@ -91,7 +98,7 @@ class DrivingInstructorApplication(Base):
     status: Mapped[str] = mapped_column(
         String(30),
         nullable=False,
-        default="pending",
+        default="PENDING",
         index=True,
     )
     rejection_reason: Mapped[str | None] = mapped_column(
@@ -126,8 +133,11 @@ class DrivingInstructorApplication(Base):
     )
 
     user: Mapped["User | None"] = relationship("User", foreign_keys=[user_id])
+    linked_instructor: Mapped["DrivingInstructor | None"] = relationship(
+        "DrivingInstructor",
+        foreign_keys=[linked_instructor_id],
+    )
     reviewed_by: Mapped["User | None"] = relationship("User", foreign_keys=[reviewed_by_id])
 
     def __repr__(self) -> str:
         return f"<DrivingInstructorApplication(id={self.id}, full_name={self.full_name}, status={self.status})>"
-

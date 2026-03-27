@@ -18,6 +18,17 @@ type DashboardSmartTestCardProps = {
   className?: string;
 };
 
+type SmartTestTag = {
+  label: string;
+  tone?: "primary" | "success" | "warning" | "neutral";
+};
+
+type SmartTestMetric = {
+  label: string;
+  value: string;
+  tone?: "primary" | "success" | "neutral";
+};
+
 export function DashboardSmartTestCard({
   title,
   description,
@@ -33,12 +44,17 @@ export function DashboardSmartTestCard({
 }: DashboardSmartTestCardProps) {
   const visibleSelectedTopics = selectedTopics.slice(0, 3);
   const focusTopic = visibleSelectedTopics[0] ?? topic ?? "Adaptive focus";
-  const tags = [
-    topic ? { label: `Tavsiya: ${topic}`, tone: "primary" as const } : null,
-    reminderText ? { label: reminderText, tone: "success" as const } : null,
-    warningText ? { label: warningText, tone: "warning" as const } : null,
-  ].filter(Boolean);
-  const metrics = [
+  const tags: SmartTestTag[] = [];
+  if (topic) {
+    tags.push({ label: `Tavsiya: ${topic}`, tone: "primary" });
+  }
+  if (reminderText) {
+    tags.push({ label: reminderText, tone: "success" });
+  }
+  if (warningText) {
+    tags.push({ label: warningText, tone: "warning" });
+  }
+  const metrics: SmartTestMetric[] = [
     {
       label: "Rejim",
       value: visibleSelectedTopics.length > 0 ? "Focused" : "Adaptive",

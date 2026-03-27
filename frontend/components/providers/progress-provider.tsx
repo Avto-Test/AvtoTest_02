@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useMemo } from "react";
+import { createContext, useContext } from "react";
 
 import { getAnalyticsSummary, getDashboardAnalytics } from "@/api/analytics";
 import { getGamificationSummary } from "@/api/gamification";
@@ -16,7 +16,9 @@ type ProgressContextValue = {
   loading: boolean;
   topbarLoading: boolean;
   dashboardLoading: boolean;
+  summaryLoading: boolean;
   dashboardError: unknown;
+  summaryError: unknown;
   topbarError: unknown;
   gamificationError: unknown;
   reload: () => Promise<void>;
@@ -25,55 +27,44 @@ type ProgressContextValue = {
 const ProgressContext = createContext<ProgressContextValue | null>(null);
 
 export function ProgressProvider({ children }: { children: React.ReactNode }) {
-  const { authenticated } = useUser();
+  const { authenticated, loading: authLoading } = useUser();
+  const resourcesEnabled = authenticated && !authLoading;
 
-  const dashboardResource = useAsyncResource(getDashboardAnalytics, [authenticated], authenticated, {
+  const dashboardResource = useAsyncResource(getDashboardAnalytics, [authenticated], resourcesEnabled, {
     cacheKey: "analytics:dashboard",
     staleTimeMs: 30_000,
   });
-  const summaryResource = useAsyncResource(getAnalyticsSummary, [authenticated], authenticated, {
+  const summaryResource = useAsyncResource(getAnalyticsSummary, [authenticated], resourcesEnabled, {
     cacheKey: "analytics:summary",
     staleTimeMs: 30_000,
   });
-  const gamificationResource = useAsyncResource(getGamificationSummary, [authenticated], authenticated, {
+  const gamificationResource = useAsyncResource(getGamificationSummary, [authenticated], resourcesEnabled, {
     cacheKey: "gamification:summary",
     staleTimeMs: 15_000,
   });
 
-  const value = useMemo<ProgressContextValue>(
-    () => ({
-      dashboard: dashboardResource.data,
-      summary: summaryResource.data,
-      gamification: gamificationResource.data,
-      loading: dashboardResource.loading || summaryResource.loading || gamificationResource.loading,
-      topbarLoading: dashboardResource.loading || gamificationResource.loading,
-      dashboardLoading: dashboardResource.loading || summaryResource.loading,
-      dashboardError: dashboardResource.error ?? summaryResource.error,
-      topbarError: dashboardResource.error ?? gamificationResource.error,
-      gamificationError: gamificationResource.error,
-      reload: async () => {
-        await Promise.allSettled([
-          dashboardResource.reload({ force: true }),
-          summaryResource.reload({ force: true }),
-          gamificationResource.reload({ force: true }),
-        ]);
-      },
-    }),
-    [
-      dashboardResource.data,
-      dashboardResource.error,
-      dashboardResource.loading,
-      dashboardResource.reload,
-      gamificationResource.data,
-      gamificationResource.error,
-      gamificationResource.loading,
-      gamificationResource.reload,
-      summaryResource.data,
-      summaryResource.error,
-      summaryResource.loading,
-      summaryResource.reload,
-    ],
-  );
+  const reload = async () => {
+    await Promise.allSettled([
+      dashboardResource.reload({ force: true }),
+      summaryResource.reload({ force: true }),
+      gamificationResource.reload({ force: true }),
+    ]);
+  };
+
+  const value: ProgressContextValue = {
+    dashboard: dashboardResource.data,
+    summary: summaryResource.data,
+    gamification: gamificationResource.data,
+    loading: authLoading || dashboardResource.loading || summaryResource.loading || gamificationResource.loading,
+    topbarLoading: authLoading || dashboardResource.loading || gamificationResource.loading,
+    dashboardLoading: authLoading || dashboardResource.loading,
+    summaryLoading: authLoading || summaryResource.loading,
+    dashboardError: dashboardResource.error,
+    summaryError: summaryResource.error,
+    topbarError: dashboardResource.error ?? gamificationResource.error,
+    gamificationError: gamificationResource.error,
+    reload,
+  };
 
   return <ProgressContext.Provider value={value}>{children}</ProgressContext.Provider>;
 }

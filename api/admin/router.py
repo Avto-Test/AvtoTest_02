@@ -5,17 +5,20 @@ Admin CRUD endpoints for Tests, Questions, and AnswerOptions
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from api.admin.schemas import (
-    AdminQuestionWithOptionsResponse,
+    AdminPaymentSummaryResponse,
+    AdminQuestionOut,
     AdminTestDetailResponse,
+    PaginatedQuestionsResponse,
     SubscriptionPlanCreate,
     SubscriptionPlanResponse,
     SubscriptionPlanUpdate,
@@ -26,6 +29,8 @@ from api.admin.schemas import (
     PromoCodeResponse,
     PromoCodeUpdate,
     ViolationLogResponse,
+    SimulationExamSettingsResponse,
+    SimulationExamSettingsUpdate,
     AnswerOptionCreate,
     AnswerOptionResponse,
     AnswerOptionUpdate,
@@ -44,6 +49,8 @@ from api.admin.schemas import (
     TestResponse,
     TestUpdate,
 )
+from api.analytics.schemas import AdminAnalyticsSummary, AdminExperimentSummary, AdminGrowthSummary
+from core.question_bank import QUESTION_BANK_TEST_DESCRIPTION, QUESTION_BANK_TEST_TITLE
 from core.rbac import RBACContext, SUPER_ADMIN_ROLE, require_role
 from database.session import get_db
 from models.answer_option import AnswerOption
@@ -51,6 +58,7 @@ from models.driving_school import DrivingSchool
 from models.question import Question
 from models.question_category import QuestionCategory
 from models.lesson import Lesson
+from models.payment import Payment
 from models.promo_code import PromoCode
 from models.subscription_plan import SubscriptionPlan
 from models.subscription import Subscription
@@ -58,8 +66,16 @@ from models.test import Test
 from models.user import User
 from models.user_notification import UserNotification
 from models.violation_log import ViolationLog
+from models.simulation_exam_setting import SimulationExamSetting
+from services.admin_analytics import get_admin_analytics_summary
+from services.admin_experiments import get_admin_experiment_summary
+from services.admin_growth import get_admin_growth_summary
+from services.learning.simulation_service import get_or_create_simulation_exam_settings
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+FinanceRange = Literal["all", "7d", "30d"]
+GrowthRange = Literal["all", "7d", "30d"]
 
 ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024
@@ -89,8 +105,6 @@ ALLOWED_LESSON_EXTENSIONS = {
     ".gif",
 }
 MAX_LESSON_FILE_SIZE_BYTES = 200 * 1024 * 1024
-QUESTION_BANK_TEST_TITLE = "Question Bank (Internal)"
-QUESTION_BANK_TEST_DESCRIPTION = "Internal container for admin-managed question bank."
 
 
 def _lesson_content_type_from_extension(extension: str) -> str:
@@ -623,27 +637,56 @@ async def delete_question_category(
     await db.commit()
 
 
-@router.get("/questions", response_model=list[AdminQuestionWithOptionsResponse])
+@router.get("/questions", response_model=PaginatedQuestionsResponse)
 async def list_questions(
     category_id: UUID | None = None,
-    skip: int = 0,
-    limit: int = 200,
+    search: str | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    skip: int | None = Query(default=None, ge=0, include_in_schema=False),
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(get_current_admin),
-) -> list[Question]:
-    """List all questions from standalone question bank."""
-    stmt = (
-        select(Question)
-        .options(selectinload(Question.answer_options))
-        .order_by(Question.created_at.desc())
-        .offset(max(0, skip))
-        .limit(min(max(1, limit), 500))
-    )
+) -> PaginatedQuestionsResponse:
+    """List admin questions with server-side pagination and filters."""
+    effective_offset = skip if skip is not None else offset
+    normalized_search = search.strip() if search and search.strip() else None
+    filters = []
+
     if category_id is not None:
-        stmt = stmt.where(Question.category_id == category_id)
+        filters.append(Question.category_id == category_id)
+    if normalized_search is not None:
+        pattern = f"%{normalized_search}%"
+        filters.append(
+            or_(
+                Question.text.ilike(pattern),
+                Question.topic.ilike(pattern),
+                Question.category.ilike(pattern),
+            )
+        )
+
+    count_source = select(Question.id)
+    if filters:
+        count_source = count_source.where(*filters)
+    total = int(await db.scalar(select(func.count()).select_from(count_source.subquery())) or 0)
+
+    stmt = select(Question).options(selectinload(Question.answer_options))
+    if filters:
+        stmt = stmt.where(*filters)
+    stmt = (
+        stmt.order_by(Question.created_at.desc())
+        .offset(effective_offset)
+        .limit(limit)
+    )
 
     result = await db.execute(stmt)
-    return list(result.scalars().all())
+    items = list(result.scalars().all())
+    return PaginatedQuestionsResponse(
+        items=[AdminQuestionOut.model_validate(item, from_attributes=True) for item in items],
+        total=total,
+        offset=effective_offset,
+        limit=limit,
+        has_more=effective_offset + limit < total,
+    )
 
 
 @router.post(
@@ -663,8 +706,10 @@ async def create_question(
         category_result = await db.execute(
             select(QuestionCategory).where(QuestionCategory.id == resolved_category_id)
         )
-        if category_result.scalar_one_or_none() is None:
+        category = category_result.scalar_one_or_none()
+        if category is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Category not found")
+        category_name = category.name
     elif category_name:
         category_result = await db.execute(
             select(QuestionCategory).where(func.lower(QuestionCategory.name) == category_name.lower())
@@ -764,30 +809,37 @@ async def update_question(
             detail="Question not found",
         )
     
-    if question_data.text is not None:
+    fields_set = question_data.model_fields_set
+
+    if "text" in fields_set and question_data.text is not None:
         question.text = question_data.text
-    if question_data.image_url is not None:
+    if "image_url" in fields_set:
         question.image_url = question_data.image_url
-    if question_data.video_url is not None:
+    if "video_url" in fields_set:
         question.video_url = question_data.video_url
-    if question_data.media_type is not None:
+    if "media_type" in fields_set and question_data.media_type is not None:
         question.media_type = question_data.media_type
-    if question_data.topic is not None:
+    if "topic" in fields_set:
         question.topic = question_data.topic
-    if question_data.category is not None:
+    if "category" in fields_set:
         question.category = question_data.category
-    if question_data.category_id is not None:
-        category_result = await db.execute(
-            select(QuestionCategory).where(QuestionCategory.id == question_data.category_id)
-        )
-        category = category_result.scalar_one_or_none()
-        if category is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Category not found")
-        question.category_id = category.id
-        question.category = category.name
-    if question_data.difficulty is not None:
+    if "category_id" in fields_set:
+        if question_data.category_id is None:
+            question.category_id = None
+            if "category" not in fields_set:
+                question.category = None
+        else:
+            category_result = await db.execute(
+                select(QuestionCategory).where(QuestionCategory.id == question_data.category_id)
+            )
+            category = category_result.scalar_one_or_none()
+            if category is None:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Category not found")
+            question.category_id = category.id
+            question.category = category.name
+    if "difficulty" in fields_set and question_data.difficulty is not None:
         question.difficulty = question_data.difficulty
-    if question_data.difficulty_percent is not None:
+    if "difficulty_percent" in fields_set and question_data.difficulty_percent is not None:
         question.difficulty_percent = question_data.difficulty_percent
     
     await db.commit()
@@ -937,6 +989,148 @@ async def delete_answer_option(
 
 
 # ========== User Admin ==========
+
+@router.get("/analytics", response_model=AdminAnalyticsSummary)
+async def get_admin_analytics(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+) -> AdminAnalyticsSummary:
+    """Return canonical admin metrics sourced from backend aggregations only."""
+    return await get_admin_analytics_summary(db)
+
+
+@router.get("/growth", response_model=AdminGrowthSummary)
+async def get_admin_growth(
+    db: AsyncSession = Depends(get_db),
+    range: GrowthRange = Query(default="all"),
+    _admin: User = Depends(get_current_admin),
+) -> AdminGrowthSummary:
+    """Return a backend-driven growth funnel snapshot for admin conversion analysis."""
+    return await get_admin_growth_summary(db, range_value=range)
+
+
+@router.get("/experiments", response_model=AdminExperimentSummary)
+async def get_admin_experiments(
+    name: str = Query(default="upgrade_button", min_length=1, max_length=120),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+) -> AdminExperimentSummary:
+    """Return experiment variant performance for the selected experiment."""
+
+    return await get_admin_experiment_summary(db, experiment_name=name.strip())
+
+
+def _resolve_finance_window_start(range_value: FinanceRange) -> datetime | None:
+    if range_value == "7d":
+        return datetime.now(timezone.utc) - timedelta(days=7)
+    if range_value == "30d":
+        return datetime.now(timezone.utc) - timedelta(days=30)
+    return None
+
+
+async def _build_admin_finance_summary(
+    db: AsyncSession,
+    *,
+    range_value: FinanceRange,
+) -> AdminPaymentSummaryResponse:
+    successful_status = "succeeded"
+    failed_statuses = (
+        "failed",
+        "canceled",
+        "cancelled",
+        "error",
+        "suspicious",
+        "reconciliation_failed",
+    )
+    pending_statuses = ("pending", "processing", "session_created")
+    range_start = _resolve_finance_window_start(range_value)
+    lower_status = func.lower(Payment.status)
+    base_filters = [Payment.created_at >= range_start] if range_start is not None else []
+
+    total_payments = int(
+        (
+            await db.execute(
+                select(func.count(Payment.id)).where(*base_filters)
+            )
+        ).scalar_one()
+        or 0
+    )
+    successful_payments = int(
+        (
+            await db.execute(
+                select(func.count(Payment.id)).where(*base_filters, lower_status == successful_status)
+            )
+        ).scalar_one()
+        or 0
+    )
+    failed_payments = int(
+        (
+            await db.execute(
+                select(func.count(Payment.id)).where(*base_filters, lower_status.in_(failed_statuses))
+            )
+        ).scalar_one()
+        or 0
+    )
+    pending_payments = int(
+        (
+            await db.execute(
+                select(func.count(Payment.id)).where(*base_filters, lower_status.in_(pending_statuses))
+            )
+        ).scalar_one()
+        or 0
+    )
+    total_revenue_cents = int(
+        (
+            await db.execute(
+                select(func.coalesce(func.sum(Payment.amount_cents), 0)).where(
+                    *base_filters,
+                    lower_status == successful_status,
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    currency_result = await db.execute(
+        select(Payment.currency, func.count(Payment.id).label("payment_count"))
+        .where(*base_filters, Payment.currency.is_not(None))
+        .group_by(Payment.currency)
+        .order_by(func.count(Payment.id).desc(), Payment.currency.asc())
+        .limit(1)
+    )
+    currency_row = currency_result.first()
+    currency = str(currency_row[0]).upper() if currency_row and currency_row[0] else "UZS"
+    conversion_rate = round((successful_payments / total_payments) * 100, 1) if total_payments else 0.0
+
+    return AdminPaymentSummaryResponse(
+        total_revenue_cents=total_revenue_cents,
+        total_payments=total_payments,
+        successful_payments=successful_payments,
+        failed_payments=failed_payments,
+        pending_payments=pending_payments,
+        conversion_rate=conversion_rate,
+        currency=currency,
+    )
+
+
+@router.get("/finance", response_model=AdminPaymentSummaryResponse)
+async def get_admin_finance_summary(
+    db: AsyncSession = Depends(get_db),
+    range: FinanceRange = Query(default="all"),
+    _admin: User = Depends(get_current_admin),
+) -> AdminPaymentSummaryResponse:
+    """Return canonical finance KPIs for the admin dashboard."""
+    return await _build_admin_finance_summary(db, range_value=range)
+
+
+@router.get("/payments/summary", response_model=AdminPaymentSummaryResponse)
+async def get_admin_payment_summary(
+    db: AsyncSession = Depends(get_db),
+    range: FinanceRange = Query(default="all"),
+    _admin: User = Depends(get_current_admin),
+) -> AdminPaymentSummaryResponse:
+    """Backward-compatible finance summary endpoint."""
+    return await _build_admin_finance_summary(db, range_value=range)
+
 
 @router.get("/users", response_model=list[AdminUserResponse])
 async def list_users(
@@ -1336,6 +1530,43 @@ async def list_violations(
             )
         )
     return response
+
+
+@router.get("/simulation-exam-settings", response_model=SimulationExamSettingsResponse)
+async def get_simulation_exam_settings(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+) -> SimulationExamSetting:
+    return await get_or_create_simulation_exam_settings(db)
+
+
+@router.put("/simulation-exam-settings", response_model=SimulationExamSettingsResponse)
+async def update_simulation_exam_settings(
+    payload: SimulationExamSettingsUpdate,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+) -> SimulationExamSetting:
+    settings = await get_or_create_simulation_exam_settings(db)
+    fields_set = payload.model_fields_set
+    if "question_count" in fields_set and payload.question_count is not None:
+        settings.question_count = payload.question_count
+    if "duration_minutes" in fields_set and payload.duration_minutes is not None:
+        settings.duration_minutes = payload.duration_minutes
+    if "mistake_limit" in fields_set and payload.mistake_limit is not None:
+        settings.mistake_limit = payload.mistake_limit
+    if "violation_limit" in fields_set and payload.violation_limit is not None:
+        settings.violation_limit = payload.violation_limit
+    if "cooldown_days" in fields_set and payload.cooldown_days is not None:
+        settings.cooldown_days = payload.cooldown_days
+    if "fast_unlock_price" in fields_set and payload.fast_unlock_price is not None:
+        settings.fast_unlock_price = payload.fast_unlock_price
+    if "intro_video_url" in fields_set:
+        normalized_intro_video_url = payload.intro_video_url.strip() if payload.intro_video_url else None
+        settings.intro_video_url = normalized_intro_video_url or None
+    settings.updated_by_id = admin.id
+    await db.commit()
+    await db.refresh(settings)
+    return settings
 
 
 @router.put("/users/{user_id}/subscription", response_model=AdminUserResponse)

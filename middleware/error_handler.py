@@ -52,12 +52,10 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
         },
     )
     
-    from core.config import settings
-    
-    content = {"detail": "Internal server error. Please try again later."}
-    if settings.DEBUG:
-        content["detail"] = str(exc)
-        content["type"] = type(exc).__name__
+    content = {
+        "detail": "Serverda ichki xatolik yuz berdi. Iltimos, keyinroq qayta urinib ko'ring.",
+        "request_id": request_id,
+    }
     
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

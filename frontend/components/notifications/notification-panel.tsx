@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { CheckCheck } from "lucide-react";
 
-import { formatRelativeTime } from "@/lib/utils";
+import { cn, formatRelativeTime } from "@/lib/utils";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
@@ -31,7 +31,7 @@ export function NotificationPanel({
   onClose: () => void;
 }) {
   return (
-    <Card className="absolute right-0 top-12 z-40 w-[22rem] p-4">
+    <Card className="absolute right-0 top-12 z-40 w-[22rem] border-[color-mix(in_oklab,var(--border)_84%,transparent)] bg-[color-mix(in_oklab,var(--card)_94%,transparent)] p-4 shadow-[var(--shadow-elevated)] backdrop-blur-xl">
       <div className="flex items-center justify-between">
         <div>
           <p className="font-semibold">Bildirishnomalar</p>
@@ -40,7 +40,7 @@ export function NotificationPanel({
         {unreadCount > 0 ? (
           <Button size="sm" variant="ghost" onClick={() => void onMarkAllRead()}>
             <CheckCheck className="h-4 w-4" />
-            O'qilgan qilish
+            O&apos;qilgan qilish
           </Button>
         ) : null}
       </div>
@@ -57,16 +57,17 @@ export function NotificationPanel({
           notifications.map((notification) => (
             <button
               key={notification.id}
-              className={`w-full rounded-2xl border p-3 text-left transition hover:bg-[var(--muted)] ${
+              className={cn(
+                "w-full rounded-2xl border p-3 text-left text-[var(--foreground)] transition hover:bg-[var(--muted)]",
                 notification.is_read
-                  ? "border-[var(--border)]"
-                  : "border-[color-mix(in_oklab,var(--primary)_35%,white)] bg-[color-mix(in_oklab,var(--primary)_6%,white)]"
-              }`}
+                  ? "border-[color-mix(in_oklab,var(--border)_84%,transparent)] bg-[color-mix(in_oklab,var(--card)_90%,transparent)]"
+                  : "border-[color-mix(in_oklab,var(--primary)_30%,transparent)] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--primary)_8%,transparent),color-mix(in_oklab,var(--card)_96%,transparent))] shadow-[0_18px_32px_-28px_rgba(59,130,246,0.55)]",
+              )}
               onClick={() => void onMarkRead(notification)}
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold">{notification.title}</p>
+                  <p className="text-sm font-semibold text-[var(--foreground)]">{notification.title}</p>
                   <p className="mt-1 text-sm text-[var(--muted-foreground)]">{notification.message}</p>
                   <p className="mt-2 text-xs text-[var(--muted-foreground)]">
                     {formatRelativeTime(notification.created_at)}

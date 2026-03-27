@@ -19,6 +19,7 @@ from api.auth.router import get_current_user, resolve_user_from_access_token
 from database.session import get_db
 from models.analytics_event import AnalyticsEvent
 from models.user import User
+from services.experiments import record_experiment_event
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
@@ -26,8 +27,10 @@ oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error
 EVENT_NAMES = (
     "premium_block_view",
     "upgrade_click",
+    "premium_click",
     "upgrade_page_view",
     "upgrade_success",
+    "payment_success",
     "upgrade_failed",
 )
 
@@ -107,12 +110,11 @@ async def track_event(
         return None
 
     user_id = await _resolve_optional_user_id(token, db)
-    db.add(
-        AnalyticsEvent(
-            user_id=user_id,
-            event_name=event_name[:100],
-            metadata_json=payload.metadata or {},
-        )
+    await record_experiment_event(
+        db,
+        user_id=user_id,
+        event_name=event_name,
+        metadata=payload.metadata or {},
     )
     await db.commit()
     return None
@@ -152,9 +154,9 @@ async def get_funnel(
             counts[event_name] = int(count or 0)
 
     premium_views = counts["premium_block_view"]
-    upgrade_clicks = counts["upgrade_click"]
+    upgrade_clicks = counts["upgrade_click"] + counts["premium_click"]
     upgrade_page_views = counts["upgrade_page_view"]
-    upgrade_success = counts["upgrade_success"]
+    upgrade_success = counts["upgrade_success"] + counts["payment_success"]
 
     return {
         "premium_block_view": premium_views,
