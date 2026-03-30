@@ -36,6 +36,7 @@ from api.analytics.schemas import (
     ActivityPoint,
 )
 from api.auth.router import get_current_user
+from core.access import require_premium_user
 from database.session import get_db
 from models.attempt import Attempt
 from models.lesson import Lesson
@@ -315,7 +316,7 @@ async def get_user_test_analytics(
 
 @router.get("/review-queue", response_model=ReviewQueueResponse)
 async def get_review_queue(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_premium_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get topics due for spaced repetition review."""
@@ -1080,7 +1081,7 @@ async def get_dashboard(
 
 @router.get("/intelligence-history", response_model=list[IntelligenceSnapshot])
 async def get_intelligence_history(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_premium_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[IntelligenceSnapshot]:
     """

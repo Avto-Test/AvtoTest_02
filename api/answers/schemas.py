@@ -4,6 +4,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from api.ai_coach.schemas import AiCoachPayload
+from api.tests.schemas import PublicAnswerOption
+
 
 class SubmitLockedAnswerRequest(BaseModel):
     attempt_id: UUID
@@ -16,9 +19,15 @@ class SubmitLockedAnswerResponse(BaseModel):
     answer_id: UUID
     attempt_id: UUID
     question_id: UUID
+    question: str
+    options: list[PublicAnswerOption]
     selected_option_id: UUID
     correct_option_id: UUID
     is_correct: bool
+    correct_answer: str
+    explanation: str
+    ai_coach: AiCoachPayload
+    recommendations: list[str] = Field(default_factory=list)
     locked: bool = True
     already_answered: bool = False
     mistake_count: int = 0

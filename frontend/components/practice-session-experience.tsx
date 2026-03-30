@@ -35,7 +35,7 @@ import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Modal } from "@/shared/ui/modal";
 import type { LiveRewardResponse } from "@/types/practice";
-import type { AttemptResult, DetailedAnswer, PublicQuestion } from "@/types/test";
+import type { AiCoachFeedback, AttemptResult, DetailedAnswer, PublicQuestion } from "@/types/test";
 import type { User } from "@/types/user";
 
 type PracticeSessionPayload = {
@@ -51,10 +51,24 @@ type QuestionRuntimeState = {
   selectedOptionId: string;
   correctOptionId: string | null;
   isCorrect: boolean | null;
+  correctAnswer: string | null;
+  explanation: string | null;
+  aiCoach: AiCoachFeedback | null;
+  recommendations: string[];
   locked: boolean;
   phase: "saving" | "resolved";
   reward: LiveRewardResponse | null;
   message: string | null;
+};
+
+type ResolvedQuestionAnswer = {
+  selectedOptionId: string;
+  correctOptionId: string | null;
+  isCorrect: boolean | null;
+  correctAnswer: string | null;
+  explanation: string | null;
+  aiCoach: AiCoachFeedback | null;
+  recommendations: string[];
 };
 
 const PRACTICE_SESSION_THEME_DARK = {
@@ -315,25 +329,109 @@ function getResolvedAnswer(
   questionId: string,
   runtimeState: QuestionRuntimeState | undefined,
   finalAnswers: Map<string, DetailedAnswer>,
-) {
+) : ResolvedQuestionAnswer | null {
+  const reviewedAnswer = finalAnswers.get(questionId);
+
   if (runtimeState?.locked) {
     return {
       selectedOptionId: runtimeState.selectedOptionId,
       correctOptionId: runtimeState.correctOptionId,
       isCorrect: runtimeState.isCorrect,
+      correctAnswer: runtimeState.correctAnswer ?? reviewedAnswer?.correct_answer ?? null,
+      explanation: runtimeState.explanation ?? reviewedAnswer?.explanation ?? null,
+      aiCoach: runtimeState.aiCoach ?? reviewedAnswer?.ai_coach ?? null,
+      recommendations: runtimeState.recommendations.length ? runtimeState.recommendations : (reviewedAnswer?.recommendations ?? []),
     };
   }
 
-  const answer = finalAnswers.get(questionId);
-  if (!answer) {
+  if (!reviewedAnswer) {
     return null;
   }
 
   return {
-    selectedOptionId: answer.selected_option_id,
-    correctOptionId: answer.correct_option_id,
-    isCorrect: answer.is_correct,
+    selectedOptionId: reviewedAnswer.selected_option_id,
+    correctOptionId: reviewedAnswer.correct_option_id,
+    isCorrect: reviewedAnswer.is_correct,
+    correctAnswer: reviewedAnswer.correct_answer ?? null,
+    explanation: reviewedAnswer.explanation ?? null,
+    aiCoach: reviewedAnswer.ai_coach ?? null,
+    recommendations: reviewedAnswer.recommendations ?? [],
   };
+}
+
+function PracticeFeedbackPanels({ answer }: { answer: ResolvedQuestionAnswer | null }) {
+  if (!answer || (!answer.explanation && !answer.aiCoach)) {
+    return null;
+  }
+
+  const recommendations = Array.from(
+    new Set([...(answer.recommendations ?? []), answer.aiCoach?.recommendation].filter(Boolean) as string[]),
+  );
+
+  return (
+    <div className="mt-3 space-y-2.5">
+      <details
+        open
+        className="rounded-[1.15rem] border border-[rgba(94,200,255,0.14)] bg-[linear-gradient(180deg,rgba(94,200,255,0.08),rgba(255,255,255,0.02))] px-3.5 py-3 shadow-[0_18px_48px_-32px_rgba(94,200,255,0.18)]"
+      >
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+          <span className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
+            <Eye className="h-4 w-4 text-[var(--accent-blue)]" />
+            Izoh
+          </span>
+          <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+            Ochish / yopish
+          </span>
+        </summary>
+        <div className="mt-3 space-y-2.5 text-sm leading-6 text-[var(--text-secondary)]">
+          {answer.explanation ? <p>{answer.explanation}</p> : null}
+          {answer.correctAnswer ? (
+            <div className="rounded-[1rem] border border-[var(--border-soft)] bg-black/10 px-3 py-2.5 text-[var(--foreground)]">
+              <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--muted-foreground)]">To&apos;g&apos;ri javob</p>
+              <p className="mt-1 text-sm font-medium leading-6">{answer.correctAnswer}</p>
+            </div>
+          ) : null}
+        </div>
+      </details>
+
+      {answer.aiCoach ? (
+        <details
+          open
+          className="rounded-[1.15rem] border border-[rgba(52,209,122,0.16)] bg-[linear-gradient(180deg,rgba(52,209,122,0.1),rgba(255,255,255,0.02))] px-3.5 py-3 shadow-[0_18px_52px_-34px_rgba(52,209,122,0.18)]"
+        >
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+            <span className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
+              <Sparkles className="h-4 w-4 text-[var(--accent-green)]" />
+              AI tavsiya
+            </span>
+            <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+              Ochish / yopish
+            </span>
+          </summary>
+          <div className="mt-3 grid gap-2.5">
+            <div className="rounded-[1rem] border border-[var(--border-soft)] bg-black/10 px-3 py-2.5">
+              <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Tip</p>
+              <p className="mt-1 text-sm leading-6 text-[var(--foreground)]">{answer.aiCoach.tip}</p>
+            </div>
+            <div className="rounded-[1rem] border border-[var(--border-soft)] bg-black/10 px-3 py-2.5">
+              <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Tahlil</p>
+              <p className="mt-1 text-sm leading-6 text-[var(--foreground)]">{answer.aiCoach.mistake_analysis}</p>
+            </div>
+            {recommendations.length ? (
+              <div className="rounded-[1rem] border border-[var(--border-soft)] bg-black/10 px-3 py-2.5">
+                <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Tavsiya</p>
+                <div className="mt-1 space-y-1.5 text-sm leading-6 text-[var(--foreground)]">
+                  {recommendations.map((item) => (
+                    <p key={item}>{item}</p>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </details>
+      ) : null}
+    </div>
+  );
 }
 
 function formatCompactMetric(value: number) {
@@ -687,6 +785,7 @@ export function PracticeSessionExperience({
   const lockedCount = Object.values(questionStates).filter((item) => item.locked).length;
   const pendingSave = Object.values(questionStates).some((item) => item.phase === "saving");
   const finalAnswerMap = useMemo(() => resultMap(result), [result]);
+  const currentResolvedAnswer = getResolvedAnswer(currentQuestion.id, currentQuestionState, finalAnswerMap);
 
   useEffect(() => {
     shellUi?.setFocusMode(true);
@@ -836,6 +935,10 @@ export function PracticeSessionExperience({
         selectedOptionId: optionId,
         correctOptionId: null,
         isCorrect: null,
+        correctAnswer: null,
+        explanation: null,
+        aiCoach: null,
+        recommendations: [],
         locked: false,
         phase: "saving",
         reward: null,
@@ -881,6 +984,10 @@ export function PracticeSessionExperience({
           selectedOptionId: answer.selected_option_id,
           correctOptionId: answer.correct_option_id,
           isCorrect: answer.is_correct,
+          correctAnswer: answer.correct_answer,
+          explanation: answer.explanation,
+          aiCoach: answer.ai_coach,
+          recommendations: answer.recommendations ?? [],
           locked: answer.locked,
           phase: "resolved",
           reward,
@@ -1298,6 +1405,8 @@ export function PracticeSessionExperience({
                             );
                           })}
                         </div>
+
+                        <PracticeFeedbackPanels answer={currentResolvedAnswer} />
 
                         <div className="mt-2.5 flex flex-col gap-2 border-t border-white/[0.06] pt-2.5 lg:flex-row lg:items-center">
                           <CompactRewardStrip xpGain={rewardXpGain} coinGain={rewardCoinGain} />

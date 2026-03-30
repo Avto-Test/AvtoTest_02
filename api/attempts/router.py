@@ -52,6 +52,7 @@ from core.logging import get_logger
 from services.gamification.rewards import award_attempt_completion_rewards
 from services.attempts.finalizer import finalize_attempt
 from services.learning.intelligence_metrics import attempt_score_percent, pass_prediction_label
+from services.learning.coach_feedback import build_question_feedback
 from services.learning.question_update_logging import (
     log_dry_run_write,
     log_question_update_comparison,
@@ -1109,12 +1110,22 @@ async def bulk_submit_attempt(
         correct_option = next((o for o in question.answer_options if o.is_correct), None)
         correct_option_id = correct_option.id if correct_option else opt_id
         is_correct = selected_option.is_correct
+        feedback = build_question_feedback(
+            question=question,
+            selected_option=selected_option,
+            correct_option=correct_option or selected_option,
+            is_correct=bool(is_correct),
+        )
         detailed_answer_payloads.append(
             {
                 "question_id": q_id,
                 "selected_option_id": opt_id,
                 "correct_option_id": correct_option_id,
                 "is_correct": is_correct,
+                "correct_answer": feedback["correct_answer"],
+                "explanation": feedback["explanation"],
+                "ai_coach": feedback["ai_coach"],
+                "recommendations": feedback["recommendations"],
             }
         )
         
@@ -1189,7 +1200,11 @@ async def bulk_submit_attempt(
                 selected_option_id=opt_id,
                 correct_option_id=correct_option_id,
                 is_correct=is_correct,
-                dynamic_difficulty_score=question.dynamic_difficulty_score
+                dynamic_difficulty_score=question.dynamic_difficulty_score,
+                correct_answer=feedback["correct_answer"],
+                explanation=feedback["explanation"],
+                ai_coach=feedback["ai_coach"],
+                recommendations=feedback["recommendations"],
             ))
         learning_answer_records.append(
             LearningAnswerRecord(
@@ -1297,6 +1312,10 @@ async def bulk_submit_attempt(
                     if refreshed_question_map.get(payload["question_id"]) is not None
                     else 0.5
                 ),
+                correct_answer=payload["correct_answer"],
+                explanation=payload["explanation"],
+                ai_coach=payload["ai_coach"],
+                recommendations=payload["recommendations"],
             )
             for payload in detailed_answer_payloads
         ]

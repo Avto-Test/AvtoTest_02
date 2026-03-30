@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: bool = False # Default to False for production safety
     ENABLE_EMAIL_VERIFICATION: bool = True
+    REQUIRE_EMAIL_VERIFICATION: bool = False
     
     # Email (Required in Production)
     EMAIL_HOST: str = "smtp.gmail.com"

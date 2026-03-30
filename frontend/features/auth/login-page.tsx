@@ -6,9 +6,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { login } from "@/api/auth";
+import { ApiError } from "@/api/client";
 import { AuthShell } from "@/features/auth/auth-shell";
 import { useUser } from "@/hooks/use-user";
-import { resolveUserFacingNotice } from "@/lib/user-facing-messages";
 import { Input } from "@/shared/ui/input";
 
 export function LoginPage() {
@@ -42,11 +42,11 @@ export function LoginPage() {
       router.replace(nextHref);
       router.refresh();
     } catch (err) {
-      const notice = resolveUserFacingNotice(err, {
-        title: "Kirish muvaffaqiyatsiz",
-        description: "Email yoki parol noto'g'ri.",
-      });
-      setError(notice.description);
+      if (err instanceof ApiError && err.status >= 500) {
+        setError("Server bilan bog'lanishda xatolik yuz berdi. Keyinroq qayta urinib ko'ring.");
+      } else {
+        setError("Email yoki parol noto'g'ri");
+      }
     } finally {
       setSubmitting(false);
     }
