@@ -8,6 +8,7 @@ import {
   Clock3,
   ImageIcon,
   ShieldAlert,
+  Sparkles,
   Video,
   XCircle,
 } from "lucide-react";
@@ -21,7 +22,7 @@ import { useSessionAntiCheat } from "@/hooks/use-session-anti-cheat";
 import { cn } from "@/lib/utils";
 import { Button } from "@/shared/ui/button";
 import { Modal } from "@/shared/ui/modal";
-import type { AttemptResult, DetailedAnswer, PublicQuestion } from "@/types/test";
+import type { AiCoachFeedback, AttemptResult, DetailedAnswer, PublicQuestion } from "@/types/test";
 
 type SessionPayload = {
   attemptId: string;
@@ -43,8 +44,22 @@ type QuestionState = {
   selectedOptionId: string;
   correctOptionId: string | null;
   isCorrect: boolean | null;
+  correctAnswer: string | null;
+  explanation: string | null;
+  aiCoach: AiCoachFeedback | null;
+  recommendations: string[];
   locked: boolean;
   status: "saving" | "resolved";
+};
+
+type ResolvedQuestionState = {
+  selectedOptionId: string;
+  correctOptionId: string | null;
+  isCorrect: boolean | null;
+  correctAnswer: string | null;
+  explanation: string | null;
+  aiCoach: AiCoachFeedback | null;
+  recommendations: string[];
 };
 
 const FALLBACK_MEDIA = [
@@ -84,6 +99,10 @@ function buildInitialQuestionStates(savedAnswers: DetailedAnswer[]) {
         selectedOptionId: answer.selected_option_id,
         correctOptionId: answer.correct_option_id,
         isCorrect: answer.is_correct,
+        correctAnswer: answer.correct_answer ?? null,
+        explanation: answer.explanation ?? null,
+        aiCoach: answer.ai_coach ?? null,
+        recommendations: answer.recommendations ?? [],
         locked: true,
         status: "resolved" as const,
       },
@@ -196,6 +215,10 @@ function buildSyntheticSessionResult({
         selected_option_id: state.selectedOptionId,
         correct_option_id: state.correctOptionId,
         is_correct: Boolean(state.isCorrect),
+        correct_answer: state.correctAnswer,
+        explanation: state.explanation,
+        ai_coach: state.aiCoach,
+        recommendations: state.recommendations,
       },
     ];
   });
@@ -233,6 +256,150 @@ function buildSyntheticSessionResult({
 
 function answerLookup(result: AttemptResult | null) {
   return new Map(result?.answers.map((answer) => [answer.question_id, answer]) ?? []);
+}
+
+function getResolvedQuestionState(
+  questionId: string,
+  runtimeState: QuestionState | undefined,
+  finalAnswers: Map<string, DetailedAnswer>,
+): ResolvedQuestionState | null {
+  const reviewedAnswer = finalAnswers.get(questionId);
+
+  if (runtimeState?.locked) {
+    return {
+      selectedOptionId: runtimeState.selectedOptionId,
+      correctOptionId: runtimeState.correctOptionId,
+      isCorrect: runtimeState.isCorrect,
+      correctAnswer: runtimeState.correctAnswer ?? reviewedAnswer?.correct_answer ?? null,
+      explanation: runtimeState.explanation ?? reviewedAnswer?.explanation ?? null,
+      aiCoach: runtimeState.aiCoach ?? reviewedAnswer?.ai_coach ?? null,
+      recommendations: runtimeState.recommendations.length ? runtimeState.recommendations : (reviewedAnswer?.recommendations ?? []),
+    };
+  }
+
+  if (!reviewedAnswer) {
+    return null;
+  }
+
+  return {
+    selectedOptionId: reviewedAnswer.selected_option_id,
+    correctOptionId: reviewedAnswer.correct_option_id,
+    isCorrect: reviewedAnswer.is_correct,
+    correctAnswer: reviewedAnswer.correct_answer ?? null,
+    explanation: reviewedAnswer.explanation ?? null,
+    aiCoach: reviewedAnswer.ai_coach ?? null,
+    recommendations: reviewedAnswer.recommendations ?? [],
+  };
+}
+
+function AssessmentFeedbackPanels({
+  answer,
+  isLightTheme,
+}: {
+  answer: ResolvedQuestionState | null;
+  isLightTheme: boolean;
+}) {
+  if (!answer || (!answer.explanation && !answer.aiCoach)) {
+    return null;
+  }
+
+  const recommendations = Array.from(
+    new Set([...(answer.recommendations ?? []), answer.aiCoach?.recommendation].filter(Boolean) as string[]),
+  );
+
+  return (
+    <div className="mt-5 space-y-3">
+      <details
+        open
+        className={cn(
+          "rounded-[1.2rem] border px-4 py-3",
+          isLightTheme ? "border-slate-200 bg-slate-50" : "border-white/10 bg-white/6",
+        )}
+      >
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+          <span className={cn("text-sm font-semibold", isLightTheme ? "text-slate-900" : "text-white")}>Izoh</span>
+          <span className={cn("text-[10px] uppercase tracking-[0.18em]", isLightTheme ? "text-slate-500" : "text-white/48")}>
+            Ochish / yopish
+          </span>
+        </summary>
+        <div className={cn("mt-3 space-y-2.5 text-sm leading-6", isLightTheme ? "text-slate-700" : "text-white/76")}>
+          {answer.explanation ? <p>{answer.explanation}</p> : null}
+          {answer.correctAnswer ? (
+            <div
+              className={cn(
+                "rounded-[1rem] border px-3 py-2.5",
+                isLightTheme ? "border-slate-200 bg-white text-slate-900" : "border-white/10 bg-black/20 text-white",
+              )}
+            >
+              <p className={cn("text-[10px] uppercase tracking-[0.18em]", isLightTheme ? "text-slate-500" : "text-white/48")}>
+                To&apos;g&apos;ri javob
+              </p>
+              <p className="mt-1 text-sm font-medium leading-6">{answer.correctAnswer}</p>
+            </div>
+          ) : null}
+        </div>
+      </details>
+
+      {answer.aiCoach ? (
+        <details
+          open
+          className={cn(
+            "rounded-[1.2rem] border px-4 py-3",
+            isLightTheme ? "border-emerald-200 bg-emerald-50/80" : "border-emerald-400/16 bg-emerald-500/10",
+          )}
+        >
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+            <span className={cn("inline-flex items-center gap-2 text-sm font-semibold", isLightTheme ? "text-emerald-800" : "text-emerald-200")}>
+              <Sparkles className="h-4 w-4" />
+              AI tavsiya
+            </span>
+            <span className={cn("text-[10px] uppercase tracking-[0.18em]", isLightTheme ? "text-emerald-700/70" : "text-emerald-100/60")}>
+              Ochish / yopish
+            </span>
+          </summary>
+          <div className="mt-3 grid gap-2.5">
+            <div
+              className={cn(
+                "rounded-[1rem] border px-3 py-2.5",
+                isLightTheme ? "border-emerald-200 bg-white/90" : "border-emerald-400/16 bg-black/20",
+              )}
+            >
+              <p className={cn("text-[10px] uppercase tracking-[0.18em]", isLightTheme ? "text-emerald-700/70" : "text-emerald-100/60")}>Tip</p>
+              <p className={cn("mt-1 text-sm leading-6", isLightTheme ? "text-slate-800" : "text-white")}>{answer.aiCoach.tip}</p>
+            </div>
+            <div
+              className={cn(
+                "rounded-[1rem] border px-3 py-2.5",
+                isLightTheme ? "border-emerald-200 bg-white/90" : "border-emerald-400/16 bg-black/20",
+              )}
+            >
+              <p className={cn("text-[10px] uppercase tracking-[0.18em]", isLightTheme ? "text-emerald-700/70" : "text-emerald-100/60")}>Tahlil</p>
+              <p className={cn("mt-1 text-sm leading-6", isLightTheme ? "text-slate-800" : "text-white")}>
+                {answer.aiCoach.mistake_analysis}
+              </p>
+            </div>
+            {recommendations.length ? (
+              <div
+                className={cn(
+                  "rounded-[1rem] border px-3 py-2.5",
+                  isLightTheme ? "border-emerald-200 bg-white/90" : "border-emerald-400/16 bg-black/20",
+                )}
+              >
+                <p className={cn("text-[10px] uppercase tracking-[0.18em]", isLightTheme ? "text-emerald-700/70" : "text-emerald-100/60")}>
+                  Tavsiya
+                </p>
+                <div className={cn("mt-1 space-y-1.5 text-sm leading-6", isLightTheme ? "text-slate-800" : "text-white")}>
+                  {recommendations.map((item) => (
+                    <p key={item}>{item}</p>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </details>
+      ) : null}
+    </div>
+  );
 }
 
 export function AssessmentSession({
@@ -274,6 +441,8 @@ export function AssessmentSession({
 
   const currentQuestion = session.questions[currentIndex];
   const finalAnswerMap = useMemo(() => answerLookup(result), [result]);
+  const currentQuestionState = questionStates[currentQuestion.id];
+  const currentResolvedAnswer = getResolvedQuestionState(currentQuestion.id, currentQuestionState, finalAnswerMap);
   const lockedCount = result?.answered_count ?? Object.values(questionStates).filter((item) => item.locked).length;
   const derivedCorrectCount = Object.values(questionStates).filter((item) => item.isCorrect === true).length;
   const derivedWrongCount = Object.values(questionStates).filter((item) => item.isCorrect === false).length;
@@ -510,6 +679,10 @@ export function AssessmentSession({
         selectedOptionId: optionId,
         correctOptionId: null,
         isCorrect: null,
+        correctAnswer: null,
+        explanation: null,
+        aiCoach: null,
+        recommendations: [],
         locked: false,
         status: "saving",
       },
@@ -530,6 +703,10 @@ export function AssessmentSession({
           selectedOptionId: answer.selected_option_id,
           correctOptionId: answer.correct_option_id,
           isCorrect: answer.is_correct,
+          correctAnswer: answer.correct_answer,
+          explanation: answer.explanation,
+          aiCoach: answer.ai_coach,
+          recommendations: answer.recommendations ?? [],
           locked: answer.locked,
           status: "resolved",
         },
@@ -956,7 +1133,7 @@ export function AssessmentSession({
 
               <div className="mt-5 space-y-3">
                 {currentQuestion.answer_options.map((option, index) => {
-                  const state = questionStates[currentQuestion.id];
+                  const state = currentQuestionState;
                   const finalAnswer = finalAnswerMap.get(currentQuestion.id);
                   const selectedOptionId = state?.selectedOptionId ?? finalAnswer?.selected_option_id ?? null;
                   const correctOptionId = state?.correctOptionId ?? finalAnswer?.correct_option_id ?? null;
@@ -1011,6 +1188,8 @@ export function AssessmentSession({
                   );
                 })}
               </div>
+
+              <AssessmentFeedbackPanels answer={currentResolvedAnswer} isLightTheme={isLightTheme} />
 
               <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
                 <Button

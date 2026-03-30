@@ -3,6 +3,19 @@ export interface PublicAnswerOption {
   text: string;
 }
 
+export interface AiCoachFeedback {
+  tip: string;
+  mistake_analysis: string;
+  recommendation: string;
+}
+
+export interface AnswerReviewFields {
+  correct_answer?: string | null;
+  explanation?: string | null;
+  ai_coach?: AiCoachFeedback | null;
+  recommendations?: string[];
+}
+
 export interface PublicQuestion {
   id: string;
   text: string;
@@ -53,7 +66,7 @@ export interface LearningSession {
   questions: PublicQuestion[];
 }
 
-export interface DetailedAnswer {
+export interface DetailedAnswer extends AnswerReviewFields {
   question_id: string;
   selected_option_id: string;
   correct_option_id: string;

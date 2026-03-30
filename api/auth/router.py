@@ -46,7 +46,6 @@ from models.driving_school import DrivingSchool
 from models.user import User
 from models.verification_token import VerificationToken
 from services.gamification.rewards import award_daily_login
-from services.subscriptions.lifecycle import enforce_subscription_status
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -68,7 +67,7 @@ def generate_verification_code() -> str:
 
 
 def _should_bypass_email_verification() -> bool:
-    return settings.is_development
+    return not settings.REQUIRE_EMAIL_VERIFICATION
 
 
 def _credentials_exception() -> HTTPException:
@@ -233,6 +232,33 @@ async def _create_or_refresh_pending_registration(
     pending.code_expires_at = expires_at
     pending.updated_at = now
     return code
+
+
+async def _activate_pending_registration_user(
+    *,
+    db: AsyncSession,
+    email: str,
+    pending: PendingRegistration,
+) -> User:
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        user = User(
+            email=email,
+            hashed_password=pending.hashed_password,
+            is_verified=True,
+            is_active=True,
+        )
+        db.add(user)
+        await db.flush()
+    else:
+        user.hashed_password = pending.hashed_password
+        user.is_verified = True
+        user.is_active = True
+
+    await db.delete(pending)
+    return user
 
 
 async def _create_refresh_session(
@@ -402,8 +428,6 @@ async def get_current_user(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Foydalanuvchi faol emas",
             )
-
-        await enforce_subscription_status(user=user, db=db)
         return user
     except HTTPException:
         raise
@@ -468,7 +492,7 @@ async def register(
             existing_user.is_verified = True
             existing_user.is_active = True
             await db.commit()
-            logger.info("[DEV MODE] Email verification skipped for %s", normalized_email)
+            logger.info("Email verification bypassed for %s", normalized_email)
             return MessageResponse(message="Ro'yxatdan o'tish muvaffaqiyatli yakunlandi")
 
         code = await _create_token(
@@ -505,7 +529,7 @@ async def register(
         )
         db.add(new_user)
         await db.commit()
-        logger.info("[DEV MODE] Email verification skipped for %s", normalized_email)
+        logger.info("Email verification bypassed for %s", normalized_email)
         return MessageResponse(message="Ro'yxatdan o'tish muvaffaqiyatli yakunlandi")
 
     if settings.ENABLE_EMAIL_VERIFICATION:
@@ -548,27 +572,27 @@ async def login(
     """Login with email and password and issue a rotated session pair."""
     normalized_email = user_data.email.strip().lower()
     request_ip = _get_request_ip(request)
+    invalid_credentials_error = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Email yoki parol noto'g'ri",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
     try:
         result = await db.execute(select(User).where(User.email == normalized_email))
         user = result.scalar_one_or_none()
+        pending_result = await db.execute(
+            select(PendingRegistration).where(PendingRegistration.email == normalized_email)
+        )
+        pending = pending_result.scalar_one_or_none()
+
+        if user is None and pending is not None and _should_bypass_email_verification():
+            user = await _activate_pending_registration_user(
+                db=db,
+                email=normalized_email,
+                pending=pending,
+            )
 
         if user is None:
-            pending_result = await db.execute(
-                select(PendingRegistration).where(PendingRegistration.email == normalized_email)
-            )
-            pending = pending_result.scalar_one_or_none()
-            if pending is not None:
-                _log_auth_event(
-                    logging.WARNING,
-                    event="login_failed",
-                    email=normalized_email,
-                    ip_address=request_ip,
-                    error="email_unverified",
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Email tasdiqlanmagan",
-                )
             _log_auth_event(
                 logging.WARNING,
                 event="login_failed",
@@ -576,11 +600,7 @@ async def login(
                 ip_address=request_ip,
                 error="invalid_credentials",
             )
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Email yoki parol noto'g'ri",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+            raise invalid_credentials_error
 
         if not await verify_password_async(user_data.password, user.hashed_password):
             _log_auth_event(
@@ -591,47 +611,24 @@ async def login(
                 ip_address=request_ip,
                 error="invalid_credentials",
             )
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Email yoki parol noto'g'ri",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+            raise invalid_credentials_error
 
-        if not user.is_verified:
-            if _should_bypass_email_verification():
-                user.is_verified = True
+        if _should_bypass_email_verification() and not user.is_verified:
+            user.is_verified = True
+            if not user.is_active:
                 user.is_active = True
-                logger.info("[DEV MODE] Email verification skipped for %s", normalized_email)
-            else:
-                _log_auth_event(
-                    logging.WARNING,
-                    event="login_failed",
-                    user_id=str(user.id),
-                    email=normalized_email,
-                    ip_address=request_ip,
-                    error="email_unverified",
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Email tasdiqlanmagan",
-                )
+            logger.info("Email verification bypassed during login for %s", normalized_email)
 
         if not user.is_active:
-            if _should_bypass_email_verification():
-                user.is_active = True
-            else:
-                _log_auth_event(
-                    logging.WARNING,
-                    event="login_failed",
-                    user_id=str(user.id),
-                    email=normalized_email,
-                    ip_address=request_ip,
-                    error="inactive_user",
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Foydalanuvchi faol emas",
-                )
+            _log_auth_event(
+                logging.WARNING,
+                event="login_failed",
+                user_id=str(user.id),
+                email=normalized_email,
+                ip_address=request_ip,
+                error="inactive_user",
+            )
+            raise invalid_credentials_error
 
         token_pair, refresh_session = await _issue_auth_tokens(db=db, user=user, request=request)
         await db.commit()
@@ -848,7 +845,7 @@ async def resend_verification(
     db: AsyncSession = Depends(get_db),
 ) -> MessageResponse:
     if _should_bypass_email_verification():
-        return MessageResponse(message="Development mode: email verification skipped")
+        return MessageResponse(message="Email verification is disabled")
 
     if not settings.ENABLE_EMAIL_VERIFICATION:
         return MessageResponse(message="Email verification is disabled")

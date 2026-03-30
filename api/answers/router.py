@@ -17,6 +17,7 @@ from models.attempt_answer import AttemptAnswer
 from models.exam_simulation_attempt import ExamSimulationAttempt
 from models.question import Question
 from models.user import User
+from services.learning.coach_feedback import build_question_feedback, sanitize_option_text
 from services.learning.simulation_service import resolve_simulation_limits, terminate_simulation_attempt
 
 router = APIRouter(prefix="/answers", tags=["answers"])
@@ -67,18 +68,33 @@ async def _get_simulation_attempt(
 def _build_locked_response(
     *,
     answer: AttemptAnswer,
+    question: Question,
+    selected_option,
+    correct_option,
     correct_option_id,
     already_answered: bool,
     simulation: ExamSimulationAttempt | None = None,
 ) -> SubmitLockedAnswerResponse:
     mistake_limit, violation_limit = resolve_simulation_limits(simulation)
+    feedback = build_question_feedback(
+        question=question,
+        selected_option=selected_option,
+        correct_option=correct_option,
+        is_correct=bool(answer.is_correct),
+    )
     return SubmitLockedAnswerResponse(
         answer_id=answer.id,
         attempt_id=answer.attempt_id,
         question_id=answer.question_id,
+        question=question.text,
+        options=[{"id": option.id, "text": sanitize_option_text(option.text)} for option in question.answer_options],
         selected_option_id=answer.selected_option_id,
         correct_option_id=correct_option_id,
         is_correct=bool(answer.is_correct),
+        correct_answer=feedback["correct_answer"],
+        explanation=feedback["explanation"],
+        ai_coach=feedback["ai_coach"],
+        recommendations=feedback["recommendations"],
         locked=True,
         already_answered=already_answered,
         mistake_count=int(simulation.mistake_count or 0) if simulation is not None else 0,
@@ -125,8 +141,14 @@ async def submit_locked_answer(
         )
     ).scalar_one_or_none()
     if existing_answer is not None:
+        existing_selected_option = option_map.get(existing_answer.selected_option_id)
+        if existing_selected_option is None:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Stored answer option is missing.")
         return _build_locked_response(
             answer=existing_answer,
+            question=question,
+            selected_option=existing_selected_option,
+            correct_option=correct_option,
             correct_option_id=correct_option.id,
             already_answered=True,
             simulation=simulation,
@@ -157,6 +179,9 @@ async def submit_locked_answer(
 
     return _build_locked_response(
         answer=answer,
+        question=question,
+        selected_option=selected_option,
+        correct_option=correct_option,
         correct_option_id=correct_option.id,
         already_answered=False,
         simulation=simulation,

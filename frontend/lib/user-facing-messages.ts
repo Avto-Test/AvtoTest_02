@@ -89,10 +89,11 @@ export function resolveUserFacingNotice(input: unknown, fallback?: {
   }
 
   if (
-    status === 403 ||
+    status === 402 ||
     normalized.includes("premium required") ||
+    normalized.includes("payment required") ||
     normalized.includes("upgrade to premium") ||
-    normalized.includes("forbidden")
+    normalized.includes("premium subscription required")
   ) {
     return {
       badge: "Tarif tavsiyasi",
@@ -102,6 +103,16 @@ export function resolveUserFacingNotice(input: unknown, fallback?: {
       tone: "warning",
       actionLabel: "Tarif tafsiloti",
       actionHref: "/settings",
+    };
+  }
+
+  if (status === 403 || normalized.includes("forbidden")) {
+    return {
+      badge: "Ruxsat",
+      title: "Bu amal uchun ruxsat yetarli emas",
+      description:
+        "Akkountingizda ushbu amalni bajarish huquqi topilmadi. Kerak bo'lsa, boshqa profil bilan qayta urinib ko'ring.",
+      tone: "info",
     };
   }
 

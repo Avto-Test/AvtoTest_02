@@ -19,6 +19,7 @@ from sqlalchemy.orm import selectinload
 from api.attempts.schemas import AdaptiveStartResponse
 from api.tests.schemas import FreeTestStatus, PublicTestDetail, PublicTestList
 from api.auth.router import get_current_user
+from core.access import ensure_premium_user, require_premium_user
 from models.user import User
 from database.session import get_db
 from models.question import Question
@@ -250,7 +251,7 @@ async def get_free_test_status(
 async def start_adaptive_test(
     request: Request,
     payload: AdaptiveStartRequest | None = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_premium_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -259,12 +260,6 @@ async def start_adaptive_test(
     from api.attempts.router import check_attempt_limit
 
     await check_attempt_limit(current_user, db)
-
-    if not (current_user.is_premium or current_user.is_admin):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Premium subscription required to start adaptive mode.",
-        )
 
     request_payload = payload or AdaptiveStartRequest()
     requested_count = request_payload.question_count
@@ -485,11 +480,8 @@ async def get_test_detail(
             detail="Test not found",
         )
 
-    if test.is_premium and not (current_user.is_premium or current_user.is_admin):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Premium subscription required to access this test.",
-        )
+    if test.is_premium:
+        await ensure_premium_user(current_user, db)
 
     return {
         "id": test.id,

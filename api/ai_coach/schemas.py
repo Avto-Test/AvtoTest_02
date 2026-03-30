@@ -3,6 +3,12 @@
 from pydantic import BaseModel
 
 
+class AiCoachPayload(BaseModel):
+    tip: str
+    mistake_analysis: str
+    recommendation: str
+
+
 class CoachExplanationResponse(BaseModel):
     title: str = "AI Coach"
     explanation: str

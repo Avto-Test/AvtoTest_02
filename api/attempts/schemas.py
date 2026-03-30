@@ -5,8 +5,9 @@ Pydantic models for attempt endpoints
 
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from api.ai_coach.schemas import AiCoachPayload
 from api.tests.schemas import PublicQuestion
 
 
@@ -108,6 +109,10 @@ class DetailedAnswer(BaseModel):
     correct_option_id: UUID
     is_correct: bool
     dynamic_difficulty_score: float = 0.5
+    correct_answer: str | None = None
+    explanation: str | None = None
+    ai_coach: AiCoachPayload | None = None
+    recommendations: list[str] = Field(default_factory=list)
 
 
 class RewardAchievement(BaseModel):

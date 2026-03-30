@@ -14,8 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from api.attempts.schemas import DetailedAnswer
-from api.auth.router import get_current_user
 from api.attempts.router import check_attempt_limit
+from core.access import require_premium_user
 from api.simulation.schemas import (
     SimulationHistoryEntry,
     SimulationHistoryResponse,
@@ -34,6 +34,7 @@ from models.question import Question
 from models.test import Test
 from models.user import User
 from services.gamification.economy import get_active_simulation_fast_unlock
+from services.learning.coach_feedback import build_question_feedback
 from services.learning.simulation_service import (
     resolve_simulation_duration_minutes,
     resolve_simulation_question_count,
@@ -104,16 +105,27 @@ def _build_saved_answers(*, attempt: Attempt, questions: list[Question]) -> list
         question = question_map.get(answer.question_id)
         if question is None:
             continue
-        correct_option = next((option for option in question.answer_options if option.is_correct), None)
-        if correct_option is None:
+        selected_option = next((option for option in question.answer_options if option.id == answer.selected_option_id), None)
+        if selected_option is None:
             continue
+        correct_option = next((option for option in question.answer_options if option.is_correct), None)
+        feedback = build_question_feedback(
+            question=question,
+            selected_option=selected_option,
+            correct_option=correct_option or selected_option,
+            is_correct=bool(answer.is_correct),
+        )
         saved_answers.append(
             DetailedAnswer(
                 question_id=answer.question_id,
                 selected_option_id=answer.selected_option_id,
-                correct_option_id=correct_option.id,
+                correct_option_id=(correct_option or selected_option).id,
                 is_correct=bool(answer.is_correct),
                 dynamic_difficulty_score=float(question.dynamic_difficulty_score or 0.5),
+                correct_answer=feedback["correct_answer"],
+                explanation=feedback["explanation"],
+                ai_coach=feedback["ai_coach"],
+                recommendations=feedback["recommendations"],
             )
         )
     return saved_answers
@@ -121,7 +133,7 @@ def _build_saved_answers(*, attempt: Attempt, questions: list[Question]) -> list
 
 @router.post("/start", response_model=SimulationStartResponse, status_code=status.HTTP_201_CREATED)
 async def start_simulation(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_premium_user),
     db: AsyncSession = Depends(get_db),
 ) -> SimulationStartResponse:
     existing_result = await db.execute(
@@ -268,7 +280,7 @@ async def start_simulation(
 
 @router.get("/history", response_model=SimulationHistoryResponse)
 async def get_simulation_history(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_premium_user),
     db: AsyncSession = Depends(get_db),
 ) -> SimulationHistoryResponse:
     result = await db.execute(
