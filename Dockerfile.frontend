@@ -1,12 +1,10 @@
-# AUTOTEST - Production Frontend Dockerfile (Next.js)
+# Build Stage
 FROM node:18-alpine AS builder
 
 WORKDIR /app/frontend
 
-# Copy package files
+# Copy package files and install dependencies
 COPY frontend/package*.json ./
-
-# Install dependencies
 RUN npm ci
 
 # Copy source code
@@ -14,6 +12,7 @@ COPY frontend/ .
 
 # Build Next.js application
 RUN npm run build
+
 
 # Production image
 FROM node:18-alpine
