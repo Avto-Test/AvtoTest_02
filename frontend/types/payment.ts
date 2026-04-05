@@ -31,6 +31,8 @@ export interface CheckoutQuote {
 export interface CreatePaymentSessionPayload {
   plan_id?: string;
   promo_code?: string;
+  feature_key?: string;
+  source?: string;
 }
 
 export interface CreatePaymentSessionResponse {
@@ -42,6 +44,8 @@ export interface CreatePaymentSessionResponse {
 export interface RedeemPromoPayload {
   plan_id: string;
   promo_code: string;
+  feature_key?: string;
+  source?: string;
 }
 
 export interface RedeemPromoResponse {

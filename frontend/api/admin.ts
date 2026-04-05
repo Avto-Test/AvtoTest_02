@@ -2,6 +2,9 @@ import { apiRequest } from "@/api/client";
 import type {
   AdminAnalyticsSummary,
   AdminExperimentSummary,
+  AdminFeatureFunnel,
+  AdminMonetizationInsightItem,
+  AdminFeaturePerformanceItem,
   AdminFinanceRange,
   AdminGrowthRange,
   AdminGrowthSummary,
@@ -104,6 +107,28 @@ export function getAdminExperimentSummary(name = "upgrade_button") {
   return apiRequest<AdminExperimentSummary>("/admin/experiments", {
     method: "GET",
     query: name === "upgrade_button" ? undefined : { name },
+  });
+}
+
+export function getAdminFeatureAnalytics() {
+  return apiRequest<AdminFeaturePerformanceItem[]>("/analytics/features", {
+    method: "GET",
+    baseUrl: "/api",
+  });
+}
+
+export function getAdminFeatureInsights() {
+  return apiRequest<AdminMonetizationInsightItem[]>("/analytics/insights", {
+    method: "GET",
+    baseUrl: "/api",
+  });
+}
+
+export function getAdminFeatureFunnel(feature: string) {
+  return apiRequest<AdminFeatureFunnel>("/analytics/funnel", {
+    method: "GET",
+    query: { feature },
+    baseUrl: "/api",
   });
 }
 

@@ -7,7 +7,10 @@ import { Area, AreaChart, CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis 
 import { AppShell } from "@/components/app-shell";
 import { ReadinessRing } from "@/components/charts/readiness-ring";
 import { TopicRadar } from "@/components/charts/topic-radar";
+import { PremiumLock } from "@/components/premium-lock";
+import { useFeatureAccess } from "@/components/providers/feature-access-provider";
 import { useAnalytics } from "@/hooks/use-analytics";
+import { FEATURES } from "@/lib/features";
 import {
   buildLearningPathTopicProgress,
   masteryStateMeta,
@@ -69,6 +72,7 @@ function MetricTile({
 
 function AnalyticsPageContent() {
   const analytics = useAnalytics();
+  const featureAccess = useFeatureAccess();
   const dashboard = analytics.dashboard;
   const summary = analytics.summary;
 
@@ -105,6 +109,8 @@ function AnalyticsPageContent() {
       };
     });
   }, [topicMastery]);
+  const analyticsViewLocked = featureAccess.ready && !featureAccess.hasAccess(FEATURES.ANALYTICS);
+  const aiPredictionLocked = featureAccess.ready && !featureAccess.hasAccess(FEATURES.AI_PREDICTION);
 
   if (analytics.loading) {
     return (
@@ -168,177 +174,204 @@ function AnalyticsPageContent() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
-        <div className="rounded-xl border border-[var(--border)]/40 bg-[var(--card)] p-6 shadow-[var(--shadow-soft)] surface-hover-lift">
-          <h3 className="text-section font-semibold">Aniqlik trendi</h3>
-          <p className="text-caption mt-1">So&apos;nggi urinishlar bo&apos;yicha.</p>
-          <div className="mt-6">
-            {accuracyTrend.length === 0 ? (
-              <EmptyState title="Trend yo'q" description="Bir nechta urinishdan keyin ko'rinadi." />
-            ) : (
-              <ChartContainer className="h-72">
-                {({ width, height }) => (
-                  <AreaChart width={width} height={height} data={accuracyTrend}>
-                    <defs>
-                      <linearGradient id="analytics-accuracy" x1="0%" y1="0%" x2="0%" y2="100%">
-                        <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.3} />
-                        <stop offset="100%" stopColor="var(--primary)" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                    <XAxis dataKey="label" stroke="var(--muted-foreground)" fontSize={12} />
-                    <YAxis stroke="var(--muted-foreground)" domain={[0, 100]} fontSize={12} />
-                    <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid var(--border)" }} />
-                    <Area
-                      type="monotone"
-                      dataKey="value"
-                      stroke="var(--primary)"
-                      strokeWidth={2}
-                      fill="url(#analytics-accuracy)"
-                      animationDuration={800}
-                      animationEasing="ease-out"
-                    />
-                  </AreaChart>
-                )}
-              </ChartContainer>
-            )}
+        <PremiumLock
+          isLocked={analyticsViewLocked}
+          featureKey={FEATURES.ANALYTICS}
+          featureName="Advanced analytics"
+          source="analytics_accuracy_chart"
+          onUnlockClick={() => featureAccess.openUpgrade(FEATURES.ANALYTICS, { source: "analytics_accuracy_chart" })}
+          className="rounded-xl"
+        >
+          <div className="rounded-xl border border-[var(--border)]/40 bg-[var(--card)] p-6 shadow-[var(--shadow-soft)] surface-hover-lift">
+            <h3 className="text-section font-semibold">Aniqlik trendi</h3>
+            <p className="text-caption mt-1">So&apos;nggi urinishlar bo&apos;yicha.</p>
+            <div className="mt-6">
+              {accuracyTrend.length === 0 ? (
+                <EmptyState title="Trend yo'q" description="Bir nechta urinishdan keyin ko'rinadi." />
+              ) : (
+                <ChartContainer className="h-72">
+                  {({ width, height }) => (
+                    <AreaChart width={width} height={height} data={accuracyTrend}>
+                      <defs>
+                        <linearGradient id="analytics-accuracy" x1="0%" y1="0%" x2="0%" y2="100%">
+                          <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.3} />
+                          <stop offset="100%" stopColor="var(--primary)" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                      <XAxis dataKey="label" stroke="var(--muted-foreground)" fontSize={12} />
+                      <YAxis stroke="var(--muted-foreground)" domain={[0, 100]} fontSize={12} />
+                      <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid var(--border)" }} />
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke="var(--primary)"
+                        strokeWidth={2}
+                        fill="url(#analytics-accuracy)"
+                        animationDuration={800}
+                        animationEasing="ease-out"
+                      />
+                    </AreaChart>
+                  )}
+                </ChartContainer>
+              )}
+            </div>
           </div>
-        </div>
+        </PremiumLock>
 
-        <div className="rounded-xl border border-[var(--border)]/40 bg-[var(--card)] p-6 shadow-[var(--shadow-soft)] surface-hover-lift">
-          <h3 className="text-section font-semibold">Tayyorlik va ishonch</h3>
-          <p className="text-caption mt-1">Readiness, confidence, pass signal.</p>
-          <div className="mt-6">
-            {historyTrend.length === 0 ? (
-              <EmptyState title="Ma'lumot yo'q" description="Yakunlangan urinishlardan keyin ko'rinadi." />
-            ) : (
-              <ChartContainer className="h-72">
-                {({ width, height }) => (
-                  <LineChart width={width} height={height} data={historyTrend}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                    <XAxis dataKey="label" stroke="var(--muted-foreground)" fontSize={12} />
-                    <YAxis stroke="var(--muted-foreground)" domain={[0, 100]} fontSize={12} />
-                    <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid var(--border)" }} />
-                    <Line
-                      type="monotone"
-                      dataKey="readiness"
-                      stroke="#3b82f6"
-                      strokeWidth={2}
-                      dot={false}
-                      animationDuration={800}
-                      animationEasing="ease-out"
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="confidence"
-                      stroke="#6366f1"
-                      strokeWidth={2}
-                      dot={false}
-                      animationDuration={800}
-                      animationEasing="ease-out"
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="passProbability"
-                      stroke="#22c55e"
-                      strokeWidth={2}
-                      dot={false}
-                      animationDuration={800}
-                      animationEasing="ease-out"
-                    />
-                  </LineChart>
-                )}
-              </ChartContainer>
-            )}
+        <PremiumLock
+          isLocked={aiPredictionLocked}
+          featureKey={FEATURES.AI_PREDICTION}
+          featureName="AI prediction"
+          source="analytics_prediction_chart"
+          onUnlockClick={() => featureAccess.openUpgrade(FEATURES.AI_PREDICTION, { source: "analytics_prediction_chart" })}
+          className="rounded-xl"
+        >
+          <div className="rounded-xl border border-[var(--border)]/40 bg-[var(--card)] p-6 shadow-[var(--shadow-soft)] surface-hover-lift">
+            <h3 className="text-section font-semibold">Tayyorlik va ishonch</h3>
+            <p className="text-caption mt-1">Readiness, confidence, pass signal.</p>
+            <div className="mt-6">
+              {historyTrend.length === 0 ? (
+                <EmptyState title="Ma'lumot yo'q" description="Yakunlangan urinishlardan keyin ko'rinadi." />
+              ) : (
+                <ChartContainer className="h-72">
+                  {({ width, height }) => (
+                    <LineChart width={width} height={height} data={historyTrend}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                      <XAxis dataKey="label" stroke="var(--muted-foreground)" fontSize={12} />
+                      <YAxis stroke="var(--muted-foreground)" domain={[0, 100]} fontSize={12} />
+                      <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid var(--border)" }} />
+                      <Line
+                        type="monotone"
+                        dataKey="readiness"
+                        stroke="#3b82f6"
+                        strokeWidth={2}
+                        dot={false}
+                        animationDuration={800}
+                        animationEasing="ease-out"
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="confidence"
+                        stroke="#6366f1"
+                        strokeWidth={2}
+                        dot={false}
+                        animationDuration={800}
+                        animationEasing="ease-out"
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="passProbability"
+                        stroke="#22c55e"
+                        strokeWidth={2}
+                        dot={false}
+                        animationDuration={800}
+                        animationEasing="ease-out"
+                      />
+                    </LineChart>
+                  )}
+                </ChartContainer>
+              )}
+            </div>
           </div>
-        </div>
+        </PremiumLock>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="rounded-xl border border-[var(--border)]/40 bg-[var(--card)] p-6 shadow-[var(--shadow-soft)] surface-hover-lift">
-          <h3 className="text-section font-semibold">Mavzu mastery</h3>
-          <p className="text-caption mt-1">Qaysi mavzular kuchli, qaysilari ko&apos;proq e&apos;tibor talab qiladi.</p>
+        <PremiumLock
+          isLocked={analyticsViewLocked}
+          featureKey={FEATURES.ANALYTICS}
+          featureName="Analytics mastery"
+          source="analytics_mastery_panel"
+          onUnlockClick={() => featureAccess.openUpgrade(FEATURES.ANALYTICS, { source: "analytics_mastery_panel" })}
+          className="rounded-xl"
+        >
+          <div className="rounded-xl border border-[var(--border)]/40 bg-[var(--card)] p-6 shadow-[var(--shadow-soft)] surface-hover-lift">
+            <h3 className="text-section font-semibold">Mavzu mastery</h3>
+            <p className="text-caption mt-1">Qaysi mavzular kuchli, qaysilari ko&apos;proq e&apos;tibor talab qiladi.</p>
 
-          <div className="mt-6 rounded-[1.5rem] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--primary)_8%,transparent),color-mix(in_oklab,var(--card)_96%,transparent))] p-4">
-            {topicMastery.length === 0 ? (
-              <EmptyState title="Ma'lumot yo'q" description="Mavzu bo'yicha urinishlar ko'paygach ko'rinadi." />
-            ) : (
-              <TopicRadar data={radarData} />
-            )}
-          </div>
-
-          {topicMastery.length > 0 ? (
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-[1.25rem] bg-[color-mix(in_oklab,var(--muted)_82%,transparent)] px-4 py-4">
-                <p className="text-caption">Eng ko&apos;p e&apos;tibor kerak</p>
-                <p className="mt-2 font-semibold">{weakestTopic?.topic}</p>
-                <p className="text-caption mt-1">{weakestTopic?.mastery}% mastery</p>
-              </div>
-              <div className="rounded-[1.25rem] bg-[color-mix(in_oklab,var(--accent-soft)_42%,transparent)] px-4 py-4">
-                <p className="text-caption">Eng kuchli mavzu</p>
-                <p className="mt-2 font-semibold">{strongestTopic?.topic}</p>
-                <p className="text-caption mt-1">{strongestTopic?.mastery}% mastery</p>
-              </div>
+            <div className="mt-6 rounded-[1.5rem] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--primary)_8%,transparent),color-mix(in_oklab,var(--card)_96%,transparent))] p-4">
+              {topicMastery.length === 0 ? (
+                <EmptyState title="Ma'lumot yo'q" description="Mavzu bo'yicha urinishlar ko'paygach ko'rinadi." />
+              ) : (
+                <TopicRadar data={radarData} />
+              )}
             </div>
-          ) : null}
 
-          <div className="mt-6 grid gap-4 xl:grid-cols-2">
-            {topicMastery.length === 0 ? (
-              <EmptyState title="Ma'lumot yo'q" description="Mavzu bo'yicha urinishlar ko'paygach ko'rinadi." />
-            ) : (
-              topicMastery.map((topic) => (
-                <div
-                  key={topic.topic}
-                  className="rounded-[1.25rem] bg-[color-mix(in_oklab,var(--card)_90%,var(--muted))] px-4 py-4 shadow-[0_10px_24px_-20px_rgba(15,23,42,0.25)]"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold">{topic.topic}</p>
-                      <p className="text-caption mt-0.5">{topic.meta.description}</p>
-                    </div>
-                    <Badge variant={topic.meta.badgeVariant}>{topic.meta.label}</Badge>
-                  </div>
-                  <div className="mt-4 space-y-3">
-                    <div>
-                      <div className="flex justify-between text-caption">
-                        <span>Mastery</span>
-                        <span className="font-semibold">{topic.mastery}%</span>
-                      </div>
-                      <Progress
-                        value={topic.mastery}
-                        className="mt-1.5 h-1.5"
-                        indicatorClassName={
-                          topic.state === "mastered"
-                            ? "progress-animated bg-gradient-to-r from-emerald-500 to-emerald-300"
-                            : topic.state === "stable"
-                              ? "progress-animated bg-gradient-to-r from-[#22c55e] to-[#60a5fa]"
-                              : topic.state === "improving"
-                                ? "progress-animated bg-gradient-to-r from-[#3b82f6] to-[#6366f1]"
-                                : "progress-animated bg-gradient-to-r from-[#f59e0b] to-[#ef4444]"
-                        }
-                      />
-                    </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <div className="flex justify-between text-caption">
-                          <span>Accuracy</span>
-                          <span className="font-semibold">{topic.accuracy}%</span>
-                        </div>
-                        <Progress value={topic.accuracy} className="mt-1.5 h-1.5" />
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-caption">
-                          <span>Retention</span>
-                          <span className="font-semibold">{topic.retention}%</span>
-                        </div>
-                        <Progress value={topic.retention} className="mt-1.5 h-1.5" />
-                      </div>
-                    </div>
-                  </div>
+            {topicMastery.length > 0 ? (
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-[1.25rem] bg-[color-mix(in_oklab,var(--muted)_82%,transparent)] px-4 py-4">
+                  <p className="text-caption">Eng ko&apos;p e&apos;tibor kerak</p>
+                  <p className="mt-2 font-semibold">{weakestTopic?.topic}</p>
+                  <p className="text-caption mt-1">{weakestTopic?.mastery}% mastery</p>
                 </div>
-              ))
-            )}
+                <div className="rounded-[1.25rem] bg-[color-mix(in_oklab,var(--accent-soft)_42%,transparent)] px-4 py-4">
+                  <p className="text-caption">Eng kuchli mavzu</p>
+                  <p className="mt-2 font-semibold">{strongestTopic?.topic}</p>
+                  <p className="text-caption mt-1">{strongestTopic?.mastery}% mastery</p>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="mt-6 grid gap-4 xl:grid-cols-2">
+              {topicMastery.length === 0 ? (
+                <EmptyState title="Ma'lumot yo'q" description="Mavzu bo'yicha urinishlar ko'paygach ko'rinadi." />
+              ) : (
+                topicMastery.map((topic) => (
+                  <div
+                    key={topic.topic}
+                    className="rounded-[1.25rem] bg-[color-mix(in_oklab,var(--card)_90%,var(--muted))] px-4 py-4 shadow-[0_10px_24px_-20px_rgba(15,23,42,0.25)]"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">{topic.topic}</p>
+                        <p className="text-caption mt-0.5">{topic.meta.description}</p>
+                      </div>
+                      <Badge variant={topic.meta.badgeVariant}>{topic.meta.label}</Badge>
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      <div>
+                        <div className="flex justify-between text-caption">
+                          <span>Mastery</span>
+                          <span className="font-semibold">{topic.mastery}%</span>
+                        </div>
+                        <Progress
+                          value={topic.mastery}
+                          className="mt-1.5 h-1.5"
+                          indicatorClassName={
+                            topic.state === "mastered"
+                              ? "progress-animated bg-gradient-to-r from-emerald-500 to-emerald-300"
+                              : topic.state === "stable"
+                                ? "progress-animated bg-gradient-to-r from-[#22c55e] to-[#60a5fa]"
+                                : topic.state === "improving"
+                                  ? "progress-animated bg-gradient-to-r from-[#3b82f6] to-[#6366f1]"
+                                  : "progress-animated bg-gradient-to-r from-[#f59e0b] to-[#ef4444]"
+                          }
+                        />
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <div className="flex justify-between text-caption">
+                            <span>Accuracy</span>
+                            <span className="font-semibold">{topic.accuracy}%</span>
+                          </div>
+                          <Progress value={topic.accuracy} className="mt-1.5 h-1.5" />
+                        </div>
+                        <div>
+                          <div className="flex justify-between text-caption">
+                            <span>Retention</span>
+                            <span className="font-semibold">{topic.retention}%</span>
+                          </div>
+                          <Progress value={topic.retention} className="mt-1.5 h-1.5" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-        </div>
+        </PremiumLock>
 
         <div className="rounded-xl border border-[var(--border)]/40 bg-[var(--card)] p-6 shadow-[var(--shadow-soft)] surface-hover-lift">
           <h3 className="text-section font-semibold">Simulyatsiya holati</h3>

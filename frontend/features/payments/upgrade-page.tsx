@@ -8,6 +8,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { getCheckoutPlans, getCheckoutQuote, redeemPromo, redirectToCheckout } from "@/api/payments";
 import { formatPlanAmount, getPlanHeadline } from "@/features/payments/payment-catalog";
 import { useAsyncResource } from "@/hooks/use-async-resource";
+import { rememberCheckoutContext } from "@/lib/payment-session";
 import { useUser } from "@/hooks/use-user";
 import { Button, buttonStyles } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
@@ -30,6 +31,8 @@ export function UpgradePage() {
   const [quote, setQuote] = useState<CheckoutQuote | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const featureKey = (searchParams.get("feature") ?? "").trim().toLowerCase() || undefined;
+  const upgradeSource = (searchParams.get("source") ?? "").trim().toLowerCase() || "upgrade_page";
 
   const plans = useMemo(
     () => [...(plansResource.data ?? [])].sort((left, right) => left.sort_order - right.sort_order),
@@ -106,9 +109,19 @@ export function UpgradePage() {
       setSuccess(`Promokod qo'llandi: ${nextQuote.promo.code}`);
 
       if (nextQuote.final_amount_cents === 0) {
+        rememberCheckoutContext({
+          feature_key: featureKey,
+          source: upgradeSource,
+          plan_id: selectedPlan.id,
+          plan_name: selectedPlan.name,
+          price_cents: nextQuote.final_amount_cents,
+          currency: nextQuote.currency,
+        });
         const redemption = await redeemPromo({
           plan_id: selectedPlan.id,
           promo_code: nextQuote.promo.code,
+          feature_key: featureKey,
+          source: upgradeSource,
         });
         await refreshUser();
         setSuccess(`${redemption.plan_name} aktivlashtirildi.`);
@@ -142,9 +155,19 @@ export function UpgradePage() {
     setStartingCheckout(true);
 
     try {
+      rememberCheckoutContext({
+        feature_key: featureKey,
+        source: upgradeSource,
+        plan_id: selectedPlan.id,
+        plan_name: selectedPlan.name,
+        price_cents: finalAmount || baseAmount,
+        currency,
+      });
       await redirectToCheckout({
         plan_id: selectedPlan.id,
         promo_code: quote?.promo?.code ?? undefined,
+        feature_key: featureKey,
+        source: upgradeSource,
       });
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Checkout yaratilmadi.");
