@@ -10,7 +10,7 @@ import random
 from uuid import UUID
 from collections import defaultdict
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,12 +26,11 @@ from models.question import Question
 from models.attempt import Attempt
 from models.test import Test
 from core.config import settings
-from core.errors import get_request_id
-from analytics.pass_probability import calculate_pass_probability
 from services.learning.adaptive_engine import (
     derive_adaptive_training_level,
     generate_adaptive_session,
 )
+from services.ml_data.session_tracking import start_attempt_session
 
 router = APIRouter(prefix="/tests", tags=["tests"])
 logger = logging.getLogger(__name__)
@@ -249,7 +248,6 @@ async def get_free_test_status(
 
 @router.post("/adaptive/start", response_model=AdaptiveStartResponse)
 async def start_adaptive_test(
-    request: Request,
     payload: AdaptiveStartRequest | None = None,
     current_user: User = Depends(require_premium_user),
     db: AsyncSession = Depends(get_db),
@@ -321,20 +319,24 @@ async def start_adaptive_test(
         time_limit_seconds=duration_minutes * 60,
     )
     db.add(attempt)
+    await db.flush()
+    await start_attempt_session(
+        db,
+        attempt,
+        metadata={
+            "source": "tests.adaptive.start",
+            "question_count": len(questions),
+            "pressure_mode": bool(request_payload.pressure_mode),
+        },
+    )
     await db.commit()
     await db.refresh(attempt)
     if _is_dev_mode():
-        probability_prediction = await calculate_pass_probability(
-            current_user.id,
-            db,
-            request_id=get_request_id(request),
-        )
         logger.info(
-            "TEST_GENERATION | selected_questions=%s | weak_topic_ids=%s | training_level=%s | pass_probability_prediction=%s",
+            "TEST_GENERATION | selected_questions=%s | weak_topic_ids=%s | training_level=%s",
             len(questions),
             [str(topic_id) for topic_id in plan.weak_topic_ids],
             training_level,
-            round(probability_prediction.pass_probability, 1),
         )
     _log_test_event(
         logging.INFO,
@@ -385,7 +387,10 @@ async def start_free_random_test(
 
     questions_result = await db.execute(
         select(Question)
-        .options(selectinload(Question.answer_options))
+        .options(
+            selectinload(Question.answer_options),
+            selectinload(Question.category_ref),
+        )
         .where(Question.answer_options.any())
     )
     all_questions = list(questions_result.scalars().all())
@@ -422,6 +427,16 @@ async def start_free_random_test(
         time_limit_seconds=duration_minutes * 60,
     )
     db.add(attempt)
+    await db.flush()
+    await start_attempt_session(
+        db,
+        attempt,
+        metadata={
+            "source": "tests.free_random.start",
+            "question_count": len(questions),
+            "pressure_mode": False,
+        },
+    )
     await db.commit()
     await db.refresh(attempt)
     _log_test_event(
@@ -465,7 +480,8 @@ async def get_test_detail(
     stmt = (
         select(Test)
         .options(
-            selectinload(Test.questions).selectinload(Question.answer_options)
+            selectinload(Test.questions).selectinload(Question.answer_options),
+            selectinload(Test.questions).selectinload(Question.category_ref),
         )
         .where(Test.id == test_id)
         .where(Test.is_active == True)

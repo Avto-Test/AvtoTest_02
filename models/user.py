@@ -33,6 +33,9 @@ if TYPE_CHECKING:
     from models.user_experiment import UserExperiment
     from models.user_notification import UserNotification
     from models.user_streak import UserStreak
+    from models.user_exam_result import UserExamResult
+    from models.user_prediction_snapshot import UserPredictionSnapshot
+    from models.user_session import UserSession
     from models.verification_token import VerificationToken
     from models.user_training_history import UserTrainingHistory
     from models.user_skill import UserSkill
@@ -84,6 +87,16 @@ class User(Base):
         Boolean,
         default=False,
         nullable=False,
+    )
+    is_premium: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        server_default="false",
+    )
+    subscription_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
     )
     
     # Relationships
@@ -207,22 +220,21 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
-    
-    @property
-    def is_premium(self) -> bool:
-        """
-        Check if user has active premium subscription.
-        SAFE for async/Pydantic use - avoids lazy loading.
-        """
-        # If the relationship is not loaded, we return False by default
-        # to prevent MissingGreenlet/lazy loading errors.
-        if "subscription" not in self.__dict__ or self.subscription is None:
-            return False
-        
-        if self.subscription.plan == "free":
-            return False
-            
-        return self.subscription.is_active
+    prediction_snapshots: Mapped[list["UserPredictionSnapshot"]] = relationship(
+        "UserPredictionSnapshot",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    exam_results: Mapped[list["UserExamResult"]] = relationship(
+        "UserExamResult",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    sessions: Mapped[list["UserSession"]] = relationship(
+        "UserSession",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email={self.email})>"

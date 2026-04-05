@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from api.attempts.schemas import RewardAchievement
 from api.auth.router import get_current_user
@@ -53,7 +54,14 @@ async def reward_answer(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answer must be saved before rewards are granted.")
 
     question = (
-        await db.execute(select(Question).where(Question.id == payload.question_id))
+        await db.execute(
+            select(Question)
+            .options(
+                selectinload(Question.answer_options),
+                selectinload(Question.category_ref),
+            )
+            .where(Question.id == payload.question_id)
+        )
     ).scalar_one_or_none()
     reward_policy = build_answer_reward_policy(
         mode=attempt.mode,

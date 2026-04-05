@@ -11,7 +11,6 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.analytics_event import AnalyticsEvent
 from models.experiment import Experiment
 from models.user_experiment import UserExperiment
 
@@ -153,18 +152,17 @@ async def record_experiment_event(
     *,
     user_id: UUID | None,
     event_name: str,
+    feature_key: str | None = None,
     metadata: Mapping[str, Any] | None = None,
-) -> AnalyticsEvent:
+) -> "AnalyticsEvent":
     """Persist an analytics event with stable experiment metadata attached."""
 
-    event = AnalyticsEvent(
+    from services.analytics_events import record_analytics_event
+
+    return await record_analytics_event(
+        db,
         user_id=user_id,
-        event_name=event_name[:100],
-        metadata_json=await build_experiment_enriched_metadata(
-            db,
-            user_id=user_id,
-            metadata=metadata,
-        ),
+        event_type=event_name,
+        feature_key=feature_key,
+        metadata=metadata,
     )
-    db.add(event)
-    return event

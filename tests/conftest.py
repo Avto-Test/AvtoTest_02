@@ -216,12 +216,16 @@ async def premium_user(db_session: AsyncSession) -> User:
     from  core.security import get_password_hash
     from models.subscription import Subscription
     from datetime import datetime, timedelta, timezone
+
+    expires_at = datetime.now(timezone.utc) + timedelta(days=30)
     
     user = User(
         email="premium@example.com",
         hashed_password=get_password_hash("password123"),
         is_verified=True,
         is_active=True,
+        is_premium=True,
+        subscription_expires_at=expires_at,
     )
     db_session.add(user)
     await db_session.flush()
@@ -230,7 +234,7 @@ async def premium_user(db_session: AsyncSession) -> User:
         user_id=user.id,
         plan="premium",
         status="active",
-        expires_at=datetime.now(timezone.utc) + timedelta(days=30)
+        expires_at=expires_at,
     )
     db_session.add(sub)
     await db_session.commit()

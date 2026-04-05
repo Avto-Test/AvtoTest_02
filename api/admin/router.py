@@ -71,6 +71,7 @@ from services.admin_analytics import get_admin_analytics_summary
 from services.admin_experiments import get_admin_experiment_summary
 from services.admin_growth import get_admin_growth_summary
 from services.learning.simulation_service import get_or_create_simulation_exam_settings
+from services.subscriptions.lifecycle import sync_user_subscription_state
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -1159,7 +1160,7 @@ async def list_users(
                 created_at=user.created_at,
                 subscription_plan=subscription.plan if subscription else None,
                 subscription_status=subscription.status if subscription else None,
-                subscription_expires_at=subscription.expires_at if subscription else None,
+                subscription_expires_at=user.subscription_expires_at,
             )
         )
     return response
@@ -1204,7 +1205,7 @@ async def update_user(
         created_at=user.created_at,
         subscription_plan=subscription.plan if subscription else None,
         subscription_status=subscription.status if subscription else None,
-        subscription_expires_at=subscription.expires_at if subscription else None,
+        subscription_expires_at=user.subscription_expires_at,
     )
 
 
@@ -1615,6 +1616,8 @@ async def update_user_subscription(
         subscription.canceled_at = None
         subscription.cancel_at_period_end = False
 
+    sync_user_subscription_state(user, subscription)
+
     if is_grant_action:
         expiry_label = (
             subscription.expires_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -1654,5 +1657,5 @@ async def update_user_subscription(
         created_at=user.created_at,
         subscription_plan=subscription.plan if subscription else None,
         subscription_status=subscription.status if subscription else None,
-        subscription_expires_at=subscription.expires_at if subscription else None,
+        subscription_expires_at=user.subscription_expires_at,
     )

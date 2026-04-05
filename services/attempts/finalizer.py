@@ -28,6 +28,8 @@ from services.gamification.rewards import award_attempt_completion_rewards
 from services.learning.intelligence_metrics import attempt_score_percent, pass_prediction_label
 from services.learning.progress_tracking import LearningAnswerRecord, apply_learning_progress_updates
 from services.learning.simulation_service import finalize_exam_simulation, resolve_simulation_limits
+from services.ml_data.answer_logging import apply_attempt_answer_metadata
+from services.ml_data.session_tracking import complete_attempt_session
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +170,12 @@ async def finalize_attempt(
     validated_response_times = [min(rt, 300000) for rt in validated_response_times]
     if len(validated_response_times) == len(answers) and len(questions) > len(answers):
         validated_response_times.extend([0] * (len(questions) - len(answers)))
+    ordered_question_ids = expected_question_ids or [question.id for question in questions]
+    response_time_by_question_id = {
+        question_id: validated_response_times[index]
+        for index, question_id in enumerate(ordered_question_ids)
+        if index < len(validated_response_times)
+    }
 
     avg_rt = sum(validated_response_times) / len(validated_response_times) if validated_response_times else 0
     variance_rt = (
@@ -277,14 +285,20 @@ async def finalize_attempt(
         if is_correct:
             correct_count += 1
 
-        db.add(
-            AttemptAnswer(
-                attempt_id=attempt.id,
-                question_id=q_id,
-                selected_option_id=opt_id,
-                is_correct=is_correct,
-            )
+        attempt_answer = AttemptAnswer(
+            attempt_id=attempt.id,
+            question_id=q_id,
+            selected_option_id=opt_id,
+            is_correct=is_correct,
         )
+        apply_attempt_answer_metadata(
+            attempt_answer,
+            attempt=attempt,
+            question=question,
+            answered_at=now,
+            response_time_ms=response_time_by_question_id.get(q_id),
+        )
+        db.add(attempt_answer)
 
         history = history_map.get(q_id)
         if history is None:
@@ -443,6 +457,18 @@ async def finalize_attempt(
         topic_ids={record.topic_id for record in learning_answer_records if record.topic_id is not None},
         pre_topic_state=pre_topic_state,
         due_review_count_before=due_review_count_before,
+    )
+    await complete_attempt_session(
+        db,
+        attempt,
+        finished_at=now,
+        metadata={
+            "score": int(attempt.score or 0),
+            "question_count": int(effective_total),
+            "passed": bool(passed),
+            "mode": attempt.mode,
+            "answered_count": int(answered_question_count),
+        },
     )
 
     try:

@@ -15,7 +15,8 @@ from sqlalchemy.orm import selectinload
 
 from api.attempts.schemas import DetailedAnswer
 from api.attempts.router import check_attempt_limit
-from core.access import require_premium_user
+from api.auth.router import get_current_user
+from core.access import require_feature_access
 from api.simulation.schemas import (
     SimulationHistoryEntry,
     SimulationHistoryResponse,
@@ -41,6 +42,7 @@ from services.learning.simulation_service import (
     get_or_create_simulation_exam_settings,
     resolve_simulation_limits,
 )
+from services.ml_data.session_tracking import start_attempt_session
 
 router = APIRouter(prefix="/simulation", tags=["simulation"])
 
@@ -85,7 +87,10 @@ async def _load_attempt_questions(db: AsyncSession, attempt: Attempt):
 
     question_result = await db.execute(
         select(Question)
-        .options(selectinload(Question.answer_options))
+        .options(
+            selectinload(Question.answer_options),
+            selectinload(Question.category_ref),
+        )
         .where(Question.id.in_(question_ids))
     )
     question_map = {question.id: question for question in question_result.scalars().all()}
@@ -133,8 +138,9 @@ def _build_saved_answers(*, attempt: Attempt, questions: list[Question]) -> list
 
 @router.post("/start", response_model=SimulationStartResponse, status_code=status.HTTP_201_CREATED)
 async def start_simulation(
-    current_user: User = Depends(require_premium_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    _feature=Depends(require_feature_access("simulation_run")),
 ) -> SimulationStartResponse:
     existing_result = await db.execute(
         select(ExamSimulationAttempt)
@@ -200,7 +206,10 @@ async def start_simulation(
 
     questions_result = await db.execute(
         select(Question)
-        .options(selectinload(Question.answer_options))
+        .options(
+            selectinload(Question.answer_options),
+            selectinload(Question.category_ref),
+        )
         .where(Question.answer_options.any())
     )
     all_questions = list(questions_result.scalars().all())
@@ -242,6 +251,16 @@ async def start_simulation(
     )
 
     db.add(attempt)
+    await db.flush()
+    await start_attempt_session(
+        db,
+        attempt,
+        metadata={
+            "source": "simulation.start",
+            "question_count": question_count,
+            "pressure_mode": bool(pressure_mode),
+        },
+    )
     db.add(simulation)
     db.add(
         AnalyticsEvent(
@@ -280,8 +299,9 @@ async def start_simulation(
 
 @router.get("/history", response_model=SimulationHistoryResponse)
 async def get_simulation_history(
-    current_user: User = Depends(require_premium_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    _feature=Depends(require_feature_access("simulation_run")),
 ) -> SimulationHistoryResponse:
     result = await db.execute(
         select(ExamSimulationAttempt, Attempt)

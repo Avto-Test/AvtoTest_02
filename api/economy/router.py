@@ -40,6 +40,7 @@ from services.gamification.economy import (
 )
 from services.gamification.rewards import ensure_wallets, serialize_active_xp_boost
 from services.learning.adaptive_engine import generate_adaptive_session
+from services.ml_data.session_tracking import start_attempt_session
 
 router = APIRouter(prefix="/economy", tags=["economy"])
 
@@ -202,6 +203,17 @@ async def unlock_focus_pack(
         time_limit_seconds=25 * 60,
     )
     db.add(attempt)
+    await db.flush()
+    await start_attempt_session(
+        db,
+        attempt,
+        metadata={
+            "source": "economy.focus_pack",
+            "question_count": len(plan.questions),
+            "topic_id": str(topic.id),
+            "topic": topic.name,
+        },
+    )
     db.add(
         AnalyticsEvent(
             user_id=current_user.id,

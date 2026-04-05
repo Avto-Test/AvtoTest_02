@@ -23,6 +23,7 @@ from models.test import Test
 from models.user import User
 from services.learning.adaptive_engine import generate_adaptive_session
 from services.learning.taxonomy import canonical_learning_key
+from services.ml_data.session_tracking import start_attempt_session
 
 router = APIRouter(prefix="/learning", tags=["learning"])
 
@@ -149,6 +150,16 @@ async def create_learning_session(
         time_limit_seconds=duration_minutes * 60,
     )
     db.add(attempt)
+    await db.flush()
+    await start_attempt_session(
+        db,
+        attempt,
+        metadata={
+            "source": "learning.session",
+            "question_count": question_count,
+            "focus_topic_ids": [str(topic_id) for topic_id in focus_topic_ids],
+        },
+    )
 
     db.add(
         AnalyticsEvent(

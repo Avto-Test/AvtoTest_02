@@ -13,6 +13,10 @@ __pycache__/
 .qoder/
 uploads/
 frontend/
+.env
+.env.*
+!.env.example
+!.env.*.example
 alembic_trace.txt
 backend_*.log
 frontend_*.log

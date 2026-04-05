@@ -26,6 +26,7 @@ from models.question import Question
 from models.question_category import QuestionCategory
 from models.subscription import Subscription
 from models.user import User
+from services.monetization_analytics import get_admin_monetization_summary
 
 ACTIVE_PAID_SUBSCRIPTION_STATUSES = ("active", "trialing")
 
@@ -252,6 +253,8 @@ async def get_admin_analytics_summary(db: AsyncSession) -> AdminAnalyticsSummary
         )
     ).all()
 
+    monetization = await get_admin_monetization_summary(db)
+
     return AdminAnalyticsSummary(
         total_users=int(row["total_users"] or 0),
         active_users=int(row["active_users"] or 0),
@@ -290,4 +293,5 @@ async def get_admin_analytics_summary(db: AsyncSession) -> AdminAnalyticsSummary
             )
             for category, accuracy, attempts, question_count in category_rows
         ],
+        monetization=monetization,
     )

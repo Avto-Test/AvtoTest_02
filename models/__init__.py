@@ -44,6 +44,7 @@ from models.pending_registration import PendingRegistration
 from models.leaderboard_snapshot import LeaderboardSnapshot
 from models.lesson import Lesson
 from models.feedback import Feedback
+from models.feature import Feature
 from models.driving_school import DrivingSchool
 from models.driving_school_course import DrivingSchoolCourse
 from models.driving_school_media import DrivingSchoolMedia
@@ -61,9 +62,13 @@ from models.exam_simulation_attempt import ExamSimulationAttempt
 from models.simulation_exam_setting import SimulationExamSetting
 from models.user_achievement import UserAchievement
 from models.user_streak import UserStreak
+from models.user_exam_result import UserExamResult
 from models.xp_boost import XPBoost
 from models.xp_event import XPEvent
 from models.xp_wallet import XPWallet
+from models.user_prediction_snapshot import UserPredictionSnapshot
+from models.user_session import UserSession
+from models.ml_dataset import MLDataset
 
 __all__ = [
     "User",
@@ -103,6 +108,7 @@ __all__ = [
     "LeaderboardSnapshot",
     "Lesson",
     "Feedback",
+    "Feature",
     "UserAdaptiveProfile",
     "UserExperiment",
     "UserNotification",

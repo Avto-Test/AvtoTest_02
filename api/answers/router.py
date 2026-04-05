@@ -19,6 +19,8 @@ from models.question import Question
 from models.user import User
 from services.learning.coach_feedback import build_question_feedback, sanitize_option_text
 from services.learning.simulation_service import resolve_simulation_limits, terminate_simulation_attempt
+from services.ml_data.answer_logging import apply_attempt_answer_metadata
+from services.ml_data.session_tracking import complete_attempt_session, touch_attempt_session
 
 router = APIRouter(prefix="/answers", tags=["answers"])
 
@@ -47,7 +49,10 @@ async def _get_attempt_question(
     question = (
         await db.execute(
             select(Question)
-            .options(selectinload(Question.answer_options))
+            .options(
+                selectinload(Question.answer_options),
+                selectinload(Question.category_ref),
+            )
             .where(Question.id == question_id)
         )
     ).scalar_one_or_none()
@@ -144,6 +149,7 @@ async def submit_locked_answer(
         existing_selected_option = option_map.get(existing_answer.selected_option_id)
         if existing_selected_option is None:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Stored answer option is missing.")
+        await touch_attempt_session(db, attempt.id, activity_time=datetime.now(timezone.utc))
         return _build_locked_response(
             answer=existing_answer,
             question=question,
@@ -160,7 +166,16 @@ async def submit_locked_answer(
         selected_option_id=selected_option.id,
         is_correct=bool(selected_option.is_correct),
     )
+    answered_at = datetime.now(timezone.utc)
+    apply_attempt_answer_metadata(
+        answer,
+        attempt=attempt,
+        question=question,
+        answered_at=answered_at,
+        response_time_ms=payload.response_time_ms,
+    )
     db.add(answer)
+    await touch_attempt_session(db, attempt.id, activity_time=answered_at)
     if simulation is not None and not bool(selected_option.is_correct):
         simulation.mistake_count = int(simulation.mistake_count or 0) + 1
         mistake_limit, _ = resolve_simulation_limits(simulation)
@@ -172,6 +187,24 @@ async def submit_locked_answer(
                 reason="mistake_limit_reached",
                 disqualified=False,
             )
+    if attempt.finished_at is not None:
+        await complete_attempt_session(
+            db,
+            attempt,
+            finished_at=attempt.finished_at,
+            metadata={
+                "score": int(attempt.score or 0),
+                "question_count": int(attempt.question_count or len(attempt.question_ids or [])),
+                "passed": bool(simulation.passed) if simulation is not None else False,
+                "mode": attempt.mode,
+            },
+        )
+        try:
+            from ml.model_registry import capture_inference_snapshot
+
+            await capture_inference_snapshot(db, attempt.id, str(current_user.id))
+        except Exception:
+            pass
     await db.commit()
     await db.refresh(answer)
     if simulation is not None:

@@ -6,6 +6,7 @@ Main FastAPI Application
 from contextlib import asynccontextmanager
 from pathlib import Path
 import logging
+from venv import logger
 
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,6 +26,7 @@ from api.auth.router import router as auth_router
 from api.economy.router import router as economy_router
 from api.experiments.router import router as experiments_router
 from api.feedback.router import router as feedback_router
+from api.features.router import router as features_router
 from api.gamification.router import router as gamification_router
 from api.notifications.router import router as notifications_router
 from api.payments.router import router as payments_router
@@ -61,7 +63,7 @@ UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 async def lifespan(app: FastAPI):
     setup_logging()
     init_monitoring()
-    print("Starting AUTOTEST application...")
+    logger.info("Starting AUTOTEST application...")
     
     try:
         async with engine.connect() as conn:
@@ -70,46 +72,47 @@ async def lifespan(app: FastAPI):
                 conn,
                 require_migration_head=settings.normalized_environment != "testing",
             )
-            print("[OK] Database connection successful")
+            logger.info("Database connection successful")
     except Exception as e:
-        print(f"[ERROR] Database connection failed: {e}")
+        logger.error(f"Database connection failed: {e}")
         raise
 
     async def _startup_retrain_check():
         try:
             from ml.retrain_scheduler import check_retrain_needed
             result = await check_retrain_needed()
-            print(f"[ML) Retrain scheduler: {result}")
+            logger.info(f"Retrain scheduler: {result}")
         except Exception as exc:
-            print(f"[ML] Retrain scheduler startup check failed: {exc}")
+            logger.warning(f"Retrain scheduler startup check failed: {exc}")
 
     asyncio.ensure_future(_startup_retrain_check())
     
     try:
         await refresh_leaderboards_once()
-        print("[OK] Leaderboard snapshots refreshed")
+        logger.info("Leaderboard snapshots refreshed")
     except Exception as exc:
-        print(f"[WARN] Leaderboard refresh failed: {exc}")
+        logger.warning(f"Leaderboard refresh failed: {exc}")
 
     leaderboard_task = asyncio.create_task(leaderboard_refresh_loop())
     app.state.leaderboard_task = leaderboard_task
     
     yield
     
-    print("Shutting down AUTOTEST application...")
+    logger.info("Shutting down AUTOTEST application...")
     task = getattr(app.state, "leaderboard_task", None)
     if task:
         task.cancel()
     await engine.dispose()
-    print("[OK] Database engine disposed")
+    logger.info("Database engine disposed")
 
 app = FastAPI(
     title=settings.APP_NAME,
     description="Online Testing and Diagnostic Platform",
     version="0.1.0",
     lifespan=lifespan,
-    docs_url="/docs" if settings.DEBUG else None,
-    redoc_url=None,
+    docs_url="/docs" if settings.ENABLE_API_DOCS else None,
+    redoc_url="/redoc" if settings.ENABLE_API_DOCS else None,
+    openapi_url="/openapi.json",
 )
 
 # Exception Handlers (Added early so they can be caught by outer middlewares)
@@ -163,7 +166,7 @@ routers = [
     auth_router, admin_router, ai_coach_router, answers_router, attempts_router,
     legacy_analytics_router, user_analytics_router, admin_analytics_router,
     experiments_router,
-    economy_router, gamification_router, users_router, tests_router,
+    economy_router, features_router, gamification_router, users_router, tests_router,
     violations_router, lessons_router, learning_router, leaderboard_router,
     simulation_router, feedback_router, notifications_router, school_router,
     settings_router,
@@ -217,4 +220,4 @@ if settings.DEBUG:
             "body_decoded": body.decode(),
         }
 
-print(f"!!! main.py logic initialized with origins: {allow_origins} !!!")
+logger.debug(f"CORS origins configured: {allow_origins}")

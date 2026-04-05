@@ -46,6 +46,7 @@ from models.driving_school import DrivingSchool
 from models.user import User
 from models.verification_token import VerificationToken
 from services.gamification.rewards import award_daily_login
+from services.subscriptions.lifecycle import enforce_subscription_status
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -428,6 +429,7 @@ async def get_current_user(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Foydalanuvchi faol emas",
             )
+        await enforce_subscription_status(user=user, db=db)
         return user
     except HTTPException:
         raise
@@ -462,6 +464,7 @@ async def get_my_profile_via_auth(
         "is_admin": current_user.is_admin,
         "roles": roles,
         "is_premium": current_user.is_premium,
+        "subscription_expires_at": current_user.subscription_expires_at,
         "has_instructor_profile": instructor_result.scalar_one_or_none() is not None,
         "has_school_profile": school_result.scalar_one_or_none() is not None,
         "created_at": current_user.created_at,

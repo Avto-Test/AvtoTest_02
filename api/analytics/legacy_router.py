@@ -1,73 +1,69 @@
-"""
-Legacy analytics endpoints for frontend clients expecting /analytics/* paths.
-"""
+"""Analytics endpoints for legacy and monetization tracking clients."""
 
-from datetime import datetime, timezone, timedelta
+from __future__ import annotations
+
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
 from fastapi.security import OAuth2PasswordBearer
-from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.admin.router import get_current_admin
-from api.analytics.schemas import DashboardResponse, UserAnalyticsSummary
+from api.analytics.schemas import (
+    DashboardResponse,
+    FeatureFunnelResponse,
+    FeaturePerformanceItem,
+    MonetizationInsightItem,
+    UserAnalyticsSummary,
+)
 from api.analytics.user_router import get_dashboard, get_user_summary
 from api.auth.router import get_current_user, resolve_user_from_access_token
+from core.config import settings
 from database.session import get_db
-from models.analytics_event import AnalyticsEvent
 from models.user import User
-from services.experiments import record_experiment_event
+from services.analytics_events import (
+    MONETIZATION_EVENT_TYPES,
+    persist_analytics_event,
+    record_analytics_event,
+)
+from services.monetization_insights import generate_monetization_insights
+from services.monetization_analytics import get_feature_funnel, get_feature_performance
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
-
-EVENT_NAMES = (
-    "premium_block_view",
-    "upgrade_click",
-    "premium_click",
-    "upgrade_page_view",
-    "upgrade_success",
-    "payment_success",
-    "upgrade_failed",
-)
-
-SUPPORTED_PERIODS = {"today", "yesterday", "7d", "30d"}
+MAX_BATCH_SIZE = 50
 
 
 class TrackEventRequest(BaseModel):
-    event: str = Field(min_length=1, max_length=100)
+    event: str | None = Field(default=None, max_length=100)
+    event_type: str | None = Field(default=None, max_length=100)
+    feature_key: str | None = Field(default=None, max_length=100)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+    @model_validator(mode="after")
+    def validate_payload(self) -> "TrackEventRequest":
+        normalized_event_type = (self.event_type or "").strip().lower()
+        normalized_event = (self.event or "").strip().lower()
 
-def _start_of_utc_day(value: datetime) -> datetime:
-    return datetime(value.year, value.month, value.day, tzinfo=timezone.utc)
+        if normalized_event_type:
+            if normalized_event_type not in MONETIZATION_EVENT_TYPES:
+                raise ValueError(
+                    "Invalid event_type. Supported values: "
+                    + ", ".join(sorted(MONETIZATION_EVENT_TYPES))
+                )
+            self.event_type = normalized_event_type
+        elif normalized_event:
+            self.event = normalized_event
+        else:
+            raise ValueError("Either event_type or event is required.")
 
+        if self.feature_key is not None:
+            normalized_feature_key = self.feature_key.strip().lower()
+            self.feature_key = normalized_feature_key or None
 
-def _end_of_utc_day(value: datetime) -> datetime:
-    return datetime(value.year, value.month, value.day, 23, 59, 59, 999999, tzinfo=timezone.utc)
-
-
-def _resolve_period_range(period: str) -> tuple[datetime, datetime]:
-    now = datetime.now(timezone.utc)
-    if period == "today":
-        return _start_of_utc_day(now), _end_of_utc_day(now)
-    if period == "yesterday":
-        yesterday = now - timedelta(days=1)
-        return _start_of_utc_day(yesterday), _end_of_utc_day(yesterday)
-    if period == "7d":
-        start = _start_of_utc_day(now - timedelta(days=6))
-        return start, _end_of_utc_day(now)
-    start = _start_of_utc_day(now - timedelta(days=29))
-    return start, _end_of_utc_day(now)
-
-
-def _safe_rate(numerator: int, denominator: int) -> float:
-    if denominator <= 0:
-        return 0.0
-    return round(numerator / denominator, 6)
+        return self
 
 
 async def _resolve_optional_user_id(
@@ -99,71 +95,107 @@ async def get_dashboard_legacy(
     return await get_dashboard(current_user=current_user, db=db)
 
 
-@router.post("/track", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/track", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def track_event(
     payload: TrackEventRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     token: str | None = Depends(oauth2_scheme_optional),
-) -> None:
-    event_name = payload.event.strip()
-    if not event_name:
-        return None
-
+) -> Response:
     user_id = await _resolve_optional_user_id(token, db)
-    await record_experiment_event(
-        db,
+    normalized_event_type = payload.event_type or payload.event
+    if not normalized_event_type:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    if settings.ENVIRONMENT == "testing":
+        await record_analytics_event(
+            db,
+            user_id=user_id,
+            event_type=normalized_event_type,
+            feature_key=payload.feature_key,
+            metadata=payload.metadata or {},
+        )
+        await db.commit()
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    background_tasks.add_task(
+        persist_analytics_event,
         user_id=user_id,
-        event_name=event_name,
+        event_type=normalized_event_type,
+        feature_key=payload.feature_key,
         metadata=payload.metadata or {},
     )
-    await db.commit()
-    return None
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/funnel")
-async def get_funnel(
-    period: str | None = None,
+@router.post("/track/batch", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+async def track_event_batch(
+    payloads: list[TrackEventRequest],
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(get_current_admin),
-) -> dict[str, Any]:
-    if period is not None and period not in SUPPORTED_PERIODS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid period. Supported values: today, yesterday, 7d, 30d.",
+    token: str | None = Depends(oauth2_scheme_optional),
+) -> Response:
+    if not payloads:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    user_id = await _resolve_optional_user_id(token, db)
+
+    if settings.ENVIRONMENT == "testing":
+        for payload in payloads:
+            normalized_event_type = payload.event_type or payload.event
+            if not normalized_event_type:
+                continue
+            await record_analytics_event(
+                db,
+                user_id=user_id,
+                event_type=normalized_event_type,
+                feature_key=payload.feature_key,
+                metadata=payload.metadata or {},
+            )
+        await db.commit()
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    for payload in payloads[:MAX_BATCH_SIZE]:
+        normalized_event_type = payload.event_type or payload.event
+        if not normalized_event_type:
+            continue
+        background_tasks.add_task(
+            persist_analytics_event,
+            user_id=user_id,
+            event_type=normalized_event_type,
+            feature_key=payload.feature_key,
+            metadata=payload.metadata or {},
         )
 
-    start_at: datetime | None = None
-    end_at: datetime | None = None
-    if period:
-        start_at, end_at = _resolve_period_range(period)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-    stmt = (
-        select(AnalyticsEvent.event_name, func.count(AnalyticsEvent.id))
-        .where(AnalyticsEvent.event_name.in_(EVENT_NAMES))
-        .group_by(AnalyticsEvent.event_name)
-    )
-    if start_at:
-        stmt = stmt.where(AnalyticsEvent.created_at >= start_at)
-    if end_at:
-        stmt = stmt.where(AnalyticsEvent.created_at <= end_at)
 
-    result = await db.execute(stmt)
-    counts = {name: 0 for name in EVENT_NAMES}
-    for event_name, count in result.all():
-        if event_name in counts:
-            counts[event_name] = int(count or 0)
+@router.get("/funnel", response_model=FeatureFunnelResponse)
+async def get_funnel(
+    feature: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+) -> FeatureFunnelResponse:
+    normalized_feature = (feature or "").strip().lower()
+    if not normalized_feature:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="feature query parameter is required.",
+        )
+    return await get_feature_funnel(db, feature_key=normalized_feature)
 
-    premium_views = counts["premium_block_view"]
-    upgrade_clicks = counts["upgrade_click"] + counts["premium_click"]
-    upgrade_page_views = counts["upgrade_page_view"]
-    upgrade_success = counts["upgrade_success"] + counts["payment_success"]
 
-    return {
-        "premium_block_view": premium_views,
-        "upgrade_click": upgrade_clicks,
-        "upgrade_page_view": upgrade_page_views,
-        "upgrade_success": upgrade_success,
-        "ctr": _safe_rate(upgrade_clicks, premium_views),
-        "conversion_rate": _safe_rate(upgrade_success, premium_views),
-        "pass_probability": 0,
-    }
+@router.get("/features", response_model=list[FeaturePerformanceItem])
+async def get_feature_analytics(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+) -> list[FeaturePerformanceItem]:
+    return await get_feature_performance(db)
+
+
+@router.get("/insights", response_model=list[MonetizationInsightItem])
+async def get_monetization_insights(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin),
+) -> list[MonetizationInsightItem]:
+    return await generate_monetization_insights(db)

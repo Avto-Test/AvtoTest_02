@@ -65,6 +65,7 @@ async def get_my_profile(
         "is_admin": current_user.is_admin,
         "roles": roles,
         "is_premium": current_user.is_premium,
+        "subscription_expires_at": current_user.subscription_expires_at,
         "has_instructor_profile": instructor_result.scalar_one_or_none() is not None,
         "has_school_profile": school_result.scalar_one_or_none() is not None,
         "created_at": current_user.created_at,
