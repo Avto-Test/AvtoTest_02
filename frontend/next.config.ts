@@ -2,9 +2,11 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  productionBrowserSourceMaps: false,
   images: {
     unoptimized: true,
   },
+
   async redirects() {
     return [
       {
