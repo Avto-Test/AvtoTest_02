@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -10,6 +10,7 @@ from uuid import UUID
 
 from api.ai_coach.schemas import CoachExplanationResponse
 from api.auth.router import get_current_user
+from core.access import require_feature_access
 from database.session import get_db
 from models.attempt import Attempt
 from models.attempt_answer import AttemptAnswer
@@ -26,6 +27,7 @@ async def get_explanation(
     question_id: UUID = Query(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    _feature=Depends(require_feature_access("ai_prediction")),
 ) -> CoachExplanationResponse:
     attempt = (
         await db.execute(select(Attempt).where(Attempt.id == attempt_id))
@@ -38,7 +40,10 @@ async def get_explanation(
     question = (
         await db.execute(
             select(Question)
-            .options(selectinload(Question.answer_options))
+            .options(
+                selectinload(Question.answer_options),
+                selectinload(Question.category_ref),
+            )
             .where(Question.id == question_id)
         )
     ).scalar_one_or_none()

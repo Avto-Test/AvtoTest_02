@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     from models.test import Test
     from models.user import User
     from models.inference_snapshot import InferenceSnapshot
+    from models.user_prediction_snapshot import UserPredictionSnapshot
+    from models.user_session import UserSession
 
 
 class Attempt(Base):
@@ -141,6 +143,16 @@ class Attempt(Base):
         "ExamSimulationAttempt",
         back_populates="attempt",
         uselist=False,
+        cascade="all, delete-orphan",
+    )
+    prediction_snapshots: Mapped[list["UserPredictionSnapshot"]] = relationship(
+        "UserPredictionSnapshot",
+        back_populates="attempt",
+        cascade="all, delete-orphan",
+    )
+    user_sessions: Mapped[list["UserSession"]] = relationship(
+        "UserSession",
+        back_populates="attempt",
         cascade="all, delete-orphan",
     )
     

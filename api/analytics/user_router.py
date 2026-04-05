@@ -35,8 +35,9 @@ from api.analytics.schemas import (
     TrendPoint,
     ActivityPoint,
 )
+from analytics.pass_probability import calculate_pass_probability_from_signals
 from api.auth.router import get_current_user
-from core.access import require_premium_user
+from core.access import require_feature_access, resolve_feature_access
 from database.session import get_db
 from models.attempt import Attempt
 from models.lesson import Lesson
@@ -44,6 +45,7 @@ from models.question_category import QuestionCategory
 from models.review_queue import ReviewQueue
 from models.test import Test
 from models.user import User
+from models.user_prediction_snapshot import UserPredictionSnapshot
 from models.user_topic_stats import UserTopicStats
 from services.gamification.economy import get_active_simulation_fast_unlock, get_simulation_fast_unlock_expiry
 from services.gamification.reward_policy import build_reward_policy_preview
@@ -64,11 +66,13 @@ from services.learning.taxonomy import (
     normalize_learning_key,
     question_learning_key,
 )
-from analytics.pass_probability import calculate_pass_probability_from_signals
-
-# Phase 12B Imports
-from ml.features import get_user_feature_vector
-from ml.model_registry import get_inference_engine
+from services.ml_data.readiness import compute_user_readiness_features, readiness_score_from_snapshot
+from services.ml_data.snapshot_service import (
+    backfill_missing_attempt_snapshots,
+    create_prediction_snapshot,
+)
+from services.ml_data.session_tracking import record_user_session_event
+from services.feature_flags import get_feature_by_key
 
 router = APIRouter(prefix="/analytics/me", tags=["analytics"])
 logger = logging.getLogger(__name__)
@@ -316,8 +320,9 @@ async def get_user_test_analytics(
 
 @router.get("/review-queue", response_model=ReviewQueueResponse)
 async def get_review_queue(
-    current_user: User = Depends(require_premium_user),
-    db: AsyncSession = Depends(get_db)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    _feature=Depends(require_feature_access("analytics_view")),
 ):
     """Get topics due for spaced repetition review."""
     
@@ -1019,6 +1024,36 @@ async def get_dashboard(
         now_utc=now_utc,
     )
 
+    analytics_view_access = True
+    try:
+        analytics_view_feature = await get_feature_by_key(db, "analytics_view")
+        if analytics_view_feature is not None:
+            analytics_view_access = (
+                await resolve_feature_access(current_user, analytics_view_feature, db=db, now_utc=now_utc)
+            ).allowed
+    except SQLAlchemyError as exc:
+        logger.warning(
+            "Dashboard feature-access fallback for user_id=%s due to entitlement schema mismatch: %s",
+            current_user.id,
+            exc,
+        )
+        analytics_view_access = True
+    if not analytics_view_access:
+        topic_breakdown = sorted(topic_breakdown, key=lambda item: item.accuracy)[:4]
+        progress_trend = progress_trend[-4:]
+        test_activity = test_activity[-4:]
+        skill_vector = []
+        knowledge_mastery = []
+        retention_vector = []
+        lesson_recommendations = []
+        question_bank_mastery = TestBankMastery(
+            total_questions=question_bank_mastery.total_questions,
+            seen_questions=question_bank_mastery.seen_questions,
+            correct_questions=0,
+            mastered_questions=0,
+            needs_review_questions=0,
+        )
+
     return DashboardResponse(
         overview=AnalyticsOverview(
             total_attempts=total_attempts,
@@ -1081,8 +1116,9 @@ async def get_dashboard(
 
 @router.get("/intelligence-history", response_model=list[IntelligenceSnapshot])
 async def get_intelligence_history(
-    current_user: User = Depends(require_premium_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    _feature=Depends(require_feature_access("ai_prediction")),
 ) -> list[IntelligenceSnapshot]:
     """
     Get historical intelligence snapshots for each completed attempt.

@@ -23,11 +23,15 @@ from models import (  # noqa: F401 - Import to register model metadata
     AnalyticsEvent,
     Attempt,
     AttemptAnswer,
+    MLDataset,
     Payment,
     Question,
     Subscription,
     Test,
     User,
+    UserExamResult,
+    UserPredictionSnapshot,
+    UserSession,
     VerificationToken,
 )
 

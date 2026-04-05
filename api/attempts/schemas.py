@@ -23,6 +23,7 @@ class SubmitAnswer(BaseModel):
     attempt_id: UUID
     question_id: UUID
     selected_option_id: UUID
+    response_time_ms: int | None = Field(default=None, ge=0)
 
 
 class FinishAttempt(BaseModel):

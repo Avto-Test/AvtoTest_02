@@ -61,6 +61,12 @@ from services.learning.question_update_logging import (
 )
 from services.learning.simulation_service import finalize_exam_simulation, resolve_simulation_limits
 from services.learning.progress_tracking import LearningAnswerRecord, apply_learning_progress_updates
+from services.ml_data.answer_logging import apply_attempt_answer_metadata
+from services.ml_data.session_tracking import (
+    complete_attempt_session,
+    start_attempt_session,
+    touch_attempt_session,
+)
 
 router = APIRouter(prefix="/attempts", tags=["attempts"])
 logger = get_logger(__name__)
@@ -359,6 +365,16 @@ async def start_attempt(
     )
     
     db.add(attempt)
+    await db.flush()
+    await start_attempt_session(
+        db,
+        attempt,
+        metadata={
+            "source": "attempts.start",
+            "question_count": selected_count,
+            "pressure_mode": bool(data.pressure_mode),
+        },
+    )
     if settings.DRY_RUN:
         await db.flush()
     else:
@@ -481,10 +497,22 @@ async def submit_answer(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Question not found in this attempt",
             )
-        result = await db.execute(select(Question).where(Question.id == data.question_id))
+        result = await db.execute(
+            select(Question)
+            .options(
+                selectinload(Question.answer_options),
+                selectinload(Question.category_ref),
+            )
+            .where(Question.id == data.question_id)
+        )
     else:
         result = await db.execute(
-            select(Question).where(
+            select(Question)
+            .options(
+                selectinload(Question.answer_options),
+                selectinload(Question.category_ref),
+            )
+            .where(
                 Question.id == data.question_id,
                 Question.test_id == attempt.test_id,
             )
@@ -525,6 +553,14 @@ async def submit_answer(
         # Update existing answer
         existing_answer.selected_option_id = data.selected_option_id
         existing_answer.is_correct = option.is_correct
+        apply_attempt_answer_metadata(
+            existing_answer,
+            attempt=attempt,
+            question=question,
+            answered_at=datetime.now(timezone.utc),
+            response_time_ms=data.response_time_ms,
+        )
+        await touch_attempt_session(db, attempt.id, activity_time=existing_answer.answered_at)
         await db.commit()
         await db.refresh(existing_answer)
         
@@ -542,8 +578,16 @@ async def submit_answer(
         selected_option_id=data.selected_option_id,
         is_correct=option.is_correct,
     )
+    apply_attempt_answer_metadata(
+        attempt_answer,
+        attempt=attempt,
+        question=question,
+        answered_at=datetime.now(timezone.utc),
+        response_time_ms=data.response_time_ms,
+    )
     
     db.add(attempt_answer)
+    await touch_attempt_session(db, attempt.id, activity_time=attempt_answer.answered_at)
     await db.commit()
     await db.refresh(attempt_answer)
     
@@ -573,7 +617,12 @@ async def submit_guest_answer(
         raise HTTPException(status_code=400, detail="Attempt already finished")
 
     result = await db.execute(
-        select(Question).where(
+        select(Question)
+        .options(
+            selectinload(Question.answer_options),
+            selectinload(Question.category_ref),
+        )
+        .where(
             Question.id == data.question_id,
             Question.test_id == attempt.test_id,
         )
@@ -699,7 +748,12 @@ async def finish_attempt(
         total_questions = attempt.question_count
     else:
         result = await db.execute(
-            select(Question).where(Question.test_id == attempt.test_id)
+            select(Question)
+            .options(
+                selectinload(Question.answer_options),
+                selectinload(Question.category_ref),
+            )
+            .where(Question.test_id == attempt.test_id)
         )
         questions = result.scalars().all()
         total_questions = len(questions)
@@ -713,7 +767,14 @@ async def finish_attempt(
     passed = mistake_count < mistake_limit
     question_ids = [answer.question_id for answer in attempt.attempt_answers]
     question_rows = (
-        await db.execute(select(Question).where(Question.id.in_(question_ids)))
+        await db.execute(
+            select(Question)
+            .options(
+                selectinload(Question.answer_options),
+                selectinload(Question.category_ref),
+            )
+            .where(Question.id.in_(question_ids))
+        )
     ).scalars().all() if question_ids else []
     question_map = {question.id: question for question in question_rows}
     answer_records = [
@@ -786,6 +847,17 @@ async def finish_attempt(
         topic_ids=topic_ids,
         pre_topic_state=pre_topic_state,
         due_review_count_before=due_review_count_before,
+    )
+    await complete_attempt_session(
+        db,
+        attempt,
+        finished_at=completed_at,
+        metadata={
+            "score": int(attempt.score or 0),
+            "question_count": int(total_questions),
+            "passed": bool(passed),
+            "mode": attempt.mode,
+        },
     )
 
     # Phase 2.5: Inference snapshot capture (non-blocking)
@@ -943,13 +1015,19 @@ async def bulk_submit_attempt(
     if expected_question_ids:
         stmt = (
             select(Question)
-            .options(selectinload(Question.answer_options))
+            .options(
+                selectinload(Question.answer_options),
+                selectinload(Question.category_ref),
+            )
             .where(Question.id.in_(expected_question_ids))
         )
     else:
         stmt = (
             select(Question)
-            .options(selectinload(Question.answer_options))
+            .options(
+                selectinload(Question.answer_options),
+                selectinload(Question.category_ref),
+            )
             .where(Question.test_id == attempt.test_id)
         )
 
@@ -996,6 +1074,12 @@ async def bulk_submit_attempt(
     if len(validated_response_times) == len(data.answers) and len(questions) > len(data.answers):
         # Keep compatibility for older clients that only send answered-question timings.
         validated_response_times.extend([0] * (len(questions) - len(data.answers)))
+    ordered_question_ids = expected_question_ids or [question.id for question in questions]
+    response_time_by_question_id = {
+        question_id: validated_response_times[index]
+        for index, question_id in enumerate(ordered_question_ids)
+        if index < len(validated_response_times)
+    }
     
     # Compute Cognitive Metrics
     avg_rt = sum(validated_response_times) / len(validated_response_times) if validated_response_times else 0
@@ -1138,6 +1222,13 @@ async def bulk_submit_attempt(
             question_id=q_id,
             selected_option_id=opt_id,
             is_correct=is_correct
+        )
+        apply_attempt_answer_metadata(
+            ans_record,
+            attempt=attempt,
+            question=question,
+            answered_at=now,
+            response_time_ms=response_time_by_question_id.get(q_id),
         )
         db.add(ans_record)
 
@@ -1354,6 +1445,18 @@ async def bulk_submit_attempt(
         topic_ids={record.topic_id for record in learning_answer_records if record.topic_id is not None},
         pre_topic_state=pre_topic_state,
         due_review_count_before=due_review_count_before,
+    )
+    await complete_attempt_session(
+        db,
+        attempt,
+        finished_at=now,
+        metadata={
+            "score": int(attempt.score or 0),
+            "question_count": int(effective_total),
+            "passed": bool(passed),
+            "mode": attempt.mode,
+            "answered_count": int(answered_question_count),
+        },
     )
 
     # Phase 20: Snapshot-Based ML Inference Storage

@@ -512,6 +512,7 @@ async def _emit_upgrade_success_event(
         user_id=user_id,
         source=event.event_type,
     )
+    feature_key = str(event.metadata.get("feature_key") or event.metadata.get("feature") or "").strip().lower() or None
     metadata = {
         "provider": payment.provider,
         "payment_id": payment.provider_payment_id,
@@ -522,17 +523,21 @@ async def _emit_upgrade_success_event(
         "currency": payment.currency,
         "plan": event.metadata.get("plan"),
         "promo_code": event.metadata.get("promo_code"),
+        "feature_key": feature_key,
+        "source": event.metadata.get("source"),
     }
     await record_experiment_event(
         db,
         user_id=user_id,
         event_name="upgrade_success",
+        feature_key=feature_key,
         metadata=metadata,
     )
     await record_experiment_event(
         db,
         user_id=user_id,
         event_name="payment_success",
+        feature_key=feature_key,
         metadata=metadata,
     )
 
@@ -609,6 +614,12 @@ async def _create_session(
         "plan": plan_code,
         "duration_days": str(duration_days),
     }
+    feature_key = (request_payload.feature_key or "").strip().lower()
+    if feature_key:
+        metadata["feature_key"] = feature_key
+    source = (request_payload.source or "").strip().lower()
+    if source:
+        metadata["source"] = source
     if selected_plan is not None:
         metadata["plan_id"] = str(selected_plan.id)
     if promo is not None:
@@ -678,9 +689,11 @@ async def _create_session(
                         "discount_type": promo.discount_type,
                         "discount_value": promo.discount_value,
                     }
-                    if promo is not None
+                        if promo is not None
                     else None
                 ),
+                "feature_key": feature_key or None,
+                "source": source or None,
             },
         )
     )
@@ -694,6 +707,8 @@ async def _create_session(
         metadata={
             "plan_id": str(selected_plan.id) if selected_plan is not None else None,
             "promo_code": promo.code if promo is not None else None,
+            "feature_key": feature_key or None,
+            "source": source or None,
         },
     )
 
@@ -861,6 +876,16 @@ async def get_transaction_status(
                 )
             
             plan_info = local_payment.raw_payload.get("plan", {}) if isinstance(local_payment.raw_payload, dict) else {}
+            feature_key = (
+                str(local_payment.raw_payload.get("feature_key") or "").strip().lower()
+                if isinstance(local_payment.raw_payload, dict)
+                else ""
+            ) or None
+            source = (
+                str(local_payment.raw_payload.get("source") or "").strip().lower()
+                if isinstance(local_payment.raw_payload, dict)
+                else ""
+            ) or "get_transaction_status"
             plan_code = plan_info.get("code", "premium")
             try:
                 duration_days = int(plan_info.get("duration_days", 30))
@@ -888,6 +913,7 @@ async def get_transaction_status(
                     db,
                     user_id=local_payment.user_id,
                     event_name="upgrade_success",
+                    feature_key=feature_key,
                     metadata={
                         "provider": local_payment.provider,
                         "payment_id": local_payment.provider_payment_id,
@@ -897,13 +923,15 @@ async def get_transaction_status(
                         "amount_cents": local_payment.amount_cents,
                         "currency": local_payment.currency,
                         "plan": plan_code,
-                        "source": "get_transaction_status",
+                        "source": source,
+                        "feature_key": feature_key,
                     },
                 )
                 await record_experiment_event(
                     db,
                     user_id=local_payment.user_id,
                     event_name="payment_success",
+                    feature_key=feature_key,
                     metadata={
                         "provider": local_payment.provider,
                         "payment_id": local_payment.provider_payment_id,
@@ -913,7 +941,8 @@ async def get_transaction_status(
                         "amount_cents": local_payment.amount_cents,
                         "currency": local_payment.currency,
                         "plan": plan_code,
-                        "source": "get_transaction_status",
+                        "source": source,
+                        "feature_key": feature_key,
                     },
                 )
             
@@ -1055,6 +1084,8 @@ async def redeem_full_discount_promo(
             "promo_code": promo.code,
             "base_amount_cents": base_amount_cents,
             "final_amount_cents": final_amount_cents,
+            "feature_key": (payload.feature_key or "").strip().lower() or None,
+            "upgrade_source": (payload.source or "").strip().lower() or None,
         },
     )
     db.add(payment)
@@ -1080,6 +1111,7 @@ async def redeem_full_discount_promo(
         db,
         user_id=current_user.id,
         event_name="upgrade_success",
+        feature_key=(payload.feature_key or "").strip().lower() or None,
         metadata={
             "provider": "promo",
             "payment_id": payment.provider_payment_id,
@@ -1091,13 +1123,15 @@ async def redeem_full_discount_promo(
             "plan": selected_plan.code,
             "plan_id": str(selected_plan.id),
             "promo_code": promo.code,
-            "source": "promo_redeem",
+            "source": (payload.source or "").strip().lower() or "promo_redeem",
+            "feature_key": (payload.feature_key or "").strip().lower() or None,
         },
     )
     await record_experiment_event(
         db,
         user_id=current_user.id,
         event_name="payment_success",
+        feature_key=(payload.feature_key or "").strip().lower() or None,
         metadata={
             "provider": "promo",
             "payment_id": payment.provider_payment_id,
@@ -1109,7 +1143,8 @@ async def redeem_full_discount_promo(
             "plan": selected_plan.code,
             "plan_id": str(selected_plan.id),
             "promo_code": promo.code,
-            "source": "promo_redeem",
+            "source": (payload.source or "").strip().lower() or "promo_redeem",
+            "feature_key": (payload.feature_key or "").strip().lower() or None,
         },
     )
 

@@ -43,7 +43,6 @@ def _resolve_settings_files() -> tuple[str, ...]:
     return (
         str(BASE_DIR / ENVIRONMENT_FILE_MAP["development"]),
         str(BASE_DIR / ".env"),
-        str(BASE_DIR / ".env.local"),
     )
 
 
@@ -54,6 +53,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "AUTOTEST"
     ENVIRONMENT: str = "development"
     DEBUG: bool = False # Default to False for production safety
+    ENABLE_API_DOCS: bool = True
     ENABLE_EMAIL_VERIFICATION: bool = True
     REQUIRE_EMAIL_VERIFICATION: bool = False
     
@@ -95,6 +95,9 @@ class Settings(BaseSettings):
     DRY_RUN: bool = False
     USE_CANONICAL_ATTEMPT_FINALIZER: bool = False
     SHADOW_ATTEMPT_FLOW_COMPARE: bool = False
+    ML_ADMIN_PASSWORD: str = ""
+    ML_ADMIN_SESSION_HOURS: int = 12
+    ML_ARTIFACTS_DIR: str = str(BASE_DIR / "artifacts" / "ml")
 
     # Monitoring
     SENTRY_DSN: str = ""

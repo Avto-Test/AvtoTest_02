@@ -19,6 +19,7 @@ class UserMeResponse(BaseModel):
     is_admin: bool
     roles: list[str] = []
     is_premium: bool
+    subscription_expires_at: datetime | None = None
     has_instructor_profile: bool = False
     has_school_profile: bool = False
     created_at: datetime
