@@ -11,6 +11,22 @@ __pycache__/
 .pytest_cache/
 .qoder/
 uploads/
+# Archives and temporary files
+*.tar.gz
+*.zip
+*.rar
+*.7z
+*.iso
+*.taz
+
+# Local scripts and executables
+*.ps1
+*.psm1
+*.exe
+*.msi
+*.bat
+scripts/*.ps1
+
 # Frontend build artifacts
 node_modules/
 **/node_modules/
@@ -20,6 +36,16 @@ frontend/build/
 .next/
 out/
 build/
+tsconfig.tsbuildinfo
+
+# Documentation and meta
+PROJECT_*.md
+*_REPORT.md
+*_CHECKLIST.md
+*_GUIDE.md
+LICENSE
+ROADMAP.md
+QUICK_START.md
 
 .env
 .env.*
@@ -38,4 +64,4 @@ error_new.log
 backend_*.log
 frontend_*.log
 test_*.txt
-debug_*.log
+debug_*.log
