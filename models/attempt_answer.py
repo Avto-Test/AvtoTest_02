@@ -4,9 +4,10 @@ SQLAlchemy model for attempt answers
 """
 
 import uuid
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, ForeignKey, Index, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -51,6 +52,30 @@ class AttemptAnswer(Base):
         Boolean,
         default=False,
         nullable=False,
+    )
+    response_time_ms: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    question_position: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    topic_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("question_categories.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    topic_label: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+    answered_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
     )
     
     # Relationships

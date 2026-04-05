@@ -27,6 +27,7 @@ import {
   SecondaryButton,
   StatCard,
 } from "@/components/ui/product-primitives";
+import { DailyGoalCard } from "@/components/dashboard/DailyGoalCard";
 import { getUserIntelligenceBundle, type UserIntelligenceBundle } from "@/lib/intelligence";
 import {
   buildSeededSimulationHistory,
@@ -35,6 +36,7 @@ import {
   readSimulationHistory,
   type SimulationHistoryEntry,
 } from "@/lib/simulationHistory";
+import { computePracticeStreak } from "@/lib/gamification";
 import { useAuth } from "@/store/useAuth";
 
 function isToday(value: string | null): boolean {
@@ -67,44 +69,6 @@ function isWithinLastDays(value: string | null, days: number): boolean {
 
   const diffMs = Date.now() - date.getTime();
   return diffMs >= 0 && diffMs <= days * 24 * 60 * 60 * 1000;
-}
-
-function computePracticeStreak(lastAttempts: UserIntelligenceBundle["summary"]["last_attempts"]): number {
-  const dates = [...new Set(
-    lastAttempts
-      .map((attempt) => attempt.finished_at)
-      .filter((value): value is string => Boolean(value))
-      .map((value) => new Date(value).toISOString().slice(0, 10)),
-  )].sort((left, right) => right.localeCompare(left));
-
-  if (dates.length === 0) {
-    return 0;
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const firstDate = new Date(dates[0]);
-  firstDate.setHours(0, 0, 0, 0);
-  const dayDiff = Math.floor((today.getTime() - firstDate.getTime()) / 86_400_000);
-
-  if (dayDiff > 1) {
-    return 0;
-  }
-
-  let streak = 1;
-  for (let index = 1; index < dates.length; index += 1) {
-    const previous = new Date(dates[index - 1]);
-    const current = new Date(dates[index]);
-    previous.setHours(0, 0, 0, 0);
-    current.setHours(0, 0, 0, 0);
-    const diff = Math.floor((previous.getTime() - current.getTime()) / 86_400_000);
-    if (diff !== 1) {
-      break;
-    }
-    streak += 1;
-  }
-
-  return streak;
 }
 
 function DashboardSkeleton() {
@@ -292,6 +256,7 @@ export default function StudentDashboardSurface() {
       xpLevelProgress,
       xpToNextLevel,
       xpToday,
+      testActivity: bundle.analytics.testActivity,
     };
   }, [bundle, simulationHistory, t]);
 
@@ -349,6 +314,7 @@ export default function StudentDashboardSurface() {
     xpLevelProgress,
     xpToNextLevel,
     xpToday,
+    testActivity,
   } = dashboardData;
 
   return (
@@ -599,6 +565,19 @@ export default function StudentDashboardSurface() {
           </div>
         </ProductCard>
 
+        <ProductCard className="xl:col-span-5">
+          <div className="product-card-shell">
+            <SectionHeader
+              eyebrow="Daily goal"
+              title="Bugungi mashq maqsadi"
+              description="Har kuni kichik maqsadni bajarib, ritmni yo'qotmang."
+            />
+            <div className="mt-4">
+              <DailyGoalCard testActivity={testActivity} />
+            </div>
+          </div>
+        </ProductCard>
+
         <ProductCard className="xl:col-span-12">
           <div className="grid gap-[var(--space-stack)] p-[var(--space-card)] lg:grid-cols-[0.92fr_1.08fr] lg:items-start">
             <div>
@@ -607,6 +586,11 @@ export default function StudentDashboardSurface() {
               <p className="mt-2 text-sm leading-6 text-slate-500">
                 Har bir blok mavzudagi aniqlik va qamrovni birga ko&apos;rsatadi. Zaif bo&apos;limlar keyingi mashq uchun signal beradi.
               </p>
+              <div className="mt-4">
+                <SecondaryButton asChild>
+                  <Link href="/learning-path">To&apos;liq o&apos;qish yo&apos;lini ochish</Link>
+                </SecondaryButton>
+              </div>
             </div>
             <div className="grid gap-3">
               {learningPath.length > 0 ? learningPath.map((item) => (

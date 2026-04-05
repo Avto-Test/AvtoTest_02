@@ -2,14 +2,22 @@ import { useAuth } from "@/store/useAuth";
 import { AUTH_SESSION_MARKER } from "@/lib/auth-session";
 
 let refreshInFlight: Promise<boolean> | null = null;
+let refreshAttempts = 0;
 
 export async function refreshAuthSession(): Promise<boolean> {
   if (typeof window === "undefined") {
     return false;
   }
 
+  if (refreshAttempts >= 1) {
+    useAuth.getState().signOut();
+    refreshAttempts = 0;
+    return false;
+  }
+
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
+      refreshAttempts++;
       try {
         const response = await fetch("/api/auth/refresh", {
           method: "POST",
@@ -23,6 +31,7 @@ export async function refreshAuthSession(): Promise<boolean> {
         }
 
         useAuth.getState().setToken(AUTH_SESSION_MARKER);
+        refreshAttempts = 0; // Reset on success
         return true;
       } catch {
         useAuth.getState().signOut();

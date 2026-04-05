@@ -8,12 +8,20 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import Float, cast, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from models.question import Question
 from models.question_difficulty import QuestionDifficulty
 from models.review_queue import ReviewQueue
 from models.user_topic_stats import UserTopicStats
+from services.learning.question_update_logging import (
+    log_dry_run_write,
+    log_question_update_comparison,
+    question_update_comparison_enabled,
+    snapshot_question_mapping,
+    snapshot_question_row,
+)
 
 REVIEW_INTERVALS = (1, 3, 7, 14, 30)
 
@@ -50,6 +58,10 @@ async def apply_learning_progress_updates(
 
     question_ids = [record.question_id for record in answer_records]
     topic_ids = sorted({record.topic_id for record in answer_records if record.topic_id is not None})
+    question_rows = (
+        await db.execute(select(Question).where(Question.id.in_(question_ids)))
+    ).scalars().all()
+    question_map = {row.id: row for row in question_rows}
 
     topic_stats_rows = (
         await db.execute(
@@ -80,7 +92,60 @@ async def apply_learning_progress_updates(
 
     for record in answer_records:
         occurred_at = _ensure_utc(record.occurred_at)
+        question = question_map.get(record.question_id)
+        before_snapshot = snapshot_question_row(question) if question is not None and question_update_comparison_enabled() else None
 
+        if question is not None:
+            correct_inc = 1 if record.is_correct else 0
+            updated_question = (
+                await db.execute(
+                    update(Question)
+                    .where(Question.id == record.question_id)
+                    .values(
+                        total_attempts=Question.total_attempts + 1,
+                        total_correct=Question.total_correct + correct_inc,
+                        dynamic_difficulty_score=(
+                            cast(
+                                (Question.total_attempts + 1) - (Question.total_correct + correct_inc),
+                                Float,
+                            )
+                            / (Question.total_attempts + 1)
+                        ),
+                    )
+                    .returning(
+                        Question.total_attempts,
+                        Question.total_correct,
+                        Question.dynamic_difficulty_score,
+                    )
+                )
+            ).one()
+            after_snapshot = snapshot_question_mapping(
+                total_attempts=updated_question.total_attempts,
+                total_correct=updated_question.total_correct,
+                dynamic_difficulty_score=updated_question.dynamic_difficulty_score,
+            )
+            question.total_attempts = int(after_snapshot["total_attempts"])
+            question.total_correct = int(after_snapshot["total_correct"])
+            question.dynamic_difficulty_score = float(after_snapshot["dynamic_difficulty_score"])
+            if before_snapshot is not None:
+                log_question_update_comparison(
+                    source="progress_tracking",
+                    question_id=record.question_id,
+                    before=before_snapshot,
+                    after=after_snapshot,
+                )
+            log_dry_run_write(
+                operation="question_aggregate_update",
+                entity="question",
+                entity_id=record.question_id,
+                payload={
+                    "source": "progress_tracking",
+                    "before": before_snapshot,
+                    "after": after_snapshot,
+                },
+            )
+
+        # Legacy compatibility mirror. Active adaptive logic reads Question.dynamic_difficulty_score.
         difficulty = difficulty_map.get(record.question_id)
         if difficulty is None:
             difficulty = QuestionDifficulty(

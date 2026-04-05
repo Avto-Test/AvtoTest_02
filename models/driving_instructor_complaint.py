@@ -43,7 +43,7 @@ class DrivingInstructorComplaint(Base):
     phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
     reason: Mapped[str] = mapped_column(String(120), nullable=False)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(String(30), nullable=False, default="new", index=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="NEW", index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -62,4 +62,3 @@ class DrivingInstructorComplaint(Base):
 
     def __repr__(self) -> str:
         return f"<DrivingInstructorComplaint(id={self.id}, instructor_id={self.instructor_id}, status={self.status})>"
-

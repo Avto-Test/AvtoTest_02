@@ -22,7 +22,17 @@ async def test_register_success(client: AsyncClient, db_session: AsyncSession):
     assert "message" in data
 
     from core.config import settings
-    if settings.ENABLE_EMAIL_VERIFICATION:
+    if settings.is_development:
+        result = await db_session.execute(select(User).where(User.email == "newuser@example.com"))
+        user = result.scalar_one_or_none()
+        pending_result = await db_session.execute(
+            select(PendingRegistration).where(PendingRegistration.email == "newuser@example.com")
+        )
+        assert user is not None
+        assert user.is_verified is True
+        assert user.is_active is True
+        assert pending_result.scalar_one_or_none() is None
+    elif settings.ENABLE_EMAIL_VERIFICATION:
         pending_result = await db_session.execute(
             select(PendingRegistration).where(PendingRegistration.email == "newuser@example.com")
         )
@@ -35,6 +45,66 @@ async def test_register_success(client: AsyncClient, db_session: AsyncSession):
         user = result.scalar_one_or_none()
         assert user is not None
         assert user.is_verified is True
+
+
+@pytest.mark.asyncio
+async def test_register_allows_immediate_login_in_development(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    from core.config import settings
+
+    if not settings.is_development:
+        pytest.skip("Development-only registration bypass test")
+
+    email = "dev-login@example.com"
+    register_response = await client.post("/auth/register", json={
+        "email": email,
+        "password": "password123",
+        "full_name": "Dev Login",
+    })
+    assert register_response.status_code == 201
+
+    user_result = await db_session.execute(select(User).where(User.email == email))
+    user = user_result.scalar_one()
+    assert user.is_verified is True
+    assert user.is_active is True
+
+    login_response = await client.post("/auth/login", json={
+        "email": email,
+        "password": "password123",
+    })
+    assert login_response.status_code == 200
+    assert "access_token" in login_response.json()
+
+
+@pytest.mark.asyncio
+async def test_register_in_development_skips_verification_email(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from core.config import settings
+
+    if not settings.is_development:
+        pytest.skip("Development-only email bypass test")
+
+    email_send_called = False
+
+    def _fake_send_verification_email(*args, **kwargs):
+        nonlocal email_send_called
+        email_send_called = True
+        return True
+
+    monkeypatch.setattr("api.auth.router.send_verification_email", _fake_send_verification_email)
+
+    response = await client.post("/auth/register", json={
+        "email": "dev-no-email@example.com",
+        "password": "password123",
+        "full_name": "No Email Dev User",
+    })
+
+    assert response.status_code == 201
+    assert email_send_called is False
 
 
 @pytest.mark.asyncio
@@ -81,7 +151,7 @@ async def test_verify_email_flow(client: AsyncClient, db_session: AsyncSession):
         "password": "password123"
     })
 
-    if not settings.ENABLE_EMAIL_VERIFICATION:
+    if settings.is_development or not settings.ENABLE_EMAIL_VERIFICATION:
         result = await db_session.execute(select(User).where(User.email == email))
         user = result.scalar_one()
         # Verification bypassed: user is already verified, no token created
@@ -115,7 +185,7 @@ async def test_verify_email_flow(client: AsyncClient, db_session: AsyncSession):
 @pytest.mark.asyncio
 async def test_verify_invalid_code(client: AsyncClient, normal_user: User):
     from core.config import settings
-    if not settings.ENABLE_EMAIL_VERIFICATION:
+    if settings.is_development or not settings.ENABLE_EMAIL_VERIFICATION:
         # When verification is disabled, the verify endpoint still exists but
         # submitting an invalid code should return 400. We call it directly.
         response = await client.post("/auth/verify", json={

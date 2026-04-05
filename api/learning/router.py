@@ -11,21 +11,37 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.attempts.router import check_attempt_limit, _enforce_free_question_count_limit
 from api.auth.router import get_current_user
 from api.learning.schemas import CreateLearningSessionRequest, LearningSessionResponse
 from database.session import get_db
 from models.analytics_event import AnalyticsEvent
 from models.attempt import Attempt
 from models.question import Question
+from models.question_category import QuestionCategory
 from models.test import Test
 from models.user import User
 from services.learning.adaptive_engine import generate_adaptive_session
+from services.learning.taxonomy import canonical_learning_key
+from services.ml_data.session_tracking import start_attempt_session
 
 router = APIRouter(prefix="/learning", tags=["learning"])
 
 LEARNING_SESSION_TEST_TITLE = "Learning Review Session"
 LEARNING_SESSION_DESCRIPTION = "Backend-generated adaptive review session."
-DEFAULT_DURATION_MINUTES = 25
+DEFAULT_DURATION_MINUTES = 15
+LEARNING_QUESTION_COUNT_TO_MINUTES = {
+    20: 25,
+    30: 38,
+    40: 50,
+}
+
+
+def _resolve_learning_duration_minutes(question_count: int) -> int:
+    return LEARNING_QUESTION_COUNT_TO_MINUTES.get(
+        question_count,
+        max(15, int(round(question_count * 1.25))),
+    )
 
 
 def _sanitize_option_text(text_value: str) -> str:
@@ -41,6 +57,7 @@ def _public_question_payload(question: Question) -> dict:
     return {
         "id": question.id,
         "text": question.text,
+        "difficulty_percent": max(0, min(100, int(question.difficulty_percent or 0))),
         "image_url": question.image_url,
         "video_url": question.video_url,
         "media_type": question.media_type,
@@ -70,33 +87,79 @@ async def _get_or_create_learning_test(db: AsyncSession) -> Test:
     return test
 
 
+async def _resolve_focus_topic_ids(
+    db: AsyncSession,
+    topic_preferences: list[str],
+) -> list:
+    normalized_preferences = {
+        canonical_learning_key(topic)
+        for topic in topic_preferences
+        if topic and topic.strip()
+    }
+    if not normalized_preferences:
+        return []
+
+    categories = (
+        await db.execute(select(QuestionCategory).where(QuestionCategory.is_active == True))
+    ).scalars().all()
+    return [
+        category.id
+        for category in categories
+        if canonical_learning_key(category.name) in normalized_preferences
+    ]
+
+
 @router.post("/session", response_model=LearningSessionResponse, status_code=status.HTTP_201_CREATED)
 async def create_learning_session(
     payload: CreateLearningSessionRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> LearningSessionResponse:
+    await check_attempt_limit(current_user, db)
+    _enforce_free_question_count_limit(current_user, payload.question_count)
+
+    focus_topic_ids = await _resolve_focus_topic_ids(db, payload.topic_preferences)
     plan = await generate_adaptive_session(
         current_user.id,
         db=db,
         question_count=payload.question_count,
+        focus_topic_ids=focus_topic_ids or None,
     )
     if not plan.questions:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No learning questions available.",
         )
+    if len(plan.questions) < payload.question_count:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Mashq uchun yetarli savollar topilmadi.",
+        )
 
+    question_count = len(plan.questions)
+    duration_minutes = _resolve_learning_duration_minutes(question_count)
     learning_test = await _get_or_create_learning_test(db)
+    if learning_test.duration != duration_minutes:
+        learning_test.duration = duration_minutes
     attempt = Attempt(
         user_id=current_user.id,
         test_id=learning_test.id,
         mode="learning",
         question_ids=[str(question.id) for question in plan.questions],
-        question_count=len(plan.questions),
-        time_limit_seconds=DEFAULT_DURATION_MINUTES * 60,
+        question_count=question_count,
+        time_limit_seconds=duration_minutes * 60,
     )
     db.add(attempt)
+    await db.flush()
+    await start_attempt_session(
+        db,
+        attempt,
+        metadata={
+            "source": "learning.session",
+            "question_count": question_count,
+            "focus_topic_ids": [str(topic_id) for topic_id in focus_topic_ids],
+        },
+    )
 
     db.add(
         AnalyticsEvent(
@@ -104,8 +167,10 @@ async def create_learning_session(
             event_name="learning_session_started",
             metadata_json={
                 "session_id": str(attempt.id),
-                "question_count": len(plan.questions),
+                "question_count": question_count,
+                "duration_minutes": duration_minutes,
                 "weak_topic_ids": [str(topic_id) for topic_id in plan.weak_topic_ids],
+                "focus_topic_ids": [str(topic_id) for topic_id in focus_topic_ids],
             },
         )
     )
@@ -126,5 +191,7 @@ async def create_learning_session(
 
     return LearningSessionResponse(
         session_id=attempt.id,
+        question_count=question_count,
+        duration_minutes=duration_minutes,
         questions=[_public_question_payload(question) for question in plan.questions],
     )

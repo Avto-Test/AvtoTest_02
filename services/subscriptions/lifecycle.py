@@ -7,8 +7,28 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 import uuid
 
+from models.subscription import Subscription
 from models.user import User
 from services.payments.types import utc_now
+
+
+def sync_user_subscription_state(
+    user: User,
+    subscription: Subscription | None = None,
+) -> bool:
+    """Mirror subscription state onto fast-access user columns."""
+    active_subscription = subscription if subscription is not None else user.subscription
+    target_is_premium = bool(active_subscription and active_subscription.is_active)
+    target_expires_at = active_subscription.expires_at if active_subscription is not None else None
+
+    changed = False
+    if user.is_premium != target_is_premium:
+        user.is_premium = target_is_premium
+        changed = True
+    if user.subscription_expires_at != target_expires_at:
+        user.subscription_expires_at = target_expires_at
+        changed = True
+    return changed
 
 
 async def enforce_subscription_status(
@@ -22,27 +42,34 @@ async def enforce_subscription_status(
         True if a downgrade mutation was persisted.
     """
     subscription = user.subscription
+    changed = False
+
     if subscription is None:
-        return False
-
-    if subscription.plan == "free":
-        return False
-
-    if subscription.expires_at is None:
-        return False
+        changed = sync_user_subscription_state(user)
+        if changed:
+            await db.commit()
+            await db.refresh(user)
+        return changed
 
     now = utc_now()
-    if subscription.expires_at > now:
-        return False
+    if (
+        subscription.plan != "free"
+        and subscription.expires_at is not None
+        and subscription.expires_at <= now
+    ):
+        subscription.plan = "free"
+        subscription.status = "expired"
+        subscription.canceled_at = None
+        subscription.cancel_at_period_end = False
+        changed = True
 
-    subscription.plan = "free"
-    subscription.status = "expired"
-    subscription.canceled_at = None
-    subscription.cancel_at_period_end = False
+    if sync_user_subscription_state(user, subscription):
+        changed = True
 
-    await db.commit()
-    await db.refresh(user, attribute_names=["subscription"])
-    return True
+    if changed:
+        await db.commit()
+        await db.refresh(user, attribute_names=["subscription"])
+    return changed
 
 
 async def _activate_subscription(
@@ -59,7 +86,6 @@ async def _activate_subscription(
     """
     from datetime import timedelta
     from sqlalchemy import select
-    from models.subscription import Subscription
     from core.logging import get_logger
     
     logger = get_logger(__name__)
@@ -70,6 +96,10 @@ async def _activate_subscription(
     
     # Use nested transaction logic
     async with db.begin_nested() if db.in_transaction() else db.begin():
+        user = await db.get(User, user_id)
+        if user is None:
+            raise ValueError(f"User not found for subscription activation: {user_id}")
+
         result = await db.execute(select(Subscription).where(Subscription.user_id == user_id))
         subscription = result.scalar_one_or_none()
 
@@ -97,6 +127,7 @@ async def _activate_subscription(
             )
             db.add(subscription)
             await db.flush()
+            sync_user_subscription_state(user, subscription)
             return subscription
 
         if subscription.expires_at is not None and subscription.expires_at > now:
@@ -113,6 +144,7 @@ async def _activate_subscription(
         subscription.canceled_at = None
         subscription.cancel_at_period_end = False
         subscription.updated_at = now
+        sync_user_subscription_state(user, subscription)
         await db.flush()
 
     # Need to commit if we controlled the transaction, but SQLAlchemy AsyncSession 

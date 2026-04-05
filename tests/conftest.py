@@ -4,6 +4,7 @@ Configuration for async tests, database, and authentication
 """
 
 import os
+from pathlib import Path
 from typing import AsyncGenerator
 
 import asyncpg
@@ -13,7 +14,57 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import NullPool
 
+from database.safety import (
+    derive_test_database_url,
+    is_safe_test_database_name,
+    validate_database_target,
+)
+
 os.environ.setdefault("ENVIRONMENT", "testing")
+os.environ.setdefault("APP_ENV_FILE", ".env.test")
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _load_local_database_url() -> str:
+    for candidate in (PROJECT_ROOT / ".env.local", PROJECT_ROOT / ".env"):
+        if not candidate.exists():
+            continue
+
+        for raw_line in candidate.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            if key.strip() == "DATABASE_URL" and value.strip():
+                return value.strip()
+    return ""
+
+
+def _prepare_test_database_environment() -> str:
+    explicit_test_url = os.getenv("TEST_DATABASE_URL", "").strip()
+    if explicit_test_url:
+        validate_database_target(explicit_test_url, "testing")
+        test_database_url = explicit_test_url
+    else:
+        base_database_url = os.getenv("DATABASE_URL", "").strip()
+        if not base_database_url:
+            base_database_url = _load_local_database_url()
+        if not base_database_url:
+            base_database_url = "postgresql+asyncpg://postgres:postgres@localhost:5432/autotest_test"
+        test_database_url = derive_test_database_url(base_database_url)
+        validate_database_target(test_database_url, "testing")
+
+    parsed = make_url(test_database_url)
+    os.environ["DATABASE_URL"] = test_database_url
+    os.environ["TEST_DATABASE_URL"] = test_database_url
+    if parsed.database:
+        os.environ["EXPECTED_DATABASE_NAME"] = parsed.database
+
+    return test_database_url
+
+
+TEST_DATABASE_URL = _prepare_test_database_environment()
 
 from api.auth.router import create_access_token
 from core.config import settings
@@ -22,48 +73,13 @@ from database.session import get_db
 from main import app
 from models.user import User
 
-SAFE_TEST_DB_MARKERS = ("test", "pytest", "ci")
-
-
-def _is_safe_test_database_name(database_name: str | None) -> bool:
-    if not database_name:
-        return False
-    normalized = database_name.strip().lower()
-    return any(marker in normalized for marker in SAFE_TEST_DB_MARKERS)
-
-
-def _resolve_test_database_url() -> str:
-    explicit_url = os.getenv("TEST_DATABASE_URL", "").strip()
-    if explicit_url:
-        parsed_explicit = make_url(explicit_url)
-        if not _is_safe_test_database_name(parsed_explicit.database):
-            raise RuntimeError(
-                "TEST_DATABASE_URL must point to a dedicated test database."
-            )
-        return parsed_explicit.render_as_string(hide_password=False)
-
-    parsed_default = make_url(settings.DATABASE_URL)
-    default_database = parsed_default.database
-    if _is_safe_test_database_name(default_database):
-        return parsed_default.render_as_string(hide_password=False)
-
-    if not default_database:
-        raise RuntimeError("DATABASE_URL is missing a database name; cannot derive a safe test DB.")
-
-    derived_database = f"{default_database}_test"
-    return parsed_default.set(database=derived_database).render_as_string(hide_password=False)
-
-
-TEST_DATABASE_URL = _resolve_test_database_url()
-
-
 async def _ensure_test_database_exists() -> None:
     parsed_test_url = make_url(TEST_DATABASE_URL)
     if not parsed_test_url.drivername.startswith("postgresql"):
         return
 
     test_database = parsed_test_url.database
-    if not _is_safe_test_database_name(test_database):
+    if not is_safe_test_database_name(test_database):
         raise RuntimeError("Refusing to run tests against a non-test database.")
 
     admin_url = parsed_test_url.set(
@@ -114,9 +130,23 @@ def reset_rate_limiter():
         pass  # Best-effort cleanup
     yield
 
+
+@pytest.fixture(autouse=True)
+def seed_test_payment_provider_token(monkeypatch):
+    """Keep checkout tests off the TSPay availability guard in isolated test runs."""
+    from api.payments.router import PAYMENT_PROVIDER
+
+    monkeypatch.setattr(PAYMENT_PROVIDER, "access_token", "test-access-token", raising=False)
+    yield
+
 @pytest.fixture(scope="session", autouse=True)
 async def init_db() -> AsyncGenerator:
     """Initialize database metadata."""
+    validate_database_target(
+        TEST_DATABASE_URL,
+        settings.ENVIRONMENT,
+        settings.EXPECTED_DATABASE_NAME or None,
+    )
     await _ensure_test_database_exists()
     await _reset_test_schema()
     yield
@@ -186,12 +216,16 @@ async def premium_user(db_session: AsyncSession) -> User:
     from  core.security import get_password_hash
     from models.subscription import Subscription
     from datetime import datetime, timedelta, timezone
+
+    expires_at = datetime.now(timezone.utc) + timedelta(days=30)
     
     user = User(
         email="premium@example.com",
         hashed_password=get_password_hash("password123"),
         is_verified=True,
         is_active=True,
+        is_premium=True,
+        subscription_expires_at=expires_at,
     )
     db_session.add(user)
     await db_session.flush()
@@ -200,7 +234,7 @@ async def premium_user(db_session: AsyncSession) -> User:
         user_id=user.id,
         plan="premium",
         status="active",
-        expires_at=datetime.now(timezone.utc) + timedelta(days=30)
+        expires_at=expires_at,
     )
     db_session.add(sub)
     await db_session.commit()

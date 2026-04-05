@@ -10,12 +10,40 @@ from pathlib import Path
 from typing import Any, Union
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from database.safety import normalize_environment_name, validate_database_target
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
+ENVIRONMENT_FILE_MAP = {
+    "development": ".env.dev",
+    "testing": ".env.test",
+    "production": ".env.prod",
+}
+
+
+def _resolve_settings_files() -> tuple[str, ...]:
+    """Load the environment-specific dotenv file with safe precedence."""
+
+    explicit_env_file = os.getenv("APP_ENV_FILE", "").strip()
+    if explicit_env_file:
+        env_file = Path(explicit_env_file)
+        if not env_file.is_absolute():
+            env_file = BASE_DIR / env_file
+        return (str(env_file),)
+
+    environment = normalize_environment_name(os.getenv("ENVIRONMENT"))
+    if environment == "testing":
+        return (str(BASE_DIR / ENVIRONMENT_FILE_MAP["testing"]),)
+    if environment == "production":
+        return (str(BASE_DIR / ENVIRONMENT_FILE_MAP["production"]),)
+
+    return (
+        str(BASE_DIR / ENVIRONMENT_FILE_MAP["development"]),
+        str(BASE_DIR / ".env"),
+    )
 
 
 class Settings(BaseSettings):
@@ -25,7 +53,9 @@ class Settings(BaseSettings):
     APP_NAME: str = "AUTOTEST"
     ENVIRONMENT: str = "development"
     DEBUG: bool = False # Default to False for production safety
+    ENABLE_API_DOCS: bool = True
     ENABLE_EMAIL_VERIFICATION: bool = True
+    REQUIRE_EMAIL_VERIFICATION: bool = False
     
     # Email (Required in Production)
     EMAIL_HOST: str = "smtp.gmail.com"
@@ -53,9 +83,21 @@ class Settings(BaseSettings):
     
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/autotest"
+    EXPECTED_DATABASE_NAME: str = ""
+    BACKUP_DIR: str = str(BASE_DIR / "backups")
+    BACKUP_RETENTION_COUNT: int = 14
+    PG_DUMP_PATH: str = "pg_dump"
     
     # Logging
     LOG_LEVEL: str = "INFO"
+    LOG_QUESTION_UPDATE_COMPARISON: bool = False
+    USE_PROGRESS_TRACKING_ONLY: bool = False
+    DRY_RUN: bool = False
+    USE_CANONICAL_ATTEMPT_FINALIZER: bool = False
+    SHADOW_ATTEMPT_FLOW_COMPARE: bool = False
+    ML_ADMIN_PASSWORD: str = ""
+    ML_ADMIN_SESSION_HOURS: int = 12
+    ML_ARTIFACTS_DIR: str = str(BASE_DIR / "artifacts" / "ml")
 
     # Monitoring
     SENTRY_DSN: str = ""
@@ -65,6 +107,14 @@ class Settings(BaseSettings):
     
     # CORS
     ALLOWED_ORIGINS: Union[list[str], str] = DEFAULT_ALLOWED_ORIGINS
+
+    @property
+    def normalized_environment(self) -> str:
+        return normalize_environment_name(self.ENVIRONMENT)
+
+    @property
+    def is_development(self) -> bool:
+        return self.normalized_environment == "development"
 
     @field_validator("DEBUG", mode="before")
     @classmethod
@@ -83,25 +133,29 @@ class Settings(BaseSettings):
 
     @field_validator("ALLOWED_ORIGINS", mode="before")
     @classmethod
-    def assemble_cors_origins(cls, v: str | list[str]) -> list[str]:
-        origins: list[str]
-        if isinstance(v, str) and not v.startswith("["):
-            origins = [i.strip() for i in v.split(",") if i.strip()]
-        elif isinstance(v, (list, str)):
-            if isinstance(v, str):
-                origins = [v]
+    def assemble_cors_origins(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            if v.startswith("[") and v.endswith("]"):
+                try:
+                    import json
+                    origins = json.loads(v)
+                except Exception:
+                    origins = [i.strip() for i in v[1:-1].split(",") if i.strip()]
             else:
-                origins = [str(item).strip() for item in v if str(item).strip()]
+                origins = [i.strip() for i in v.split(",") if i.strip()]
+        elif isinstance(v, list):
+            origins = [str(item).strip() for item in v if str(item).strip()]
         else:
-            raise ValueError(v)
+            origins = []
 
-        merged = []
         seen = set()
+        merged = []
         for origin in [*origins, *DEFAULT_ALLOWED_ORIGINS]:
-            if origin not in seen:
+            if origin and origin not in seen:
                 merged.append(origin)
                 seen.add(origin)
         return merged
+
     
     # Payments (Legacy Stripe)
     # Retained for backward compatibility.
@@ -149,6 +203,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> "Settings":
+        self.ENVIRONMENT = self.normalized_environment
+        self.EXPECTED_DATABASE_NAME = self.EXPECTED_DATABASE_NAME.strip()
+
         # Email aliases fallback (no-op if EMAIL_* already explicitly configured).
         if not self.EMAIL_HOST and self.SMTP_HOST:
             self.EMAIL_HOST = self.SMTP_HOST
@@ -192,6 +249,21 @@ class Settings(BaseSettings):
         if not self.SENTRY_ENVIRONMENT:
             self.SENTRY_ENVIRONMENT = self.ENVIRONMENT
 
+        if self.ENVIRONMENT == "production" and not self.EXPECTED_DATABASE_NAME:
+            raise ValueError("EXPECTED_DATABASE_NAME must be set when ENVIRONMENT=production")
+
+        try:
+            validate_database_target(
+                self.DATABASE_URL,
+                self.ENVIRONMENT,
+                self.EXPECTED_DATABASE_NAME or None,
+            )
+        except RuntimeError as exc:
+            raise ValueError(str(exc)) from exc
+
+        if self.ENVIRONMENT == "production" and not self.ENABLE_EMAIL_VERIFICATION:
+            raise ValueError("ENABLE_EMAIL_VERIFICATION cannot be disabled when ENVIRONMENT=production")
+
         if not self.DEBUG:
             if not self.SECRET_KEY:
                 raise ValueError("SECRET_KEY must be set when DEBUG is False (Production Mode)")
@@ -220,7 +292,7 @@ class Settings(BaseSettings):
         return self
 
     model_config = SettingsConfigDict(
-        env_file=(str(BASE_DIR / ".env"), str(BASE_DIR / ".env.local")),
+        env_file=_resolve_settings_files(),
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore"

@@ -5,7 +5,6 @@ API endpoints for test attempts
 
 from datetime import datetime, timezone, timedelta as dt_timedelta
 import json
-from math import exp, sqrt
 import logging
 import random
 import uuid
@@ -25,26 +24,49 @@ from api.attempts.schemas import (
     GuestFinishAttempt,
     GuestStartAttempt,
     GuestSubmitAnswer,
+    RewardAchievement,
+    RewardSummary,
     ScoreResponse,
     StartAttempt,
     StartAttemptResponse,
     SubmitAnswer,
 )
 from api.auth.router import get_current_user
+from core.config import settings
 from database.session import get_db
 from models.answer_option import AnswerOption
 from models.analytics_event import AnalyticsEvent
 from models.attempt import Attempt
 from models.attempt_answer import AttemptAnswer
+from models.exam_simulation_attempt import ExamSimulationAttempt
 from models.guest_attempt import GuestAttempt
 from models.guest_attempt_answer import GuestAttemptAnswer
 from models.question import Question
+from models.review_queue import ReviewQueue
 from models.test import Test
 from models.user import User
 from models.user_adaptive_profile import UserAdaptiveProfile
 from models.user_question_history import UserQuestionHistory
+from models.user_topic_stats import UserTopicStats
 from core.logging import get_logger
+from services.gamification.rewards import award_attempt_completion_rewards
+from services.attempts.finalizer import finalize_attempt
+from services.learning.intelligence_metrics import attempt_score_percent, pass_prediction_label
+from services.learning.coach_feedback import build_question_feedback
+from services.learning.question_update_logging import (
+    log_dry_run_write,
+    log_question_update_comparison,
+    question_update_comparison_enabled,
+    snapshot_question_row,
+)
+from services.learning.simulation_service import finalize_exam_simulation, resolve_simulation_limits
 from services.learning.progress_tracking import LearningAnswerRecord, apply_learning_progress_updates
+from services.ml_data.answer_logging import apply_attempt_answer_metadata
+from services.ml_data.session_tracking import (
+    complete_attempt_session,
+    start_attempt_session,
+    touch_attempt_session,
+)
 
 router = APIRouter(prefix="/attempts", tags=["attempts"])
 logger = get_logger(__name__)
@@ -101,12 +123,18 @@ def _sanitize_option_text(text_value: str) -> str:
     return text
 
 
+def _is_demo_account(user: User) -> bool:
+    email = (user.email or "").strip().lower()
+    return settings.is_development and email.startswith("demo.") and email.endswith("@example.com")
+
+
 def _public_question_payload(question: Question) -> dict:
     options = list(question.answer_options)
     random.shuffle(options)
     return {
         "id": question.id,
         "text": question.text,
+        "difficulty_percent": max(0, min(100, int(question.difficulty_percent or 0))),
         "image_url": question.image_url,
         "video_url": question.video_url,
         "media_type": question.media_type,
@@ -202,6 +230,17 @@ def _resolve_question_count(requested_count: int | None, available_count: int) -
     return requested_count
 
 
+def _enforce_free_question_count_limit(user: User, question_count: int) -> None:
+    if user.is_premium or user.is_admin:
+        return
+    if question_count <= 20:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Free plan faqat 20 ta savollik testlarni ochadi. 30/40/50 savollik rejimlar uchun Premium tarif kerak.",
+    )
+
+
 def _resolve_duration_minutes(question_count: int, pressure_mode: bool) -> int:
     minutes = QUESTION_COUNT_TO_MINUTES.get(
         question_count,
@@ -210,6 +249,49 @@ def _resolve_duration_minutes(question_count: int, pressure_mode: bool) -> int:
     if pressure_mode:
         minutes = max(5, int(round(minutes * 0.8)))
     return minutes
+
+
+async def _sync_simulation_completion(
+    db: AsyncSession,
+    attempt: Attempt,
+    *,
+    finished_at: datetime,
+    mistake_count: int,
+    passed: bool,
+    timeout: bool,
+    violation_count: int | None = None,
+    disqualified: bool | None = None,
+    disqualification_reason: str | None = None,
+) -> None:
+    if attempt.mode != "simulation":
+        return
+
+    simulation = await finalize_exam_simulation(
+        db,
+        attempt,
+        finished_at=finished_at,
+        mistake_count=mistake_count,
+        passed=passed,
+        timeout=timeout,
+        violation_count=violation_count,
+        disqualified=disqualified,
+        disqualification_reason=disqualification_reason,
+    )
+    if simulation is None:
+        return
+
+    db.add(
+        AnalyticsEvent(
+            user_id=attempt.user_id,
+            event_name="simulation_completed",
+            metadata_json={
+                "simulation_id": str(attempt.id),
+                "mistake_count": int(mistake_count),
+                "passed": bool(passed),
+                "timeout": bool(timeout),
+            },
+        )
+    )
 
 
 @router.post("/start", response_model=StartAttemptResponse, status_code=status.HTTP_201_CREATED)
@@ -264,6 +346,7 @@ async def start_attempt(
         )
     
     selected_count = _resolve_question_count(data.question_count, len(test.questions))
+    _enforce_free_question_count_limit(current_user, selected_count)
     selected_questions = random.sample(list(test.questions), selected_count)
     question_payloads = [_public_question_payload(question) for question in selected_questions]
 
@@ -282,8 +365,21 @@ async def start_attempt(
     )
     
     db.add(attempt)
-    await db.commit()
-    await db.refresh(attempt)
+    await db.flush()
+    await start_attempt_session(
+        db,
+        attempt,
+        metadata={
+            "source": "attempts.start",
+            "question_count": selected_count,
+            "pressure_mode": bool(data.pressure_mode),
+        },
+    )
+    if settings.DRY_RUN:
+        await db.flush()
+    else:
+        await db.commit()
+        await db.refresh(attempt)
     _log_attempt_event(
         logging.INFO,
         event="exam_started",
@@ -401,10 +497,22 @@ async def submit_answer(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Question not found in this attempt",
             )
-        result = await db.execute(select(Question).where(Question.id == data.question_id))
+        result = await db.execute(
+            select(Question)
+            .options(
+                selectinload(Question.answer_options),
+                selectinload(Question.category_ref),
+            )
+            .where(Question.id == data.question_id)
+        )
     else:
         result = await db.execute(
-            select(Question).where(
+            select(Question)
+            .options(
+                selectinload(Question.answer_options),
+                selectinload(Question.category_ref),
+            )
+            .where(
                 Question.id == data.question_id,
                 Question.test_id == attempt.test_id,
             )
@@ -445,6 +553,14 @@ async def submit_answer(
         # Update existing answer
         existing_answer.selected_option_id = data.selected_option_id
         existing_answer.is_correct = option.is_correct
+        apply_attempt_answer_metadata(
+            existing_answer,
+            attempt=attempt,
+            question=question,
+            answered_at=datetime.now(timezone.utc),
+            response_time_ms=data.response_time_ms,
+        )
+        await touch_attempt_session(db, attempt.id, activity_time=existing_answer.answered_at)
         await db.commit()
         await db.refresh(existing_answer)
         
@@ -462,8 +578,16 @@ async def submit_answer(
         selected_option_id=data.selected_option_id,
         is_correct=option.is_correct,
     )
+    apply_attempt_answer_metadata(
+        attempt_answer,
+        attempt=attempt,
+        question=question,
+        answered_at=datetime.now(timezone.utc),
+        response_time_ms=data.response_time_ms,
+    )
     
     db.add(attempt_answer)
+    await touch_attempt_session(db, attempt.id, activity_time=attempt_answer.answered_at)
     await db.commit()
     await db.refresh(attempt_answer)
     
@@ -493,7 +617,12 @@ async def submit_guest_answer(
         raise HTTPException(status_code=400, detail="Attempt already finished")
 
     result = await db.execute(
-        select(Question).where(
+        select(Question)
+        .options(
+            selectinload(Question.answer_options),
+            selectinload(Question.category_ref),
+        )
+        .where(
             Question.id == data.question_id,
             Question.test_id == attempt.test_id,
         )
@@ -594,22 +723,58 @@ async def finish_attempt(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Attempt already finished",
         )
+
+    if settings.USE_CANONICAL_ATTEMPT_FINALIZER:
+        canonical_response = await finalize_attempt(
+            db=db,
+            current_user=current_user,
+            attempt_id=attempt.id,
+            answers={
+                answer.question_id: answer.selected_option_id
+                for answer in attempt.attempt_answers
+            },
+            visited_question_ids=[answer.question_id for answer in attempt.attempt_answers],
+            response_times=[],
+        )
+        return ScoreResponse(
+            attempt_id=attempt.id,
+            score=canonical_response.score,
+            total_questions=canonical_response.total,
+            finished_at=canonical_response.finished_at,
+        )
     
     # Get total questions count (attempt-specific when available)
     if attempt.question_count and attempt.question_count > 0:
         total_questions = attempt.question_count
     else:
         result = await db.execute(
-            select(Question).where(Question.test_id == attempt.test_id)
+            select(Question)
+            .options(
+                selectinload(Question.answer_options),
+                selectinload(Question.category_ref),
+            )
+            .where(Question.test_id == attempt.test_id)
         )
         questions = result.scalars().all()
         total_questions = len(questions)
     
     # Finish attempt and calculate score
     attempt.finish()
+    correct_count = attempt.score
+    mistake_count = max(0, total_questions - correct_count)
+    simulation = await db.get(ExamSimulationAttempt, attempt.id) if attempt.mode == "simulation" else None
+    mistake_limit = resolve_simulation_limits(simulation)[0] if simulation is not None else (1 if attempt.pressure_mode else 2)
+    passed = mistake_count < mistake_limit
     question_ids = [answer.question_id for answer in attempt.attempt_answers]
     question_rows = (
-        await db.execute(select(Question).where(Question.id.in_(question_ids)))
+        await db.execute(
+            select(Question)
+            .options(
+                selectinload(Question.answer_options),
+                selectinload(Question.category_ref),
+            )
+            .where(Question.id.in_(question_ids))
+        )
     ).scalars().all() if question_ids else []
     question_map = {question.id: question for question in question_rows}
     answer_records = [
@@ -621,6 +786,31 @@ async def finish_attempt(
         )
         for answer in attempt.attempt_answers
     ]
+    completed_at = attempt.finished_at or datetime.now(timezone.utc)
+    topic_ids = {record.topic_id for record in answer_records if record.topic_id is not None}
+    pre_topic_rows = (
+        await db.execute(
+            select(UserTopicStats).where(
+                UserTopicStats.user_id == current_user.id,
+                UserTopicStats.topic_id.in_(topic_ids),
+            )
+        )
+    ).scalars().all() if topic_ids else []
+    pre_topic_state = {
+        row.topic_id: (int(row.total_attempts), float(row.accuracy_rate))
+        for row in pre_topic_rows
+    }
+    due_review_count_before = int(
+        (
+            await db.execute(
+                select(func.count(ReviewQueue.id)).where(
+                    ReviewQueue.user_id == current_user.id,
+                    ReviewQueue.next_review_at <= completed_at,
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
     await apply_learning_progress_updates(
         db=db,
         user_id=current_user.id,
@@ -638,6 +828,37 @@ async def finish_attempt(
                 },
             )
         )
+    await _sync_simulation_completion(
+        db,
+        attempt,
+        finished_at=completed_at,
+        mistake_count=mistake_count,
+        passed=passed,
+        timeout=False,
+    )
+    await award_attempt_completion_rewards(
+        db,
+        current_user.id,
+        attempt_id=attempt.id,
+        mode=attempt.mode,
+        passed=passed,
+        score_percent=(float(attempt.score) / max(1, total_questions)) * 100.0,
+        occurred_at=completed_at,
+        topic_ids=topic_ids,
+        pre_topic_state=pre_topic_state,
+        due_review_count_before=due_review_count_before,
+    )
+    await complete_attempt_session(
+        db,
+        attempt,
+        finished_at=completed_at,
+        metadata={
+            "score": int(attempt.score or 0),
+            "question_count": int(total_questions),
+            "passed": bool(passed),
+            "mode": attempt.mode,
+        },
+    )
 
     # Phase 2.5: Inference snapshot capture (non-blocking)
     try:
@@ -662,12 +883,24 @@ async def finish_attempt(
         total_questions=total_questions,
     )
     
-    return ScoreResponse(
+    response_payload = ScoreResponse(
         attempt_id=attempt.id,
         score=attempt.score,
         total_questions=total_questions,
         finished_at=attempt.finished_at.isoformat(),
     )
+    if settings.DRY_RUN:
+        log_dry_run_write(
+            operation="attempts.finish",
+            entity="attempt",
+            entity_id=attempt.id,
+            payload={
+                "score": int(attempt.score or 0),
+                "question_count": int(total_questions),
+            },
+        )
+        await db.rollback()
+    return response_payload
 
 
 @router.post("/guest/finish", response_model=ScoreResponse)
@@ -746,6 +979,20 @@ async def bulk_submit_attempt(
     if attempt.finished_at:
         raise HTTPException(status_code=400, detail="Attempt already finished")
 
+    if settings.USE_CANONICAL_ATTEMPT_FINALIZER:
+        return await finalize_attempt(
+            db=db,
+            current_user=current_user,
+            attempt_id=attempt.id,
+            answers=data.answers,
+            visited_question_ids=data.visited_question_ids,
+            response_times=data.response_times,
+        )
+
+    simulation = await db.get(ExamSimulationAttempt, attempt.id) if attempt.mode == "simulation" else None
+    mistake_limit = resolve_simulation_limits(simulation)[0] if simulation is not None else (1 if attempt.pressure_mode else 2)
+    violation_limit = resolve_simulation_limits(simulation)[1] if simulation is not None else None
+
     # First completed attempt gets demo detailed review for non-premium users.
     finished_attempts_result = await db.execute(
         select(func.count(Attempt.id)).where(
@@ -768,13 +1015,19 @@ async def bulk_submit_attempt(
     if expected_question_ids:
         stmt = (
             select(Question)
-            .options(selectinload(Question.answer_options))
+            .options(
+                selectinload(Question.answer_options),
+                selectinload(Question.category_ref),
+            )
             .where(Question.id.in_(expected_question_ids))
         )
     else:
         stmt = (
             select(Question)
-            .options(selectinload(Question.answer_options))
+            .options(
+                selectinload(Question.answer_options),
+                selectinload(Question.category_ref),
+            )
             .where(Question.test_id == attempt.test_id)
         )
 
@@ -783,6 +1036,7 @@ async def bulk_submit_attempt(
     questions_map = {q.id: q for q in questions}
     test_question_ids = {q.id for q in questions}
     submitted_question_ids = {q_id for q_id in data.answers.keys()}
+    visited_question_ids = set(data.visited_question_ids or [])
 
     # Allow partial submissions, but reject unknown question IDs.
     extra = submitted_question_ids - test_question_ids
@@ -792,11 +1046,24 @@ async def bulk_submit_attempt(
             detail="Submission contains unknown questions.",
         )
 
-    # 2b. Response Times Validation (Phase 11)
-    if data.response_times and len(data.response_times) not in {len(questions), len(data.answers)}:
+    extra_visited = visited_question_ids - test_question_ids
+    if extra_visited:
         raise HTTPException(
             status_code=400,
-            detail="Response times count must match total questions (or submitted answers for legacy clients).",
+            detail="Submission contains unknown visited questions.",
+        )
+
+    effective_reviewed_ids = (visited_question_ids | submitted_question_ids) if visited_question_ids else set(test_question_ids)
+    effective_reviewed_ids &= test_question_ids
+    reviewed_question_count = len(effective_reviewed_ids) if effective_reviewed_ids else len(questions)
+    answered_question_count = len(submitted_question_ids)
+    completed_all = answered_question_count == len(questions) and reviewed_question_count == len(questions)
+
+    # 2b. Response Times Validation (Phase 11)
+    if data.response_times and len(data.response_times) not in {len(questions), len(data.answers), reviewed_question_count}:
+        raise HTTPException(
+            status_code=400,
+            detail="Response times count must match total questions, reviewed questions, or submitted answers.",
         )
     
     if any(rt < 0 for rt in data.response_times):
@@ -807,6 +1074,12 @@ async def bulk_submit_attempt(
     if len(validated_response_times) == len(data.answers) and len(questions) > len(data.answers):
         # Keep compatibility for older clients that only send answered-question timings.
         validated_response_times.extend([0] * (len(questions) - len(data.answers)))
+    ordered_question_ids = expected_question_ids or [question.id for question in questions]
+    response_time_by_question_id = {
+        question_id: validated_response_times[index]
+        for index, question_id in enumerate(ordered_question_ids)
+        if index < len(validated_response_times)
+    }
     
     # Compute Cognitive Metrics
     avg_rt = sum(validated_response_times) / len(validated_response_times) if validated_response_times else 0
@@ -850,10 +1123,34 @@ async def bulk_submit_attempt(
 
     # 4. Process answers in a transaction-safe way
     detailed_answers = []
+    detailed_answer_payloads: list[dict[str, object]] = []
     learning_answer_records: list[LearningAnswerRecord] = []
     correct_count = 0
-    topic_results = {}
     adaptive_profile: UserAdaptiveProfile | None = None
+    topic_ids = {q.category_id for q in questions if q.category_id is not None}
+    pre_topic_rows = (
+        await db.execute(
+            select(UserTopicStats).where(
+                UserTopicStats.user_id == current_user.id,
+                UserTopicStats.topic_id.in_(topic_ids),
+            )
+        )
+    ).scalars().all() if topic_ids else []
+    pre_topic_state = {
+        row.topic_id: (int(row.total_attempts), float(row.accuracy_rate))
+        for row in pre_topic_rows
+    }
+    due_review_count_before = int(
+        (
+            await db.execute(
+                select(func.count(ReviewQueue.id)).where(
+                    ReviewQueue.user_id == current_user.id,
+                    ReviewQueue.next_review_at <= now,
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
 
     if attempt.mode == "adaptive":
         adaptive_profile_result = await db.execute(
@@ -897,6 +1194,24 @@ async def bulk_submit_attempt(
         correct_option = next((o for o in question.answer_options if o.is_correct), None)
         correct_option_id = correct_option.id if correct_option else opt_id
         is_correct = selected_option.is_correct
+        feedback = build_question_feedback(
+            question=question,
+            selected_option=selected_option,
+            correct_option=correct_option or selected_option,
+            is_correct=bool(is_correct),
+        )
+        detailed_answer_payloads.append(
+            {
+                "question_id": q_id,
+                "selected_option_id": opt_id,
+                "correct_option_id": correct_option_id,
+                "is_correct": is_correct,
+                "correct_answer": feedback["correct_answer"],
+                "explanation": feedback["explanation"],
+                "ai_coach": feedback["ai_coach"],
+                "recommendations": feedback["recommendations"],
+            }
+        )
         
         if is_correct:
             correct_count += 1
@@ -907,6 +1222,13 @@ async def bulk_submit_attempt(
             question_id=q_id,
             selected_option_id=opt_id,
             is_correct=is_correct
+        )
+        apply_attempt_answer_metadata(
+            ans_record,
+            attempt=attempt,
+            question=question,
+            answered_at=now,
+            response_time_ms=response_time_by_question_id.get(q_id),
         )
         db.add(ans_record)
 
@@ -927,53 +1249,54 @@ async def bulk_submit_attempt(
             history.correct_count = int(history.correct_count) + 1
             history.last_correct_at = now
 
-        # Atomic update for Question performance
-        correct_inc = 1 if is_correct else 0
-        
-        await db.execute(
-            update(Question)
-            .where(Question.id == q_id)
-            .values(
-                total_attempts=Question.total_attempts + 1,
-                total_correct=Question.total_correct + correct_inc
+        if not settings.USE_PROGRESS_TRACKING_ONLY:
+            # Legacy bulk-submit aggregate path kept behind a flag for staged migration.
+            correct_inc = 1 if is_correct else 0
+            before_snapshot = snapshot_question_row(question) if question_update_comparison_enabled() else None
+
+            await db.execute(
+                update(Question)
+                .where(Question.id == q_id)
+                .values(
+                    total_attempts=Question.total_attempts + 1,
+                    total_correct=Question.total_correct + correct_inc
+                )
             )
-        )
-        
-        # Now update difficulty score based on the new totals
-        await db.execute(
-            update(Question)
-            .where(Question.id == q_id)
-            .values(
-                dynamic_difficulty_score=func.greatest(
-                    0.05,
-                    func.least(
-                        0.95,
-                        1.0 - (func.cast(Question.total_correct, Float) / func.nullif(Question.total_attempts, 0))
+
+            await db.execute(
+                update(Question)
+                .where(Question.id == q_id)
+                .values(
+                    dynamic_difficulty_score=func.greatest(
+                        0.05,
+                        func.least(
+                            0.95,
+                            1.0 - (func.cast(Question.total_correct, Float) / func.nullif(Question.total_attempts, 0))
+                        )
                     )
                 )
             )
-        )
-        
-        # Refresh question to get updated difficulty score
-        await db.refresh(question)
-        
-        # Capture for intelligence modeling (avoiding relationship trigger later)
-        topic_key = question.topic or question.category
-        if topic_key:
-            if topic_key not in topic_results:
-                topic_results[topic_key] = []
-            topic_results[topic_key].append({
-                "correct": is_correct,
-                "difficulty": question.dynamic_difficulty_score
-            })
 
-        detailed_answers.append(DetailedAnswer(
-            question_id=q_id,
-            selected_option_id=opt_id,
-            correct_option_id=correct_option_id,
-            is_correct=is_correct,
-            dynamic_difficulty_score=question.dynamic_difficulty_score
-        ))
+            await db.refresh(question)
+            if before_snapshot is not None:
+                log_question_update_comparison(
+                    source="attempts",
+                    question_id=q_id,
+                    before=before_snapshot,
+                    after=snapshot_question_row(question),
+                )
+
+            detailed_answers.append(DetailedAnswer(
+                question_id=q_id,
+                selected_option_id=opt_id,
+                correct_option_id=correct_option_id,
+                is_correct=is_correct,
+                dynamic_difficulty_score=question.dynamic_difficulty_score,
+                correct_answer=feedback["correct_answer"],
+                explanation=feedback["explanation"],
+                ai_coach=feedback["ai_coach"],
+                recommendations=feedback["recommendations"],
+            ))
         learning_answer_records.append(
             LearningAnswerRecord(
                 question_id=q_id,
@@ -985,7 +1308,7 @@ async def bulk_submit_attempt(
 
     # 5. Score-based adaptive target update (faster than per-question +/-1).
     if adaptive_profile is not None and questions:
-        score_percent = (correct_count / len(questions)) * 100.0
+        score_percent = (correct_count / max(1, reviewed_question_count)) * 100.0
         delta = 0
         if score_percent >= 85:
             delta = -4
@@ -1033,13 +1356,23 @@ async def bulk_submit_attempt(
         )
 
     # 6. Finalize attempt
+    if visited_question_ids:
+        effective_total = max(1, reviewed_question_count)
+        mistakes = max(0, answered_question_count - correct_count)
+        unanswered_count = max(0, effective_total - answered_question_count)
+    else:
+        effective_total = len(questions)
+        mistakes = effective_total - correct_count
+        unanswered_count = max(0, effective_total - answered_question_count)
+
+    attempt.question_count = effective_total
     attempt.score = int(correct_count * attempt.pressure_score_modifier)
     attempt.finished_at = now
     
-    # Success condition (Normal: 2 mistakes, Pressure Mode: 1 mistake)
-    mistake_limit = 1 if attempt.pressure_mode else 2
-    mistakes = len(questions) - correct_count
-    passed = mistakes <= mistake_limit and not time_is_up
+    simulation_disqualified = bool(simulation.disqualified) if simulation is not None else False
+    violation_count = int(simulation.violation_count or 0) if simulation is not None else None
+    disqualification_reason = simulation.disqualification_reason if simulation is not None else None
+    passed = completed_all and mistakes <= mistake_limit and not time_is_up and not simulation_disqualified
 
     # If time was up, they fail automatically
     if time_is_up:
@@ -1050,6 +1383,33 @@ async def bulk_submit_attempt(
         user_id=current_user.id,
         answer_records=learning_answer_records,
     )
+    if settings.USE_PROGRESS_TRACKING_ONLY and detailed_answer_payloads:
+        refreshed_question_rows = (
+            await db.execute(
+                select(Question)
+                .where(Question.id.in_(submitted_question_ids))
+                .execution_options(populate_existing=True)
+            )
+        ).scalars().all()
+        refreshed_question_map = {row.id: row for row in refreshed_question_rows}
+        detailed_answers = [
+            DetailedAnswer(
+                question_id=payload["question_id"],
+                selected_option_id=payload["selected_option_id"],
+                correct_option_id=payload["correct_option_id"],
+                is_correct=bool(payload["is_correct"]),
+                dynamic_difficulty_score=float(
+                    refreshed_question_map.get(payload["question_id"]).dynamic_difficulty_score
+                    if refreshed_question_map.get(payload["question_id"]) is not None
+                    else 0.5
+                ),
+                correct_answer=payload["correct_answer"],
+                explanation=payload["explanation"],
+                ai_coach=payload["ai_coach"],
+                recommendations=payload["recommendations"],
+            )
+            for payload in detailed_answer_payloads
+        ]
     if attempt.mode == "learning":
         db.add(
             AnalyticsEvent(
@@ -1058,11 +1418,46 @@ async def bulk_submit_attempt(
                 metadata_json={
                     "session_id": str(attempt.id),
                     "score": attempt.score,
-                    "total_questions": len(questions),
+                    "total_questions": effective_total,
                     "passed": passed,
                 },
             )
         )
+    await _sync_simulation_completion(
+        db,
+        attempt,
+        finished_at=now,
+        mistake_count=mistakes,
+        passed=passed,
+        timeout=time_is_up,
+        violation_count=violation_count,
+        disqualified=simulation_disqualified,
+        disqualification_reason=disqualification_reason,
+    )
+    reward_grant = await award_attempt_completion_rewards(
+        db,
+        current_user.id,
+        attempt_id=attempt.id,
+        mode=attempt.mode,
+        passed=passed,
+        score_percent=(correct_count / max(1, effective_total)) * 100.0,
+        occurred_at=now,
+        topic_ids={record.topic_id for record in learning_answer_records if record.topic_id is not None},
+        pre_topic_state=pre_topic_state,
+        due_review_count_before=due_review_count_before,
+    )
+    await complete_attempt_session(
+        db,
+        attempt,
+        finished_at=now,
+        metadata={
+            "score": int(attempt.score or 0),
+            "question_count": int(effective_total),
+            "passed": bool(passed),
+            "mode": attempt.mode,
+            "answered_count": int(answered_question_count),
+        },
+    )
 
     # Phase 20: Snapshot-Based ML Inference Storage
     try:
@@ -1074,173 +1469,97 @@ async def bulk_submit_attempt(
         # Fallback: log and continue so attempt completion is not blocked
         logging.getLogger(__name__).error(f"Snapshot storage failed (non-blocking): {e}")
 
-    await db.commit()
-    await db.refresh(attempt)
+    if settings.DRY_RUN:
+        await db.flush()
+    else:
+        await db.commit()
+        await db.refresh(attempt)
 
-    # Compute pass_prediction_label from recent history
-    pass_prediction_label = None
+    # Compute lightweight intelligence summary from canonical learning tables.
+    pass_prediction_label_value = pass_prediction_label(
+        (correct_count / max(1, effective_total)) * 100.0,
+    )
     skill_messages = []
     fading_topics = []
     topic_stability = {}
     
     try:
-        # Phase 7: User Skill Vector Modeling
-        from models.user_skill import UserSkill
-        
-        # 1. Collect topic/category keys for this test
-        topics = list(set([(q.topic or q.category) for q in questions if (q.topic or q.category)]))
-        
-        # 2. Batch fetch existing skills for these topics
-        skill_stmt = select(UserSkill).where(
-            UserSkill.user_id == current_user.id,
-            UserSkill.topic.in_(topics)
-        )
-        skill_res = await db.execute(skill_stmt)
-        skills_map = {s.topic: s for s in skill_res.scalars().all()}
-        
-        # Track initial skills for message generation
-        initial_skills = {t: (skills_map[t].skill_score if t in skills_map else 0.5) for t in topics}
-        initial_bkt = {t: (skills_map[t].bkt_knowledge_prob if t in skills_map else 0.3) for t in topics}
-
-        # 3. Update skills sequentially (Phase 7 - 10)
-        # Note: topic_results was pre-populated in the first loop to avoid lazy-loading triggers
-
-        # BKT Constants
-        P_SLIP = 0.1
-        P_LEARN = 0.08
-
-        # Phase 9: Memory Decay & Retention
-        from math import exp
-        
-        for topic, results in topic_results.items():
-            skill_obj = skills_map.get(topic)
-            if not skill_obj:
-                skill_obj = UserSkill(
-                    user_id=current_user.id, 
-                    topic=topic, 
-                    skill_score=0.5, 
-                    bkt_knowledge_prob=0.3,
-                    retention_score=1.0,
-                    repetition_count=0,
-                    interval_days=0,
-                    ease_factor=2.5
-                )
-                db.add(skill_obj)
-            
-            current_ema = skill_obj.skill_score
-            current_bkt = skill_obj.bkt_knowledge_prob
-            
-            # Dynamic Retention Check (Phase 9)
-            if skill_obj.last_practice_at:
-                days_since = (now - skill_obj.last_practice_at).days
-                decay_lambda = 0.015
-                retention = max(0.2, min(1.0, exp(-decay_lambda * days_since)))
-                if retention < 0.6:
-                    fading_topics.append(topic)
-                    skill_messages.append(f"This topic needs revision Ч knowledge fading in {topic}")
-            
-            for r in results:
-                # --- EMA Logic ---
-                ema_res = 1.0 if r["correct"] else 0.0
-                current_ema = (0.7 * current_ema) + (0.3 * ema_res)
-                current_ema = max(0.05, min(0.95, current_ema))
-                
-                # --- BKT Logic ---
-                diff = r["difficulty"]
-                if diff < 0.33: p_guess = 0.25
-                elif diff <= 0.66: p_guess = 0.2
-                else: p_guess = 0.15
-                
-                prior = max(0.01, min(0.99, current_bkt))
-                if r["correct"]:
-                    num = prior * (1 - P_SLIP)
-                    den = num + (1 - prior) * p_guess
-                else:
-                    num = prior * P_SLIP
-                    den = num + (1 - prior) * (1 - p_guess)
-                
-                posterior = num / den if den != 0 else prior
-                # Apply learning
-                posterior = posterior + (1 - posterior) * P_LEARN
-                current_bkt = max(0.01, min(0.99, posterior))
-            
-            # --- Phase 10: Spaced Repetition (SM-2) ---
-            from datetime import timedelta
-            any_wrong = any(not r["correct"] for r in results)
-            
-            # Compute session quality for topic
-            if not any_wrong:
-                quality = 5 if current_bkt > 0.8 else 4
-            else:
-                quality = 2 if current_bkt > 0.5 else 1
-            
-            # SM-2 logic
-            if quality < 3:
-                skill_obj.repetition_count = 0
-                skill_obj.interval_days = 1
-            else:
-                if skill_obj.repetition_count == 0:
-                    skill_obj.interval_days = 1
-                elif skill_obj.repetition_count == 1:
-                    skill_obj.interval_days = 6
-                else:
-                    skill_obj.interval_days = round(skill_obj.interval_days * skill_obj.ease_factor)
-                
-                skill_obj.repetition_count += 1
-            
-            # Update Ease Factor
-            skill_obj.ease_factor = skill_obj.ease_factor + (
-                0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)
+        topic_label_by_id: dict[uuid.UUID, str] = {}
+        for question in questions:
+            if question.category_id is None:
+                continue
+            topic_label_by_id.setdefault(
+                question.category_id,
+                (question.category or question.topic or "Umumiy").strip(),
             )
-            skill_obj.ease_factor = max(1.3, skill_obj.ease_factor)
-            skill_obj.interval_days = max(1, skill_obj.interval_days)
-            
-            skill_obj.next_review_at = now + timedelta(days=skill_obj.interval_days)
-            
-            # Generate Stability Label
-            if skill_obj.repetition_count >= 3:
-                topic_stability[topic] = "High"
-            elif skill_obj.repetition_count >= 1:
-                topic_stability[topic] = "Medium"
+
+        topic_ids = [record.topic_id for record in learning_answer_records if record.topic_id is not None]
+        unique_topic_ids = list(dict.fromkeys(topic_ids))
+        stats_rows = (
+            await db.execute(
+                select(UserTopicStats).where(
+                    UserTopicStats.user_id == current_user.id,
+                    UserTopicStats.topic_id.in_(unique_topic_ids),
+                )
+            )
+        ).scalars().all() if unique_topic_ids else []
+        stats_map = {row.topic_id: row for row in stats_rows}
+
+        review_due_rows = (
+            await db.execute(
+                select(Question.category_id, func.count(ReviewQueue.question_id))
+                .join(Question, ReviewQueue.question_id == Question.id)
+                .where(
+                    ReviewQueue.user_id == current_user.id,
+                    ReviewQueue.next_review_at <= now,
+                    Question.category_id.in_(unique_topic_ids),
+                )
+                .group_by(Question.category_id)
+            )
+        ).all() if unique_topic_ids else []
+        due_map = {topic_id: int(count or 0) for topic_id, count in review_due_rows if topic_id is not None}
+
+        topic_accuracy_rows: list[tuple[str, float]] = []
+        for topic_id in unique_topic_ids:
+            label = topic_label_by_id.get(topic_id, "Umumiy")
+            local_results = [
+                record.is_correct
+                for record in learning_answer_records
+                if record.topic_id == topic_id
+            ]
+            if not local_results:
+                continue
+            accuracy = (sum(1 for result in local_results if result) / len(local_results)) * 100.0
+            topic_accuracy_rows.append((label, accuracy))
+
+            stats = stats_map.get(topic_id)
+            total_attempts = int(stats.total_attempts or 0) if stats is not None else len(local_results)
+            rolling_accuracy = float(stats.accuracy_rate or 0.0) * 100.0 if stats is not None else accuracy
+            due_count = due_map.get(topic_id, 0)
+
+            if rolling_accuracy >= 80.0 and total_attempts >= 10 and due_count == 0:
+                topic_stability[label] = "High"
+            elif rolling_accuracy >= 60.0 and total_attempts >= 4:
+                topic_stability[label] = "Medium"
             else:
-                topic_stability[topic] = "Low"
+                topic_stability[label] = "Low"
 
-            skill_obj.skill_score = current_ema
-            skill_obj.bkt_knowledge_prob = current_bkt
-            skill_obj.total_attempts += len(results)
-            skill_obj.bkt_attempts += len(results)
-            
-            # Reset Retention on Practice
-            skill_obj.last_practice_at = now
-            skill_obj.retention_score = 1.0
-            skill_obj.last_updated = now
+            if due_count > 0 or rolling_accuracy < 55.0:
+                fading_topics.append(label)
 
-            # 4. Generate Messages
-            # EMA check
-            ema_diff = current_ema - initial_skills.get(topic, 0.5)
-            if ema_diff > 0.05:
-                skill_messages.append(f"Skill improved in {topic}")
-            elif ema_diff < -0.05:
-                skill_messages.append(f"Focus on {topic} for improvement")
-                
-            # BKT check
-            bkt_diff = current_bkt - initial_bkt.get(topic, 0.3)
-            if bkt_diff > 0.02:
-                skill_messages.append(f"Concept mastery improved in {topic}")
-            elif bkt_diff < -0.02:
-                skill_messages.append(f"Reinforcement needed in {topic}")
-            
-            if skill_obj.retention_score > 0.9:
-                skill_messages.append(f"Strong long-term retention in {topic}")
-            
-            if quality >= 4:
-                skill_messages.append(f"Memory interval extended for {topic}")
+        topic_accuracy_rows.sort(key=lambda item: item[1])
+        weakest_topics = topic_accuracy_rows[:2]
+        strongest_topic = max(topic_accuracy_rows, key=lambda item: item[1]) if topic_accuracy_rows else None
 
-        # COMMIT ALL UPDATES (skills + attempt)
-        await db.commit()
-        await db.refresh(attempt)
+        for label, accuracy in weakest_topics:
+            skill_messages.append(
+                f"{label} bo'yicha natija {accuracy:.0f}% — shu yo'nalishni qayta ko'ring."
+            )
+        if strongest_topic is not None and strongest_topic[1] >= 85.0:
+            skill_messages.append(
+                f"{strongest_topic[0]} bo'yicha natija yaxshi — murakkabroq savollarga o'tish mumkin."
+            )
 
-        # Dashboard Pass Prediction recalculation
         recent_stmt = (
             select(Attempt.score, Attempt.question_count)
             .where(
@@ -1254,32 +1573,32 @@ async def bulk_submit_attempt(
         recent_data = recent_res.all()
 
         if recent_data:
-            # Correctly calculate percentage based on each attempt's question count
-            total_pct = sum((row.score / max(1, row.question_count)) * 100 for row in recent_data)
+            total_pct = sum(
+                attempt_score_percent(row.score, row.question_count)
+                for row in recent_data
+            )
             avg_pct = total_pct / len(recent_data)
-            
-            # Simplified probability estimate for result page
-            prob = min(100.0, max(0.0, avg_pct))
-            if prob >= 95:
-                pass_prediction_label = "Exam Ready"
-            elif prob >= 85:
-                pass_prediction_label = "Very Likely to Pass"
-            elif prob >= 70:
-                pass_prediction_label = "Likely to Pass"
-            elif prob >= 50:
-                pass_prediction_label = "Needs Improvement"
-            else:
-                pass_prediction_label = "High Risk of Failing"
+            pass_prediction_label_value = pass_prediction_label(avg_pct)
     except Exception as e:
         logging.getLogger(__name__).exception(f"Detailed Intelligence update failure: {e}")
-        pass_prediction_label = None
+        pass_prediction_label_value = pass_prediction_label(
+            (correct_count / max(1, effective_total)) * 100.0,
+        )
 
-    answers_unlocked = current_user.is_premium or is_first_completed_attempt
+    skill_messages = list(dict.fromkeys(skill_messages))[:4]
+    fading_topics = list(dict.fromkeys(fading_topics))[:4]
+
+    demo_review_enabled = _is_demo_account(current_user)
+    answers_unlocked = current_user.is_premium or is_first_completed_attempt or demo_review_enabled or attempt.mode == "simulation"
     unlock_reason: str | None = None
     if current_user.is_premium:
         unlock_reason = "premium"
+    elif attempt.mode == "simulation":
+        unlock_reason = "simulation_review"
     elif is_first_completed_attempt:
         unlock_reason = "first_test_demo"
+    elif demo_review_enabled:
+        unlock_reason = "demo_account"
     else:
         unlock_reason = "premium_required"
 
@@ -1296,15 +1615,19 @@ async def bulk_submit_attempt(
         test_id=str(attempt.test_id),
         mode=attempt.mode,
         score=attempt.score,
-        total_questions=len(questions),
+        total_questions=effective_total,
         passed=passed,
     )
 
-    return BulkSubmitResponse(
+    response_payload = BulkSubmitResponse(
         score=attempt.score,
-        total=len(questions),
+        total=effective_total,
+        reviewed_count=effective_total,
+        answered_count=answered_question_count,
+        unanswered_count=unanswered_count,
         correct_count=correct_count,
-        mistakes_count=len(questions) - correct_count,
+        mistakes_count=mistakes,
+        completed_all=completed_all,
         passed=passed,
         finished_at=attempt.finished_at.isoformat(),
         answers=response_answers,
@@ -1312,11 +1635,41 @@ async def bulk_submit_attempt(
         unlock_reason=unlock_reason,
         is_adaptive=(attempt.mode == "adaptive"),
         training_level=attempt.training_level,
-        pass_prediction_label=pass_prediction_label,
+        pass_prediction_label=pass_prediction_label_value,
         skill_messages=response_skill_messages,
         fading_topics=response_fading_topics,
         topic_stability=response_topic_stability,
         avg_response_time=avg_rt,
         cognitive_profile=cognitive_profile,
-        pressure_mode=attempt.pressure_mode
+        pressure_mode=attempt.pressure_mode,
+        mistake_limit=mistake_limit if attempt.mode == "simulation" else None,
+        violation_count=violation_count,
+        violation_limit=violation_limit,
+        disqualified=simulation_disqualified,
+        disqualification_reason=disqualification_reason,
+        reward_summary=RewardSummary(
+            xp_awarded=reward_grant.xp_awarded,
+            coins_awarded=reward_grant.coins_awarded,
+            achievements=[
+                RewardAchievement(
+                    id=getattr(achievement, "id", None),
+                    name=achievement.achievement_definition.name,
+                    icon=achievement.achievement_definition.icon,
+                )
+                for achievement in reward_grant.unlocked_achievements
+            ],
+        ),
     )
+    if settings.DRY_RUN:
+        log_dry_run_write(
+            operation="attempts.submit",
+            entity="attempt",
+            entity_id=attempt.id,
+            payload={
+                "score": int(attempt.score or 0),
+                "question_count": int(effective_total),
+                "use_progress_tracking_only": bool(settings.USE_PROGRESS_TRACKING_ONLY),
+            },
+        )
+        await db.rollback()
+    return response_payload

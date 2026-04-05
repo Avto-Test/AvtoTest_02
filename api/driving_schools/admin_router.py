@@ -33,6 +33,12 @@ from api.driving_schools.schemas import (
     DrivingSchoolReviewResponse,
     DrivingSchoolUpdate,
 )
+from core.admin_statuses import (
+    DrivingSchoolLeadStatus,
+    DrivingSchoolPartnerApplicationStatus,
+    ensure_status_transition,
+    status_display_label,
+)
 from core.public_urls import resolve_public_upload_url
 from database.session import get_db
 from models.driving_school import DrivingSchool
@@ -95,6 +101,14 @@ async def _unique_referral_code(db: AsyncSession, base: str, exclude_id: UUID | 
             return candidate
         candidate = f"{normalized}{index}"
         index += 1
+
+
+async def _get_linked_school_or_404(db: AsyncSession, school_id: UUID) -> DrivingSchool:
+    result = await db.execute(select(DrivingSchool).where(DrivingSchool.id == school_id))
+    school = result.scalar_one_or_none()
+    if school is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Linked school not found")
+    return school
 
 
 async def _validate_promo_code(
@@ -192,6 +206,17 @@ def _school_to_admin_response(
         promo_redemption_count=promo_redemption_count,
         courses=[course for course in sorted(school.courses, key=lambda item: (item.sort_order, item.created_at))],
         media_items=[item for item in sorted(school.media_items, key=lambda item: (item.sort_order, item.created_at))],
+        reviews=[
+            DrivingSchoolReviewResponse(
+                id=review.id,
+                rating=review.rating,
+                comment=review.comment,
+                is_visible=review.is_visible,
+                created_at=review.created_at,
+                user_display_name=None,
+            )
+            for review in sorted(school.reviews, key=lambda item: item.created_at, reverse=True)
+        ],
     )
 
 
@@ -569,7 +594,13 @@ async def update_school_lead_status(
     lead = result.scalar_one_or_none()
     if lead is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found")
-    lead.status = payload.status.strip().lower()
+
+    try:
+        next_status = ensure_status_transition(DrivingSchoolLeadStatus, lead.status, payload.status)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    lead.status = next_status.value
     lead.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(lead)
@@ -615,20 +646,39 @@ async def update_partner_application(
     if application is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
 
-    application.status = payload.status.strip().lower()
+    try:
+        next_status = ensure_status_transition(
+            DrivingSchoolPartnerApplicationStatus,
+            application.status,
+            payload.status,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    application.status = next_status.value
     application.reviewed_by_id = admin_user.id
     application.reviewed_at = datetime.now(timezone.utc)
 
+    resolved_school: DrivingSchool | None = None
+    if payload.linked_school_id is not None:
+        resolved_school = await _get_linked_school_or_404(db, payload.linked_school_id)
+        application.linked_school_id = resolved_school.id
+
     auto_created_school: DrivingSchool | None = None
-    if application.status == "approved" and application.user_id is not None:
-        existing_school_result = await db.execute(
-            select(DrivingSchool).where(DrivingSchool.owner_user_id == application.user_id)
-        )
-        existing_school = existing_school_result.scalar_one_or_none()
-        if existing_school is None:
+    if next_status == DrivingSchoolPartnerApplicationStatus.APPROVED:
+        if resolved_school is None and application.linked_school_id is not None:
+            resolved_school = await _get_linked_school_or_404(db, application.linked_school_id)
+
+        if resolved_school is None and application.user_id is not None:
+            existing_school_result = await db.execute(
+                select(DrivingSchool).where(DrivingSchool.owner_user_id == application.user_id)
+            )
+            resolved_school = existing_school_result.scalar_one_or_none()
+
+        if resolved_school is None and application.user_id is not None:
             slug = await _unique_slug(db, application.school_name)
             referral_code = await _unique_referral_code(db, application.school_name)
-            auto_created_school = DrivingSchool(
+            auto_created_school = resolved_school = DrivingSchool(
                 owner_user_id=application.user_id,
                 slug=slug,
                 name=application.school_name.strip(),
@@ -653,6 +703,9 @@ async def update_partner_application(
             db.add(auto_created_school)
             await db.flush()
 
+        if resolved_school is not None:
+            application.linked_school_id = resolved_school.id
+
     if application.user_id is not None:
         db.add(
             UserNotification(
@@ -660,16 +713,18 @@ async def update_partner_application(
                 notification_type="driving_school_partner_application_status",
                 title="Hamkorlik arizasi holati yangilandi",
                 message=(
-                    f"{application.school_name} bo'yicha ariza holati: approved. "
+                    f"{application.school_name} bo'yicha ariza holati: tasdiqlandi. "
                     "Sizga avtomaktab kabineti faollashtirildi."
-                    if application.status == "approved"
-                    else f"{application.school_name} bo'yicha ariza holati: {application.status}"
+                    if next_status == DrivingSchoolPartnerApplicationStatus.APPROVED
+                    else f"{application.school_name} bo'yicha ariza holati: {status_display_label(application.status)}"
                 ),
                 payload={
                     "application_id": str(application.id),
                     "status": application.status,
-                    "school_id": str(auto_created_school.id) if auto_created_school else None,
-                    "school_slug": auto_created_school.slug if auto_created_school else None,
+                    "school_id": str(resolved_school.id) if resolved_school else None,
+                    "school_slug": resolved_school.slug if resolved_school else None,
+                    "linked_school_id": str(application.linked_school_id) if application.linked_school_id else None,
+                    "auto_created_school_id": str(auto_created_school.id) if auto_created_school else None,
                 },
             )
         )

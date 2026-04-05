@@ -63,7 +63,7 @@ class DrivingSchoolLead(Base):
     status: Mapped[str] = mapped_column(
         String(30),
         nullable=False,
-        default="new",
+        default="NEW",
         index=True,
     )
     created_at: Mapped[datetime] = mapped_column(

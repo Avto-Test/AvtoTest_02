@@ -13,11 +13,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth.router import resolve_user_from_access_token
 from database.session import get_db
+from models.attempt import Attempt
+from models.exam_simulation_attempt import ExamSimulationAttempt
 from models.user import User
 from models.user_notification import UserNotification
 from models.violation_log import ViolationLog
+from services.gamification.economy import CoinSpendService
+from services.learning.simulation_service import resolve_simulation_limits, terminate_simulation_attempt
 
 router = APIRouter(prefix="/violations", tags=["violations"])
+VIOLATION_COIN_PENALTY = 20
 
 
 def _normalize_uuid(value: object | None) -> UUID | None:
@@ -82,6 +87,41 @@ async def log_violation(
         details=details,
     )
     db.add(log)
+    await db.flush()
+
+    coins_penalized = 0
+    coin_balance: int | None = None
+    if user is not None:
+        wallet, _, coins_penalized = await CoinSpendService(db).spend_available_coins(
+            user.id,
+            VIOLATION_COIN_PENALTY,
+            f"violation_penalty:{log.id}",
+            occurred_at=log.created_at,
+        )
+        coin_balance = int(wallet.balance)
+        log.details = {
+            **details,
+            "coins_penalized": coins_penalized,
+            "coin_balance_after_penalty": coin_balance,
+        }
+
+    simulation: ExamSimulationAttempt | None = None
+    attempt: Attempt | None = None
+    if attempt_id is not None:
+        attempt = await db.get(Attempt, attempt_id)
+        if attempt is not None and attempt.mode == "simulation":
+            simulation = await db.get(ExamSimulationAttempt, attempt_id)
+            if simulation is not None and simulation.finished_at is None:
+                simulation.violation_count = int(simulation.violation_count or 0) + 1
+                _, violation_limit = resolve_simulation_limits(simulation)
+                if simulation.violation_count >= violation_limit:
+                    await terminate_simulation_attempt(
+                        db,
+                        attempt,
+                        finished_at=log.created_at,
+                        reason=f"violation_limit_reached:{event_type}",
+                        disqualified=True,
+                    )
 
     if user is not None:
         payload_data = {
@@ -89,13 +129,22 @@ async def log_violation(
             "test_id": str(test_id) if test_id else None,
             "attempt_id": str(attempt_id) if attempt_id else None,
             "details": details,
+            "coins_penalized": coins_penalized,
+            "coin_balance": coin_balance,
         }
         db.add(
             UserNotification(
                 user_id=user.id,
                 notification_type="violation",
                 title="Qoidabuzarlik aniqlandi",
-                message=f"Test paytida '{event_type}' hodisasi qayd etildi.",
+                message=(
+                    f"Test paytida '{event_type}' hodisasi qayd etildi. "
+                    + (
+                        f"Jarima sifatida {coins_penalized} coin yechildi."
+                        if coins_penalized > 0
+                        else "Coin balans 0 bo'lgani uchun jarima qo'llanmadi."
+                    )
+                ),
                 payload=payload_data,
             )
         )
@@ -123,4 +172,21 @@ async def log_violation(
             )
 
     await db.commit()
-    return {"success": True}
+    if simulation is not None:
+        await db.refresh(simulation)
+        _, violation_limit = resolve_simulation_limits(simulation)
+        return {
+            "success": True,
+            "violation_count": int(simulation.violation_count or 0),
+            "violation_limit": violation_limit,
+            "attempt_finished": simulation.finished_at is not None,
+            "disqualified": bool(simulation.disqualified),
+            "disqualification_reason": simulation.disqualification_reason,
+            "coins_penalized": coins_penalized,
+            "coin_balance": coin_balance,
+        }
+    return {
+        "success": True,
+        "coins_penalized": coins_penalized,
+        "coin_balance": coin_balance,
+    }

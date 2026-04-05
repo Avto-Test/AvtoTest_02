@@ -43,9 +43,9 @@ async def test_intelligence_history_cold_start(client: AsyncClient, db_session: 
         assert entry["probability_source"] == "rule"
 
 @pytest.mark.asyncio
-async def test_intelligence_history_empty(client: AsyncClient, normal_user_token):
-    """Test history for user with no attempts"""
-    headers = {"Authorization": f"Bearer {normal_user_token}"}
+async def test_intelligence_history_empty_for_premium_user(client: AsyncClient, premium_user_token):
+    """Premium users should still receive an empty list when no history exists."""
+    headers = {"Authorization": f"Bearer {premium_user_token}"}
     response = await client.get("/analytics/me/intelligence-history", headers=headers)
     assert response.status_code == 200
     assert response.json() == []

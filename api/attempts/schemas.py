@@ -5,8 +5,9 @@ Pydantic models for attempt endpoints
 
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from api.ai_coach.schemas import AiCoachPayload
 from api.tests.schemas import PublicQuestion
 
 
@@ -22,6 +23,7 @@ class SubmitAnswer(BaseModel):
     attempt_id: UUID
     question_id: UUID
     selected_option_id: UUID
+    response_time_ms: int | None = Field(default=None, ge=0)
 
 
 class FinishAttempt(BaseModel):
@@ -98,6 +100,7 @@ class BulkSubmit(BaseModel):
     attempt_id: UUID
     answers: dict[UUID, UUID]  # question_id -> selected_option_id
     response_times: list[int] = [] # response time in ms per question
+    visited_question_ids: list[UUID] | None = None
 
 
 class DetailedAnswer(BaseModel):
@@ -107,14 +110,36 @@ class DetailedAnswer(BaseModel):
     correct_option_id: UUID
     is_correct: bool
     dynamic_difficulty_score: float = 0.5
+    correct_answer: str | None = None
+    explanation: str | None = None
+    ai_coach: AiCoachPayload | None = None
+    recommendations: list[str] = Field(default_factory=list)
+
+
+class RewardAchievement(BaseModel):
+    """Schema for unlocked achievements returned with attempt rewards."""
+    id: UUID | None = None
+    name: str
+    icon: str | None = None
+
+
+class RewardSummary(BaseModel):
+    """Schema for reward deltas granted after an attempt."""
+    xp_awarded: int = 0
+    coins_awarded: int = 0
+    achievements: list[RewardAchievement] = []
 
 
 class BulkSubmitResponse(BaseModel):
     """Schema for rich bulk submission response."""
     score: int
     total: int
+    reviewed_count: int
+    answered_count: int
+    unanswered_count: int
     correct_count: int
     mistakes_count: int
+    completed_all: bool = True
     passed: bool
     finished_at: str
     answers: list[DetailedAnswer]
@@ -131,4 +156,10 @@ class BulkSubmitResponse(BaseModel):
     avg_response_time: float | None = None
     cognitive_profile: str | None = None
     pressure_mode: bool = False
+    mistake_limit: int | None = None
+    violation_count: int | None = None
+    violation_limit: int | None = None
+    disqualified: bool = False
+    disqualification_reason: str | None = None
+    reward_summary: RewardSummary | None = None
 

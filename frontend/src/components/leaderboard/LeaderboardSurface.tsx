@@ -9,17 +9,21 @@ import {
   ChartCard,
   LeaderboardTable,
   PageContainer,
+  PrimaryButton,
   ProductCard,
   ProductEmptyState,
   ProductSkeletonCard,
   ProductTableSkeleton,
   SectionHeader,
   StatCard,
+  TierBadge,
 } from "@/components/ui/product-primitives";
+import { getXpTierProgress } from "@/lib/gamification";
 import {
   getLeaderboardBundle,
   type LeaderboardPeriod,
 } from "@/lib/intelligence";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/store/useAuth";
 
 type LeaderboardSurfaceProps = {
@@ -183,18 +187,34 @@ export function LeaderboardSurface({ preview = false }: LeaderboardSurfaceProps)
       : null;
 
   const podium = rows.slice(0, 3);
+  const tierProgress = getXpTierProgress(bundle?.xp.xp_total ?? 0);
 
   return (
     <PageContainer className="product-page-stack">
       <ProductCard className="product-card-shell sm:p-8">
         <SectionHeader
           eyebrow={t("nav.leaderboard", "Reyting")}
-          title={t("leaderboard.hero_title", "XP bo'yicha sodda reyting")}
-          description={t("leaderboard.hero_description", "Bugun, hafta va oy kesimida o'rningizni ko'ring.")}
+          title="Reyting jadvali"
+          description="Haftalik, oylik va kunlik XP bo'yicha o'rningiz shu yerda ko'rinadi."
+          action={
+            <Tabs value={period} onValueChange={(value) => setPeriod(value as LeaderboardPeriod)}>
+              <TabsList className="h-auto rounded-[var(--radius-soft)] bg-slate-100 p-1">
+                {PERIODS.map((item) => (
+                  <TabsTrigger
+                    key={item}
+                    value={item}
+                    className="rounded-[var(--radius-soft)] px-3 py-1.5 text-xs sm:text-sm data-[state=active]:bg-white data-[state=active]:text-slate-950"
+                  >
+                    {periodTitle(item)}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          }
         />
       </ProductCard>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label={t("leaderboard.rank_label", "O'rin")}
           title={t("leaderboard.current_rank", "Joriy o'rin")}
@@ -216,58 +236,58 @@ export function LeaderboardSurface({ preview = false }: LeaderboardSurfaceProps)
           description={t("leaderboard.period_xp_description", "Aynan shu davrda to'plangan XP.")}
           icon={Crown}
         />
+        <StatCard
+          label="XP tier"
+          title="Sizning tier"
+          value={<TierBadge tier={tierProgress.tier} />}
+          description={tierProgress.nextTier ? `${tierProgress.nextTier.label} uchun ${tierProgress.remainingXp} XP qoldi.` : "Siz eng yuqori tierdasiz."}
+          icon={Medal}
+        />
       </div>
 
       <ProductCard className="product-card-shell">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="product-meta-text">
-              Reyting davri
+              Tanlangan davr
             </p>
-            <h3 className="mt-2 text-2xl font-semibold text-slate-950">Top 3 va umumiy jadval</h3>
+            <h3 className="mt-1 text-2xl font-semibold text-slate-950">Top 3 va to&apos;liq reyting</h3>
           </div>
-          <Tabs value={period} onValueChange={(value) => setPeriod(value as LeaderboardPeriod)}>
-            <TabsList className="h-auto rounded-[var(--radius-soft)] bg-slate-100 p-1">
-              {PERIODS.map((item) => (
-                <TabsTrigger key={item} value={item} className="rounded-[var(--radius-soft)] data-[state=active]:bg-white data-[state=active]:text-slate-950">
-                  {periodTitle(item)}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
         </div>
 
         {unsupportedMessage ? (
           <div className="mt-6">
             <ProductEmptyState
-              title={error ? "Reytingni yuklab bo'lmadi" : unsupportedMessage}
-              description={
-                period === "daily"
-                  ? "Kunlik snapshot backendda hali tayyor emas. Hozircha haftalik yoki oylik reytingdan foydalaning."
-                  : "Reyting ma'lumoti tayyor bo'lgach shu yerda ko'rinadi."
+              title={error ? "Reytingni yuklab bo'lmadi" : "Reyting hali shakllanmagan"}
+              description="Mashq va testlarni yakunlaganingizdan keyin reyting shu yerda ko'rinadi."
+              action={
+                <PrimaryButton asChild>
+                  <a href="/practice">Mashqni boshlash</a>
+                </PrimaryButton>
               }
             />
           </div>
         ) : (
           <>
-            <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="mt-6 grid gap-4 md:grid-cols-3 lg:grid-cols-3">
               {podium.map((entry, index) => (
-                <ProductCard key={`podium-${entry.user_id}`} className={index === 0 ? "product-card-shell border-amber-200 bg-amber-50/70" : "product-card-shell"}>
-                  <div>
-                    <div className="flex items-center gap-3">
-                      <div className="product-icon-shell bg-white">
-                  {podiumIcon(entry.rank)}
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-900">
+                <div
+                  key={`podium-${entry.user_id}`}
+                  className={cn(
+                    "flex flex-col items-center rounded-3xl border border-slate-200 bg-white p-4 text-center shadow-sm",
+                    index === 1 && "mt-4",
+                    index === 2 && "mt-8",
+                  )}
+                >
+                  <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-white">
+                    {podiumIcon(entry.rank)}
+                  </div>
+                  <p className="text-sm font-semibold text-slate-900">
                     {resolveName(entry.user_id)}
                   </p>
-                        <p className="mt-1 text-xs text-slate-500">{index === 0 ? "Chempion" : `${entry.rank}-o'rin`}</p>
-                      </div>
-                    </div>
-                    <p className="mt-5 text-3xl font-semibold text-slate-950">{entry.xp_gained} XP</p>
-                  </div>
-                </ProductCard>
+                  <p className="mt-1 text-xs text-slate-500">#{entry.rank}</p>
+                  <p className="mt-3 text-lg font-semibold text-slate-900">{entry.xp_gained} XP</p>
+                </div>
               ))}
             </div>
 
@@ -276,6 +296,9 @@ export function LeaderboardSurface({ preview = false }: LeaderboardSurfaceProps)
                 rows={rows}
                 currentUserId={user?.id}
                 resolveName={resolveName}
+                getRowMeta={(row) => (
+                  row.user_id === user?.id ? <TierBadge tier={tierProgress.tier} /> : null
+                )}
               />
             </div>
           </>

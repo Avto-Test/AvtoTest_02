@@ -222,6 +222,80 @@ async def test_generate_adaptive_session_distribution(db_session, normal_user):
 
 
 @pytest.mark.asyncio
+async def test_generate_adaptive_session_prioritizes_due_review_items(db_session, normal_user):
+    weak_category = QuestionCategory(name="Due Review Topic")
+    support_category = QuestionCategory(name="Support Topic")
+    test = Test(title="Due Review Pool", difficulty="medium")
+    db_session.add_all([weak_category, support_category, test])
+    await db_session.flush()
+
+    due_questions = [
+        await _create_question(db_session, test=test, category=weak_category, text=f"Due {idx}", dynamic_difficulty_score=0.75)
+        for idx in range(4)
+    ]
+    filler_questions = [
+        await _create_question(db_session, test=test, category=support_category, text=f"Filler {idx}", dynamic_difficulty_score=0.5)
+        for idx in range(10)
+    ]
+    await db_session.flush()
+
+    db_session.add(
+        UserTopicStats(
+            user_id=normal_user.id,
+            topic_id=weak_category.id,
+            total_attempts=12,
+            correct_answers=5,
+            wrong_answers=7,
+            accuracy_rate=5 / 12,
+        )
+    )
+
+    due_time = datetime.now(timezone.utc) - timedelta(days=2)
+    for question in due_questions:
+        db_session.add(
+            UserQuestionHistory(
+                user_id=normal_user.id,
+                question_id=question.id,
+                attempt_count=3,
+                correct_count=1,
+                last_seen_at=due_time - timedelta(days=3),
+                last_correct_at=due_time - timedelta(days=6),
+            )
+        )
+        db_session.add(
+            ReviewQueue(
+                user_id=normal_user.id,
+                question_id=question.id,
+                next_review_at=due_time,
+                interval_days=1,
+                last_result="wrong",
+            )
+        )
+
+    for question in filler_questions[:5]:
+        db_session.add(
+            UserQuestionHistory(
+                user_id=normal_user.id,
+                question_id=question.id,
+                attempt_count=2,
+                correct_count=2,
+                last_seen_at=due_time,
+                last_correct_at=due_time,
+            )
+        )
+
+    await db_session.commit()
+
+    plan = await generate_adaptive_session(normal_user.id, db=db_session, question_count=8)
+    due_ids = {question.id for question in due_questions}
+    selected_due = [question.id for question in plan.questions if question.id in due_ids]
+
+    assert len(plan.questions) == 8
+    assert len(selected_due) >= 2
+    assert weak_category.id in plan.weak_topic_ids
+
+
+@pytest.mark.asyncio
 async def test_learning_session_endpoint_creates_backend_controlled_session(
     client,
     db_session,
@@ -233,7 +307,7 @@ async def test_learning_session_endpoint_creates_backend_controlled_session(
     db_session.add_all([weak_category, test])
     await db_session.flush()
 
-    for idx in range(12):
+    for idx in range(24):
         question = await _create_question(db_session, test=test, category=weak_category, text=f"API Question {idx}", dynamic_difficulty_score=0.7)
         db_session.add(
             QuestionDifficulty(
@@ -259,13 +333,15 @@ async def test_learning_session_endpoint_creates_backend_controlled_session(
 
     response = await client.post(
         "/learning/session",
-        json={"question_count": 10},
+        json={"question_count": 20},
         headers={"Authorization": f"Bearer {normal_user_token}"},
     )
     assert response.status_code == 201
     payload = response.json()
     assert payload["session_id"]
-    assert len(payload["questions"]) == 10
+    assert payload["question_count"] == 20
+    assert payload["duration_minutes"] >= 25
+    assert len(payload["questions"]) == 20
     assert all("is_correct" not in question for question in payload["questions"])
     assert all("correct_option_id" not in question for question in payload["questions"])
 
