@@ -11,7 +11,16 @@ __pycache__/
 .pytest_cache/
 .qoder/
 uploads/
-frontend/
+# Frontend build artifacts
+node_modules/
+**/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+.next/
+out/
+build/
+
 .env
 .env.*
 !.env.example
