@@ -3,6 +3,7 @@ import { Inter, Space_Grotesk } from "next/font/google";
 
 import { AuthProvider } from "@/components/providers/auth-provider";
 import { ExperimentProvider } from "@/components/providers/experiment-provider";
+import { FeatureAccessProvider } from "@/components/providers/feature-access-provider";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { themeStyleText } from "@/styles/theme";
 
@@ -21,6 +22,11 @@ const spaceGrotesk = Space_Grotesk({
 export const metadata: Metadata = {
   title: "AUTOTEST",
   description: "AUTOTEST driving theory preparation platform.",
+  icons: {
+    icon: "/favicon.svg",
+    shortcut: "/favicon.svg",
+    apple: "/favicon.svg",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -32,7 +38,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${inter.variable} ${spaceGrotesk.variable} font-sans antialiased`}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <AuthProvider>
-            <ExperimentProvider>{children}</ExperimentProvider>
+            <FeatureAccessProvider>
+              <ExperimentProvider>{children}</ExperimentProvider>
+            </FeatureAccessProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

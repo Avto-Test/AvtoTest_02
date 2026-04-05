@@ -2,13 +2,20 @@
 
 import Link from "next/link";
 import { CheckCircle2, Crown, Loader2, RefreshCw } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { startTransition, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { getTransactionStatus } from "@/api/payments";
 import { PaymentStatusView } from "@/features/payments/payment-status-view";
 import { useUser } from "@/hooks/use-user";
-import { clearRememberedCheckoutSession, normalizePaymentStatus, resolveCheckoutSessionId } from "@/lib/payment-session";
+import { trackMonetizationEvent } from "@/lib/analytics";
+import {
+  clearRememberedCheckoutContext,
+  clearRememberedCheckoutSession,
+  getRememberedCheckoutContext,
+  normalizePaymentStatus,
+  resolveCheckoutSessionId,
+} from "@/lib/payment-session";
 import { buttonStyles } from "@/shared/ui/button";
 
 const POLL_INTERVAL_MS = 3000;
@@ -30,13 +37,13 @@ export function PaymentSuccessPage() {
     }
 
     if (!authenticated) {
-      setStage("auth");
+      startTransition(() => setStage("auth"));
       return;
     }
 
     if (user?.is_premium) {
       clearRememberedCheckoutSession();
-      setStage("success");
+      startTransition(() => setStage("success"));
       return;
     }
 
@@ -44,16 +51,16 @@ export function PaymentSuccessPage() {
       void refreshUser()
         .then(() => {
           clearRememberedCheckoutSession();
-          setStage("success");
+          startTransition(() => setStage("success"));
         })
         .catch(() => {
-          setStage("pending");
+          startTransition(() => setStage("pending"));
         });
       return;
     }
 
     if (!checkoutId) {
-      setStage("pending");
+      startTransition(() => setStage("pending"));
       return;
     }
 
@@ -96,7 +103,7 @@ export function PaymentSuccessPage() {
       }
 
       if (attempt >= MAX_POLLS - 1) {
-        setStage("pending");
+        startTransition(() => setStage("pending"));
         return;
       }
 
@@ -112,6 +119,26 @@ export function PaymentSuccessPage() {
       }
     };
   }, [authenticated, checkoutId, isGift, loading, refreshUser, router, user?.is_premium]);
+
+  useEffect(() => {
+    if (stage !== "success") {
+      return;
+    }
+
+    const checkoutContext = getRememberedCheckoutContext();
+    if (!checkoutContext) {
+      return;
+    }
+
+    void trackMonetizationEvent("upgrade_success", checkoutContext.feature_key, {
+      source: `${checkoutContext.source ?? "payment_success"}:frontend_confirmation`,
+      plan_id: checkoutContext.plan_id,
+      plan_name: checkoutContext.plan_name,
+      price_cents: checkoutContext.price_cents,
+      currency: checkoutContext.currency,
+    });
+    clearRememberedCheckoutContext();
+  }, [stage]);
 
   if (stage === "auth") {
     return (

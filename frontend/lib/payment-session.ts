@@ -1,6 +1,16 @@
 import type { NormalizedPaymentStatus } from "@/types/payment";
 
 const CHECKOUT_SESSION_STORAGE_KEY = "autotest.checkout.session";
+const CHECKOUT_CONTEXT_STORAGE_KEY = "autotest.checkout.context";
+
+export type CheckoutAnalyticsContext = {
+  feature_key?: string | null;
+  source?: string | null;
+  plan_id?: string | null;
+  plan_name?: string | null;
+  price_cents?: number | null;
+  currency?: string | null;
+};
 
 type SearchParamsLike = {
   get: (key: string) => string | null;
@@ -38,6 +48,39 @@ export function clearRememberedCheckoutSession() {
   }
 
   window.localStorage.removeItem(CHECKOUT_SESSION_STORAGE_KEY);
+}
+
+export function rememberCheckoutContext(context: CheckoutAnalyticsContext) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(CHECKOUT_CONTEXT_STORAGE_KEY, JSON.stringify(context));
+}
+
+export function getRememberedCheckoutContext() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const raw = window.localStorage.getItem(CHECKOUT_CONTEXT_STORAGE_KEY);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw) as CheckoutAnalyticsContext;
+  } catch {
+    return null;
+  }
+}
+
+export function clearRememberedCheckoutContext() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.removeItem(CHECKOUT_CONTEXT_STORAGE_KEY);
 }
 
 export function resolveCheckoutSessionId(searchParams: SearchParamsLike | null | undefined) {

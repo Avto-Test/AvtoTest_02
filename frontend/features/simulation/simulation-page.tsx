@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Check, Coins, Lock, LockOpen, Rocket, TimerReset } from "lucide-react";
+import { Check, Coins, Lock, LockOpen, Rocket, Sparkles, TimerReset } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTheme } from "next-themes";
 
@@ -10,10 +10,13 @@ import { getEconomyOverview, reduceSimulationCooldown, unlockSimulationFastTrack
 import { getSimulationHistory, startSimulationExam } from "@/api/simulation";
 import { AppShell } from "@/components/app-shell";
 import { AssessmentSession } from "@/components/assessment-session";
+import { PremiumLock } from "@/components/premium-lock";
+import { useFeatureAccess } from "@/components/providers/feature-access-provider";
 import { useProgressSnapshot } from "@/components/providers/progress-provider";
 import { useAsyncResource } from "@/hooks/use-async-resource";
 import { useAnalytics } from "@/hooks/use-analytics";
 import { useUser } from "@/hooks/use-user";
+import { FEATURES } from "@/lib/features";
 import { resolveTopicMasteryState } from "@/lib/learning";
 import { formatSimulationCountdown } from "@/lib/simulation-status";
 import { cn } from "@/lib/utils";
@@ -111,10 +114,13 @@ function buildReadinessMessage({
 
 function SimulationPageContent() {
   const { authenticated } = useUser();
+  const featureAccess = useFeatureAccess();
   const { resolvedTheme } = useTheme();
   const progress = useProgressSnapshot();
   const analytics = useAnalytics();
-  const historyResource = useAsyncResource(getSimulationHistory, [authenticated], authenticated, {
+  const hasSimulationAccess = featureAccess.ready && featureAccess.hasAccess(FEATURES.SIMULATION);
+  const simulationLockedByPlan = featureAccess.ready && !hasSimulationAccess;
+  const historyResource = useAsyncResource(getSimulationHistory, [authenticated, hasSimulationAccess], authenticated && hasSimulationAccess, {
     cacheKey: "simulation:history",
     staleTimeMs: 30_000,
   });
@@ -161,16 +167,18 @@ function SimulationPageContent() {
   const canStartSimulation = launchReady || fastUnlockActive;
   const coinBalance = economyResource.data?.coin_balance ?? progress.gamification?.coins.balance ?? 0;
   const nextLevelXp = progress.gamification?.xp.xp_to_next_level ?? 143;
-  const readinessMessage = buildReadinessMessage({
-    readinessScore,
-    remainingTopics,
-    cooldownReady,
-    cooldownRemainingSeconds,
-    launchReady,
-    fastUnlockActive,
-    warningMessage: simulationStatus?.warning_message,
-  });
-  const SimulationAccessIcon = canStartSimulation ? LockOpen : Lock;
+  const readinessMessage = simulationLockedByPlan
+    ? "Simulyatsiya sahifasi ochiq qoladi, lekin imtihonni boshlash va tarixni ko'rish premium orqali unlock qilinadi."
+    : buildReadinessMessage({
+        readinessScore,
+        remainingTopics,
+        cooldownReady,
+        cooldownRemainingSeconds,
+        launchReady,
+        fastUnlockActive,
+        warningMessage: simulationStatus?.warning_message,
+      });
+  const SimulationAccessIcon = simulationLockedByPlan ? Lock : canStartSimulation ? LockOpen : Lock;
   const simulationCtaClassName =
     "group relative inline-flex min-w-[20.5rem] items-center justify-between gap-3 overflow-hidden rounded-[12px] border border-emerald-300/18 bg-[linear-gradient(135deg,rgba(61,226,125,0.98)_0%,rgba(35,200,128,0.97)_44%,rgba(22,171,141,0.95)_100%)] px-6 py-3 text-[15px] font-semibold text-white shadow-[0_12px_30px_rgba(16,185,129,0.24)] transition-all duration-300 before:absolute before:inset-y-0 before:left-[-28%] before:w-[34%] before:-skew-x-[24deg] before:bg-white/20 before:opacity-0 before:blur-xl before:transition-all before:duration-500 hover:-translate-y-0.5 hover:brightness-110 hover:shadow-[0_18px_38px_rgba(16,185,129,0.32)] hover:before:left-[110%] hover:before:opacity-100 disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:translate-y-0";
   const isLightTheme = resolvedTheme === "light";
@@ -213,7 +221,12 @@ function SimulationPageContent() {
     setSpending(true);
     try {
       await reduceSimulationCooldown(Number(reductionDays));
-      await Promise.allSettled([analytics.reload(), historyResource.reload(), economyResource.reload(), progress.reload()]);
+      await Promise.allSettled([
+        analytics.reload(),
+        hasSimulationAccess ? historyResource.reload() : Promise.resolve(),
+        economyResource.reload(),
+        progress.reload(),
+      ]);
     } catch (error) {
       setActionError(resolveActionError(error));
     } finally {
@@ -226,7 +239,12 @@ function SimulationPageContent() {
     setUnlocking(true);
     try {
       await unlockSimulationFastTrack();
-      await Promise.allSettled([analytics.reload(), historyResource.reload(), economyResource.reload(), progress.reload()]);
+      await Promise.allSettled([
+        analytics.reload(),
+        hasSimulationAccess ? historyResource.reload() : Promise.resolve(),
+        economyResource.reload(),
+        progress.reload(),
+      ]);
     } catch (error) {
       setActionError(resolveActionError(error));
     } finally {
@@ -239,7 +257,14 @@ function SimulationPageContent() {
       <AssessmentSession
         session={activeSession}
         onExit={() => setActiveSession(null)}
-        onFinished={() => void Promise.allSettled([analytics.reload(), historyResource.reload(), economyResource.reload(), progress.reload()])}
+        onFinished={() =>
+          void Promise.allSettled([
+            analytics.reload(),
+            hasSimulationAccess ? historyResource.reload() : Promise.resolve(),
+            economyResource.reload(),
+            progress.reload(),
+          ])
+        }
       />
     );
   }
@@ -261,7 +286,13 @@ function SimulationPageContent() {
       <ErrorState
         description="Simulyatsiya ma'lumoti yuklanmadi."
         error={analytics.error}
-        onRetry={() => void Promise.allSettled([analytics.reload(), historyResource.reload(), economyResource.reload()])}
+        onRetry={() =>
+          void Promise.allSettled([
+            analytics.reload(),
+            hasSimulationAccess ? historyResource.reload() : Promise.resolve(),
+            economyResource.reload(),
+          ])
+        }
       />
     );
   }
@@ -315,7 +346,14 @@ function SimulationPageContent() {
             <h1 className="text-[3.45rem] font-bold leading-[0.98] tracking-tight text-white">Simulyatsiya</h1>
 
             <div className="flex items-center gap-2 text-[13px] leading-[1.3] text-white/88">
-              {canStartSimulation ? (
+              {simulationLockedByPlan ? (
+                <>
+                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500/18">
+                    <Lock className="h-3.5 w-3.5 text-amber-300" />
+                  </div>
+                  <span>Simulyatsiya run premium feature sifatida himoyalangan</span>
+                </>
+              ) : canStartSimulation ? (
                 <>
                   <div className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/90">
                     <Check className="h-3.5 w-3.5 text-white" />
@@ -356,7 +394,23 @@ function SimulationPageContent() {
               </div>
             </div>
 
-            {canStartSimulation ? (
+            {simulationLockedByPlan ? (
+              <button
+                type="button"
+                onClick={() => featureAccess.openUpgrade(FEATURES.SIMULATION, { source: "simulation_hero_cta" })}
+                className={simulationCtaClassName}
+              >
+                <span className="relative z-[1] flex items-center gap-2.5">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full border border-white/18 bg-black/12 transition-transform duration-300 group-hover:scale-105">
+                    <Sparkles className="h-4 w-4" />
+                  </span>
+                  <span>Premiumni ochish</span>
+                </span>
+                <span className="relative z-[1] flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-black/14 transition-all duration-300 group-hover:translate-x-0.5 group-hover:scale-105 group-hover:bg-black/22">
+                  <SimulationAccessIcon className="h-4.5 w-4.5 animate-[pulse_2.4s_ease-in-out_infinite]" />
+                </span>
+              </button>
+            ) : canStartSimulation ? (
               <button
                 type="button"
                 onClick={() => void startSimulation()}
@@ -393,108 +447,126 @@ function SimulationPageContent() {
         </div>
 
         <div className="grid gap-3 px-4 pb-4 sm:px-6 sm:pb-5 lg:grid-cols-[1fr_1fr] lg:px-[3.75rem] lg:pb-6">
-          <div className={cn(glassPanelClass, "p-3")}>
-            <div>
-              <h3 className={cn("text-[15px] font-semibold leading-[1.3]", surfaceTextPrimaryClass)}>Tez ochish</h3>
-              <p className={cn("mt-1 text-[13px] leading-[1.3]", surfaceTextSecondaryClass)}>Learning Path tavsiya etiladi, coin esa tezkor yo&apos;l.</p>
-            </div>
+          <PremiumLock
+            isLocked={simulationLockedByPlan}
+            featureKey={FEATURES.SIMULATION}
+            featureName="Simulation access"
+            source="simulation_unlock_panel"
+            onUnlockClick={() => featureAccess.openUpgrade(FEATURES.SIMULATION, { source: "simulation_unlock_panel" })}
+            className="rounded-[14px]"
+          >
+            <div className={cn(glassPanelClass, "p-3")}>
+              <div>
+                <h3 className={cn("text-[15px] font-semibold leading-[1.3]", surfaceTextPrimaryClass)}>Tez ochish</h3>
+                <p className={cn("mt-1 text-[13px] leading-[1.3]", surfaceTextSecondaryClass)}>Learning Path tavsiya etiladi, coin esa tezkor yo&apos;l.</p>
+              </div>
 
-            <div className="mt-3 space-y-3">
-              <div className="rounded-[14px] border border-[color-mix(in_oklab,var(--accent-green)_18%,transparent)] bg-[color-mix(in_oklab,var(--accent-green-soft)_86%,transparent)] p-[10px]">
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-500/90">
-                    <Check className="h-4 w-4 text-white" />
+              <div className="mt-3 space-y-3">
+                <div className="rounded-[14px] border border-[color-mix(in_oklab,var(--accent-green)_18%,transparent)] bg-[color-mix(in_oklab,var(--accent-green-soft)_86%,transparent)] p-[10px]">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-500/90">
+                      <Check className="h-4 w-4 text-white" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={cn("text-[15px] font-medium leading-[1.3]", surfaceTextPrimaryClass)}>Learning Path orqali</span>
+                        <span className={cn("text-[12px] leading-[1.3]", surfaceTextTertiaryClass)}>(tavsiya etiladi)</span>
+                      </div>
+                      <p className="mt-1.5 text-[13px] leading-[1.3] text-[var(--accent-green)]">+ reward ko&apos;proq!</p>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => void unlockWithCoins()}
+                  disabled={unlocking || Boolean(fastUnlockOffer?.active)}
+                  className={cn(
+                    "flex w-full items-center justify-between p-[10px] text-left transition-colors duration-200 hover:bg-[color-mix(in_oklab,var(--card)_92%,var(--accent-yellow)_4%)] disabled:cursor-not-allowed disabled:opacity-70",
+                    glassRowClass,
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-500/18">
+                      <Coins className="h-4 w-4 text-amber-300" />
+                    </div>
+                    <span className={cn("text-[15px] font-medium leading-[1.3]", surfaceTextPrimaryClass)}>
+                      {fastUnlockOffer?.active
+                        ? "Coin unlock faol"
+                        : unlocking
+                          ? "Ochilmoqda..."
+                          : `${fastUnlockOffer?.cost ?? 120} coin bilan ochish`}
+                    </span>
+                  </div>
+                  <span className="text-[15px] font-semibold leading-[1.3] text-amber-300">{coinBalance} coin</span>
+                </button>
+              </div>
+
+              <div className={cn("mt-3 p-3", glassRowClass)}>
+                <h3 className={cn("text-[15px] font-semibold leading-[1.3]", surfaceTextPrimaryClass)}>Cooldown</h3>
+                <div className="mt-3 flex items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_oklab,var(--card)_86%,var(--foreground)_4%)]">
+                    <Lock className="h-4 w-4 text-[var(--text-secondary)]" />
                   </div>
                   <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={cn("text-[15px] font-medium leading-[1.3]", surfaceTextPrimaryClass)}>Learning Path orqali</span>
-                      <span className={cn("text-[12px] leading-[1.3]", surfaceTextTertiaryClass)}>(tavsiya etiladi)</span>
-                    </div>
-                    <p className="mt-1.5 text-[13px] leading-[1.3] text-[var(--accent-green)]">+ reward ko&apos;proq!</p>
+                    <p className={cn("text-[13px] leading-[1.3]", surfaceTextPrimaryClass)}>{countdownText}</p>
+                    <p className={cn("mt-1 text-[12px] leading-[1.3]", surfaceTextTertiaryClass)}>Yana {simulationStatus?.cooldown_days ?? 14} kunlik kutish boshlanadi.</p>
                   </div>
+                </div>
+
+                <div className="mt-3 grid gap-2 sm:grid-cols-[8.75rem_1fr]">
+                  <Select
+                    className="min-w-0"
+                    value={reductionDays}
+                    onChange={(event) => setReductionDays(event.target.value)}
+                    icon={<Coins className="h-4 w-4" />}
+                    disabled={!cooldownOffer?.available_days || spending}
+                  >
+                    {Array.from({ length: cooldownOffer?.available_days ?? 0 }, (_, index) => index + 1).map((day) => (
+                      <option key={day} value={String(day)}>
+                        {day} kun
+                      </option>
+                    ))}
+                    {!cooldownOffer?.available_days ? <option value="1">Mavjud emas</option> : null}
+                  </Select>
+
+                  <Button
+                    onClick={() => void spendForCooldown()}
+                    disabled={!cooldownOffer?.available_days || spending}
+                    className="rounded-[10px] border border-white/8 bg-transparent px-4 py-2.5 text-[13px] leading-[1.3] text-amber-300 hover:bg-white/[0.04] hover:text-amber-200"
+                  >
+                    <TimerReset className="h-4 w-4" />
+                    {spending
+                      ? "Qisqartirilmoqda..."
+                      : `${Number(reductionDays) * (cooldownOffer?.cost_per_day ?? 40)} coin bilan qisqartirish`}
+                  </Button>
                 </div>
               </div>
-
-              <button
-                type="button"
-                onClick={() => void unlockWithCoins()}
-                disabled={unlocking || Boolean(fastUnlockOffer?.active)}
-                className={cn(
-                  "flex w-full items-center justify-between p-[10px] text-left transition-colors duration-200 hover:bg-[color-mix(in_oklab,var(--card)_92%,var(--accent-yellow)_4%)] disabled:cursor-not-allowed disabled:opacity-70",
-                  glassRowClass,
-                )}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-500/18">
-                    <Coins className="h-4 w-4 text-amber-300" />
-                  </div>
-                  <span className={cn("text-[15px] font-medium leading-[1.3]", surfaceTextPrimaryClass)}>
-                    {fastUnlockOffer?.active
-                      ? "Coin unlock faol"
-                      : unlocking
-                        ? "Ochilmoqda..."
-                        : `${fastUnlockOffer?.cost ?? 120} coin bilan ochish`}
-                  </span>
-                </div>
-                <span className="text-[15px] font-semibold leading-[1.3] text-amber-300">{coinBalance} coin</span>
-              </button>
             </div>
+          </PremiumLock>
 
-            <div className={cn("mt-3 p-3", glassRowClass)}>
-              <h3 className={cn("text-[15px] font-semibold leading-[1.3]", surfaceTextPrimaryClass)}>Cooldown</h3>
-              <div className="mt-3 flex items-start gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_oklab,var(--card)_86%,var(--foreground)_4%)]">
-                  <Lock className="h-4 w-4 text-[var(--text-secondary)]" />
+          <PremiumLock
+            isLocked={simulationLockedByPlan}
+            featureKey={FEATURES.SIMULATION}
+            featureName="Simulation history"
+            source="simulation_history_panel"
+            onUnlockClick={() => featureAccess.openUpgrade(FEATURES.SIMULATION, { source: "simulation_history_panel" })}
+            className="rounded-[14px]"
+          >
+            {historyResource.error ? (
+              <div className={cn(glassPanelClass, "flex min-h-0 flex-col p-3")}>
+                <h3 className={cn("text-[15px] font-semibold leading-[1.3]", surfaceTextPrimaryClass)}>So&apos;nggi imtihonlar</h3>
+                <div className="mt-3 flex flex-1 items-center justify-center rounded-[14px] border border-dashed border-[color-mix(in_oklab,var(--border)_70%,transparent)] bg-[color-mix(in_oklab,var(--card)_72%,transparent)] p-4 text-center text-[13px] leading-[1.3] text-[var(--text-secondary)]">
+                  Tarixni yuklab bo&apos;lmadi. Qayta urinib ko&apos;ring.
                 </div>
-                <div className="min-w-0">
-                  <p className={cn("text-[13px] leading-[1.3]", surfaceTextPrimaryClass)}>{countdownText}</p>
-                  <p className={cn("mt-1 text-[12px] leading-[1.3]", surfaceTextTertiaryClass)}>Yana {simulationStatus?.cooldown_days ?? 14} kunlik kutish boshlanadi.</p>
-                </div>
-              </div>
-
-              <div className="mt-3 grid gap-2 sm:grid-cols-[8.75rem_1fr]">
-                <Select
-                  className="min-w-0"
-                  value={reductionDays}
-                  onChange={(event) => setReductionDays(event.target.value)}
-                  icon={<Coins className="h-4 w-4" />}
-                  disabled={!cooldownOffer?.available_days || spending}
-                >
-                  {Array.from({ length: cooldownOffer?.available_days ?? 0 }, (_, index) => index + 1).map((day) => (
-                    <option key={day} value={String(day)}>
-                      {day} kun
-                    </option>
-                  ))}
-                  {!cooldownOffer?.available_days ? <option value="1">Mavjud emas</option> : null}
-                </Select>
-
-                <Button
-                  onClick={() => void spendForCooldown()}
-                  disabled={!cooldownOffer?.available_days || spending}
-                  className="rounded-[10px] border border-white/8 bg-transparent px-4 py-2.5 text-[13px] leading-[1.3] text-amber-300 hover:bg-white/[0.04] hover:text-amber-200"
-                >
-                  <TimerReset className="h-4 w-4" />
-                  {spending
-                    ? "Qisqartirilmoqda..."
-                    : `${Number(reductionDays) * (cooldownOffer?.cost_per_day ?? 40)} coin bilan qisqartirish`}
+                <Button onClick={() => void historyResource.reload()} className="mt-3 rounded-[10px] bg-white px-4 py-2.5 text-[13px] leading-[1.3] text-black hover:bg-white/90">
+                  Qayta urinish
                 </Button>
               </div>
-            </div>
-          </div>
-
-          {historyResource.error ? (
-            <div className={cn(glassPanelClass, "flex min-h-0 flex-col p-3")}>
-              <h3 className={cn("text-[15px] font-semibold leading-[1.3]", surfaceTextPrimaryClass)}>So&apos;nggi imtihonlar</h3>
-              <div className="mt-3 flex flex-1 items-center justify-center rounded-[14px] border border-dashed border-[color-mix(in_oklab,var(--border)_70%,transparent)] bg-[color-mix(in_oklab,var(--card)_72%,transparent)] p-4 text-center text-[13px] leading-[1.3] text-[var(--text-secondary)]">
-                Tarixni yuklab bo&apos;lmadi. Qayta urinib ko&apos;ring.
-              </div>
-              <Button onClick={() => void historyResource.reload()} className="mt-3 rounded-[10px] bg-white px-4 py-2.5 text-[13px] leading-[1.3] text-black hover:bg-white/90">
-                Qayta urinish
-              </Button>
-            </div>
-          ) : (
-            <SimulationHistory items={historyItems} />
-          )}
+            ) : (
+              <SimulationHistory items={historyItems} />
+            )}
+          </PremiumLock>
         </div>
       </div>
     </section>

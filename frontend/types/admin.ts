@@ -35,6 +35,68 @@ export interface AdminAnalyticsSummary {
   accuracy_trend?: AdminMetricTrendSnapshot | null;
   active_users_trend?: AdminMetricTrendSnapshot | null;
   applications_trend?: AdminMetricTrendSnapshot | null;
+  monetization?: AdminMonetizationSummary | null;
+}
+
+export interface AdminFeatureFunnel {
+  views: number;
+  clicks: number;
+  purchases: number;
+  conversion_rate: number;
+}
+
+export interface AdminFeatureAnalyticsTimeSeriesPoint {
+  date: string;
+  views: number;
+  clicks: number;
+  purchases: number;
+}
+
+export interface AdminPricingInsight {
+  signal: string;
+  reason: string;
+}
+
+export interface AdminSuggestedPriceRange {
+  min: number;
+  max: number;
+}
+
+export interface AdminMonetizationInsightItem {
+  feature: string;
+  feature_name: string;
+  problem: string;
+  message: string;
+  recommendation: string;
+  current_price?: number | null;
+  suggested_price_range: AdminSuggestedPriceRange;
+  last_price_analysis_at?: string | null;
+}
+
+export interface AdminFeaturePerformanceItem {
+  feature_key: string;
+  feature_name: string;
+  usage_count: number;
+  lock_views: number;
+  upgrade_clicks: number;
+  purchases: number;
+  last_7_days_clicks: number;
+  conversion_rate: number;
+  current_price?: number | null;
+  suggested_price_min?: number | null;
+  suggested_price_max?: number | null;
+  last_price_analysis_at?: string | null;
+  pricing_insight: AdminPricingInsight;
+}
+
+export interface AdminMonetizationSummary {
+  total_premium_conversions: number;
+  overall_conversion_rate: number;
+  top_performing_feature?: string | null;
+  drop_off_rate: number;
+  funnel: AdminFeatureFunnel;
+  daily_conversions: AdminFeatureAnalyticsTimeSeriesPoint[];
+  feature_performance: AdminFeaturePerformanceItem[];
 }
 
 export interface AdminPaymentSummary {

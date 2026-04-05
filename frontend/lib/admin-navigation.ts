@@ -7,6 +7,7 @@ import {
   GraduationCap,
   LayoutDashboard,
   ShieldAlert,
+  SlidersHorizontal,
   Users,
 } from "lucide-react";
 
@@ -60,6 +61,12 @@ export const adminNavigation: AdminNavigationSection[] = [
         label: "Analitika",
         description: "Platforma statistikasi va top testlar",
         icon: BarChart3,
+      },
+      {
+        href: "/admin/features",
+        label: "Feature flags",
+        description: "Premium feature gating va promo unlock boshqaruvi",
+        icon: SlidersHorizontal,
       },
       {
         href: "/admin/violations",
