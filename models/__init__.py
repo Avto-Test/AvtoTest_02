@@ -3,9 +3,13 @@ AUTOTEST Models Package
 """
 
 from models.answer_option import AnswerOption
+from models.achievement_definition import AchievementDefinition
 from models.analytics_event import AnalyticsEvent
 from models.attempt import Attempt
 from models.attempt_answer import AttemptAnswer
+from models.coin_transaction import CoinTransaction
+from models.coin_wallet import CoinWallet
+from models.experiment import Experiment
 from models.payment import Payment
 from models.question import Question
 from models.question_difficulty import QuestionDifficulty
@@ -21,6 +25,7 @@ from models.test import Test
 from models.user import User
 from models.user_role import UserRole
 from models.user_adaptive_profile import UserAdaptiveProfile
+from models.user_experiment import UserExperiment
 from models.user_notification import UserNotification
 from models.user_topic_stats import UserTopicStats
 from models.user_training_history import UserTrainingHistory
@@ -36,8 +41,10 @@ from models.violation_log import ViolationLog
 from models.guest_attempt import GuestAttempt
 from models.guest_attempt_answer import GuestAttemptAnswer
 from models.pending_registration import PendingRegistration
+from models.leaderboard_snapshot import LeaderboardSnapshot
 from models.lesson import Lesson
 from models.feedback import Feedback
+from models.feature import Feature
 from models.driving_school import DrivingSchool
 from models.driving_school_course import DrivingSchoolCourse
 from models.driving_school_media import DrivingSchoolMedia
@@ -51,6 +58,17 @@ from models.driving_instructor_lead import DrivingInstructorLead
 from models.driving_instructor_application import DrivingInstructorApplication
 from models.driving_instructor_registration_setting import DrivingInstructorRegistrationSetting
 from models.driving_instructor_complaint import DrivingInstructorComplaint
+from models.exam_simulation_attempt import ExamSimulationAttempt
+from models.simulation_exam_setting import SimulationExamSetting
+from models.user_achievement import UserAchievement
+from models.user_streak import UserStreak
+from models.user_exam_result import UserExamResult
+from models.xp_boost import XPBoost
+from models.xp_event import XPEvent
+from models.xp_wallet import XPWallet
+from models.user_prediction_snapshot import UserPredictionSnapshot
+from models.user_session import UserSession
+from models.ml_dataset import MLDataset
 
 __all__ = [
     "User",
@@ -67,8 +85,12 @@ __all__ = [
     "SchoolMembership",
     "AnswerOption",
     "AnalyticsEvent",
+    "AchievementDefinition",
     "Attempt",
     "AttemptAnswer",
+    "CoinTransaction",
+    "CoinWallet",
+    "Experiment",
     "Payment",
     "Subscription",
     "UserTrainingHistory",
@@ -83,9 +105,12 @@ __all__ = [
     "GuestAttempt",
     "GuestAttemptAnswer",
     "PendingRegistration",
+    "LeaderboardSnapshot",
     "Lesson",
     "Feedback",
+    "Feature",
     "UserAdaptiveProfile",
+    "UserExperiment",
     "UserNotification",
     "UserRole",
     "UserTopicStats",
@@ -102,4 +127,11 @@ __all__ = [
     "DrivingInstructorApplication",
     "DrivingInstructorRegistrationSetting",
     "DrivingInstructorComplaint",
+    "ExamSimulationAttempt",
+    "SimulationExamSetting",
+    "UserAchievement",
+    "UserStreak",
+    "XPBoost",
+    "XPEvent",
+    "XPWallet",
 ]

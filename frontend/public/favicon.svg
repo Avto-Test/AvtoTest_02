@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="AUTOTEST">
+  <defs>
+    <linearGradient id="autotest-favicon-bg" x1="8" x2="56" y1="8" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#16a34a" />
+      <stop offset="1" stop-color="#22c55e" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="18" fill="#04160b" />
+  <rect x="6" y="6" width="52" height="52" rx="14" fill="url(#autotest-favicon-bg)" />
+  <path
+    d="M20 42.5 31.5 18h3.8L47 42.5h-7.1l-2.1-4.9H28.9l-2 4.9Zm11-18.1-4 9.6h7.9Z"
+    fill="#fff"
+  />
+</svg>

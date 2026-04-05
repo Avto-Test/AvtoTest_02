@@ -242,6 +242,16 @@ async def get_rbac_context(
     )
 
 
+async def get_effective_role_names(current_user: User, db: AsyncSession) -> list[str]:
+    assignments = _dedupe_assignments(
+        [
+            *await _load_persisted_assignments(current_user, db),
+            *await _load_legacy_assignments(current_user, db),
+        ]
+    )
+    return sorted({assignment.name for assignment in assignments})
+
+
 def require_role(role_name: str):
     """Require a specific role for the current request."""
 

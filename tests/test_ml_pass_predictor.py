@@ -90,8 +90,8 @@ async def test_feature_vector_structure():
 
 
 def test_feature_version():
-    """FEATURE_VERSION must be 2 after Phase 2.5 migration."""
-    assert FEATURE_VERSION == 2, f"Expected FEATURE_VERSION=2, got {FEATURE_VERSION}"
+    """FEATURE_VERSION must match the current canonical feature schema."""
+    assert FEATURE_VERSION == 3, f"Expected FEATURE_VERSION=3, got {FEATURE_VERSION}"
 
 
 def test_feature_names_length():
@@ -126,7 +126,7 @@ def test_registry_fallback_on_feature_version_mismatch(mock_open, mock_exists, m
 
     bad_meta = {
         "version": "vBad",
-        "feature_version": 999,  # Mismatch vs FEATURE_VERSION=2
+        "feature_version": 999,  # Mismatch vs current FEATURE_VERSION
         "feature_count": FEATURE_COUNT,
         "normalization": "log1p_v1",
         "feature_hash": "wrong_hash",

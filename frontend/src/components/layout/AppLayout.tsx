@@ -52,7 +52,7 @@ export function AppLayout({ children }: AppLayoutProps) {
             )}
 
             {/* Main Content Area */}
-            <div className="flex flex-1 flex-col overflow-hidden">
+            <div className="flex flex-1 flex-col overflow-hidden bg-[var(--content-bg)]">
                 <Topbar onMenuClick={() => setIsMobileMenuOpen(true)} />
                 <main className="flex-1 overflow-y-auto p-4 md:p-8">
                     <div className="mx-auto max-w-7xl">

@@ -7,6 +7,7 @@ import asyncio
 import os
 import sys
 from logging.config import fileConfig
+import logging
 
 from alembic import context
 from sqlalchemy import pool
@@ -22,21 +23,36 @@ from models import (  # noqa: F401 - Import to register model metadata
     AnalyticsEvent,
     Attempt,
     AttemptAnswer,
+    MLDataset,
     Payment,
     Question,
     Subscription,
     Test,
     User,
+    UserExamResult,
+    UserPredictionSnapshot,
+    UserSession,
     VerificationToken,
 )
 
 from core.config import settings
+from database.safety import (
+    is_production_environment,
+    render_database_target,
+    validate_database_target,
+)
 
 # Alembic Config object
 config = context.config
+logger = logging.getLogger("alembic.env")
 
 # Set database URL from settings
 DATABASE_URL = settings.DATABASE_URL
+validate_database_target(
+    DATABASE_URL,
+    settings.ENVIRONMENT,
+    settings.EXPECTED_DATABASE_NAME or None,
+)
 config.set_main_option("sqlalchemy.url", DATABASE_URL)
 
 # Interpret the config file for Python logging
@@ -80,6 +96,13 @@ async def run_async_migrations() -> None:
     Run migrations in 'online' mode with async engine.
     Creates an async engine and runs migrations.
     """
+    if is_production_environment(settings.ENVIRONMENT) and os.getenv("ALLOW_PROD_MIGRATIONS") != "1":
+        raise RuntimeError(
+            "Refusing to run migrations against production without explicit confirmation. "
+            "Use 'python scripts/safe_migrate.py --force-prod-migrate'."
+        )
+
+    logger.info("Starting Alembic migration against %s", render_database_target(DATABASE_URL))
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
@@ -90,6 +113,7 @@ async def run_async_migrations() -> None:
         await connection.run_sync(do_run_migrations)
 
     await connectable.dispose()
+    logger.info("Finished Alembic migration against %s", render_database_target(DATABASE_URL))
 
 
 def run_migrations_online() -> None:

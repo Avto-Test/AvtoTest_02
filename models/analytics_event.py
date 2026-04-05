@@ -1,7 +1,9 @@
 """
 AUTOTEST Analytics Event Model
-Server-side analytics events for conversion funnel tracking.
+Server-side analytics events for product usage and monetization tracking.
 """
+
+from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
@@ -9,7 +11,7 @@ from typing import Any
 
 from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, synonym
 
 from database.base import Base
 
@@ -30,9 +32,14 @@ class AnalyticsEvent(Base):
         nullable=True,
         index=True,
     )
-    event_name: Mapped[str] = mapped_column(
+    event_type: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
+        index=True,
+    )
+    feature_key: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
         index=True,
     )
     metadata_json: Mapped[dict[str, Any]] = mapped_column(
@@ -48,5 +55,11 @@ class AnalyticsEvent(Base):
         index=True,
     )
 
+    # Backward compatibility for legacy code paths that still read/write event_name.
+    event_name = synonym("event_type")
+
     def __repr__(self) -> str:
-        return f"<AnalyticsEvent(id={self.id}, event_name={self.event_name}, user_id={self.user_id})>"
+        return (
+            f"<AnalyticsEvent(id={self.id}, event_type={self.event_type}, "
+            f"feature_key={self.feature_key}, user_id={self.user_id})>"
+        )

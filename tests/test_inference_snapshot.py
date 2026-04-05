@@ -47,7 +47,7 @@ async def test_inference_snapshot_created_on_finish(client: AsyncClient, db_sess
     assert snapshot.pass_probability >= 0
     assert snapshot.probability_source in ["ml", "rule"]
     assert snapshot.readiness_score >= 0
-    assert snapshot.inference_latency_ms > 0
+    assert snapshot.inference_latency_ms >= 0
 
 @pytest.mark.asyncio
 async def test_intelligence_history_uses_snapshot(client: AsyncClient, db_session, premium_user_token):

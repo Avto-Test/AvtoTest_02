@@ -21,9 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from core.logging import get_logger
 from core.monitoring import capture_exception, capture_message, init_monitoring, start_span
 from database.session import async_session_maker
-from models.analytics_event import AnalyticsEvent
 from models.payment import Payment
 from models.subscription import Subscription
+from services.experiments import record_experiment_event
 from services.payments.tspay import TSPayProvider
 from services.payments.types import GetTransactionStatusResponse, PaymentProviderError, utc_now
 from services.subscriptions.lifecycle import _activate_subscription
@@ -315,22 +315,28 @@ class PaymentWorker:
                     payment=payment,
                 )
 
-                db.add(
-                    AnalyticsEvent(
-                        user_id=payment.user_id,
-                        event_name="upgrade_success",
-                        metadata_json={
-                            "provider": payment.provider,
-                            "payment_id": payment.provider_payment_id,
-                            "session_id": payment.provider_session_id,
-                            "provider_event_id": f"payment_worker_{uuid.uuid4()}",
-                            "event_type": "reconciliation_sync",
-                            "amount_cents": payment.amount_cents,
-                            "currency": payment.currency,
-                            "plan": plan_code,
-                            "source": "payment_worker",
-                        },
-                    )
+                metadata = {
+                    "provider": payment.provider,
+                    "payment_id": payment.provider_payment_id,
+                    "session_id": payment.provider_session_id,
+                    "provider_event_id": f"payment_worker_{uuid.uuid4()}",
+                    "event_type": "reconciliation_sync",
+                    "amount_cents": payment.amount_cents,
+                    "currency": payment.currency,
+                    "plan": plan_code,
+                    "source": "payment_worker",
+                }
+                await record_experiment_event(
+                    db,
+                    user_id=payment.user_id,
+                    event_name="upgrade_success",
+                    metadata=metadata,
+                )
+                await record_experiment_event(
+                    db,
+                    user_id=payment.user_id,
+                    event_name="payment_success",
+                    metadata=metadata,
                 )
 
         payment.status = "succeeded"

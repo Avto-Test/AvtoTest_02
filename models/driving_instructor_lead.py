@@ -63,7 +63,7 @@ class DrivingInstructorLead(Base):
     status: Mapped[str] = mapped_column(
         String(30),
         nullable=False,
-        default="new",
+        default="NEW",
         index=True,
     )
     created_at: Mapped[datetime] = mapped_column(
@@ -84,4 +84,3 @@ class DrivingInstructorLead(Base):
 
     def __repr__(self) -> str:
         return f"<DrivingInstructorLead(id={self.id}, instructor_id={self.instructor_id}, status={self.status})>"
-

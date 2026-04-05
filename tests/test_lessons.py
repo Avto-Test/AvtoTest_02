@@ -184,3 +184,95 @@ async def test_dashboard_recommends_lessons_for_premium_weak_topics(
     lesson_recommendations = payload.get("lesson_recommendations", [])
     assert len(lesson_recommendations) >= 1
     assert any(item["lesson_id"] == lesson_id for item in lesson_recommendations)
+
+
+@pytest.mark.asyncio
+async def test_dashboard_recommends_free_lessons_for_normal_user_with_fuzzy_topic_match(
+    client: AsyncClient,
+    admin_user_token: str,
+    normal_user_token: str,
+):
+    lesson_response = await client.post(
+        "/admin/lessons",
+        json={
+            "title": "Chorraha bo'yicha bepul dars",
+            "content_type": "document",
+            "content_url": "https://example.com/chorraha-free.pdf",
+            "topic": "Ustuvorlik",
+            "section": "Chorraha va ustuvorlik",
+            "is_active": True,
+            "is_premium": False,
+            "sort_order": 1,
+        },
+        headers={"Authorization": f"Bearer {admin_user_token}"},
+    )
+    assert lesson_response.status_code == 201
+    lesson_id = lesson_response.json()["id"]
+
+    test_response = await client.post(
+        "/admin/tests",
+        json={"title": "Chorraha Drill", "difficulty": "medium"},
+        headers={"Authorization": f"Bearer {admin_user_token}"},
+    )
+    assert test_response.status_code == 201
+    test_id = test_response.json()["id"]
+
+    wrong_option_ids = {}
+    for idx in range(6):
+        question_response = await client.post(
+            f"/admin/tests/{test_id}/questions",
+            json={
+                "text": f"Chorraha question {idx}",
+                "topic": "Chorrahalar",
+                "category": "Chorrahalar",
+                "difficulty": "medium",
+            },
+            headers={"Authorization": f"Bearer {admin_user_token}"},
+        )
+        assert question_response.status_code == 201
+        question_id = question_response.json()["id"]
+
+        wrong_option = await client.post(
+            f"/admin/questions/{question_id}/options",
+            json={"text": "Wrong option", "is_correct": False},
+            headers={"Authorization": f"Bearer {admin_user_token}"},
+        )
+        assert wrong_option.status_code == 201
+        wrong_option_ids[question_id] = wrong_option.json()["id"]
+
+        correct_option = await client.post(
+            f"/admin/questions/{question_id}/options",
+            json={"text": "Correct option", "is_correct": True},
+            headers={"Authorization": f"Bearer {admin_user_token}"},
+        )
+        assert correct_option.status_code == 201
+
+    start_response = await client.post(
+        "/attempts/start",
+        json={"test_id": test_id},
+        headers={"Authorization": f"Bearer {normal_user_token}"},
+    )
+    assert start_response.status_code == 201
+    attempt_id = start_response.json()["id"]
+
+    answers = {question_id: wrong_option_id for question_id, wrong_option_id in wrong_option_ids.items()}
+    submit_response = await client.post(
+        "/attempts/submit",
+        json={
+            "attempt_id": attempt_id,
+            "answers": answers,
+            "response_times": [1200, 1200, 1200, 1200, 1200, 1200],
+        },
+        headers={"Authorization": f"Bearer {normal_user_token}"},
+    )
+    assert submit_response.status_code == 200
+
+    dashboard_response = await client.get(
+        "/analytics/me/dashboard",
+        headers={"Authorization": f"Bearer {normal_user_token}"},
+    )
+    assert dashboard_response.status_code == 200
+    payload = dashboard_response.json()
+    lesson_recommendations = payload.get("lesson_recommendations", [])
+    assert len(lesson_recommendations) >= 1
+    assert any(item["lesson_id"] == lesson_id for item in lesson_recommendations)

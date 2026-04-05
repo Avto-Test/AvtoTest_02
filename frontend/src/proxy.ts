@@ -15,7 +15,7 @@ export async function proxy(request: NextRequest) {
     const { pathname } = request.nextUrl;
 
     // Protected routes (require auth)
-    const protectedRoutes = ['/dashboard', '/admin', '/profile', '/billing', '/analytics', '/upgrade', '/feedback', '/practice', '/simulation', '/leaderboard', '/achievements', '/instructor', '/school'];
+    const protectedRoutes = ['/dashboard', '/admin', '/profile', '/billing', '/analytics', '/upgrade', '/feedback', '/practice', '/simulation', '/leaderboard', '/achievements', '/learning-path', '/instructor', '/school'];
     const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route));
     const isAdminRoute = pathname.startsWith('/admin');
 
@@ -25,7 +25,7 @@ export async function proxy(request: NextRequest) {
 
     if (isProtectedRoute && !hasSession) {
         const loginUrl = new URL('/login', request.url);
-        loginUrl.searchParams.set('from', pathname);
+        loginUrl.searchParams.set('next', pathname);
         return NextResponse.redirect(loginUrl);
     }
 
@@ -44,7 +44,7 @@ export async function proxy(request: NextRequest) {
             // temporarily unreachable, let the client-side admin guard decide.
             if (response.status === 401) {
                 const loginUrl = new URL('/login', request.url);
-                loginUrl.searchParams.set('from', pathname);
+                loginUrl.searchParams.set('next', pathname);
                 return NextResponse.redirect(loginUrl);
             }
 
@@ -81,6 +81,7 @@ export const config = {
         '/simulation/:path*',
         '/leaderboard/:path*',
         '/achievements/:path*',
+        '/learning-path/:path*',
         '/instructor/:path*',
         '/school/:path*',
         '/login',

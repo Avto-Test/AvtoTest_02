@@ -33,6 +33,11 @@ from api.driving_schools.schemas import (
     DrivingSchoolReviewResponse,
     DrivingSchoolUpdate,
 )
+from core.admin_statuses import (
+    DrivingSchoolLeadStatus,
+    DrivingSchoolPartnerApplicationStatus,
+    coerce_status_value,
+)
 from core.config import settings
 from core.public_urls import resolve_public_upload_url
 from database.session import get_db
@@ -641,7 +646,7 @@ async def submit_school_lead(
         requested_category=payload.requested_category.strip().upper() if payload.requested_category else None,
         comment=payload.comment.strip() if payload.comment else None,
         source="web",
-        status="new",
+        status=DrivingSchoolLeadStatus.NEW.value,
     )
     db.add(lead)
     await db.flush()
@@ -798,13 +803,14 @@ async def submit_partner_application(
     db: AsyncSession = Depends(get_db),
 ) -> DrivingSchoolPartnerApplication:
     current_user = await _get_optional_user(request, db)
-    active_application_statuses = {"new", "pending", "reviewing", "approved"}
+    active_application_statuses = {
+        DrivingSchoolPartnerApplicationStatus.PENDING,
+        DrivingSchoolPartnerApplicationStatus.APPROVED,
+    }
     status_labels = {
-        "new": "kutilmoqda",
-        "pending": "kutilmoqda",
-        "reviewing": "korib chiqilmoqda",
-        "approved": "tasdiqlangan",
-        "rejected": "rad etilgan",
+        DrivingSchoolPartnerApplicationStatus.PENDING: "kutilmoqda",
+        DrivingSchoolPartnerApplicationStatus.APPROVED: "tasdiqlangan",
+        DrivingSchoolPartnerApplicationStatus.REJECTED: "rad etilgan",
     }
 
     normalized_email = str(payload.email).strip().lower()
@@ -838,7 +844,12 @@ async def submit_partner_application(
     duplicate_result = await db.execute(duplicate_stmt)
     latest_application = duplicate_result.scalars().first()
     if latest_application is not None:
-        latest_status = (latest_application.status or "").strip().lower()
+        latest_status = coerce_status_value(
+            DrivingSchoolPartnerApplicationStatus,
+            latest_application.status,
+            context="driving_school_partner_application.duplicate_check",
+            fallback=DrivingSchoolPartnerApplicationStatus.PENDING,
+        )
         if latest_status in active_application_statuses:
             status_text = status_labels.get(latest_status, latest_status)
             raise HTTPException(
@@ -854,7 +865,7 @@ async def submit_partner_application(
         phone=normalized_phone,
         email=normalized_email,
         note=payload.note.strip() if payload.note else None,
-        status="new",
+        status=DrivingSchoolPartnerApplicationStatus.PENDING.value,
     )
     db.add(application)
     await db.flush()
@@ -884,7 +895,10 @@ async def submit_partner_application(
                 notification_type="driving_school_partner_application_submitted",
                 title="Hamkorlik arizasi qabul qilindi",
                 message=f"{payload.school_name} uchun yuborgan arizangiz qabul qilindi.",
-                payload={"application_id": str(application.id), "status": "new"},
+                payload={
+                    "application_id": str(application.id),
+                    "status": DrivingSchoolPartnerApplicationStatus.PENDING.value,
+                },
             )
         )
 

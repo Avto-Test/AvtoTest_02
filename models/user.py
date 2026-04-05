@@ -14,19 +14,34 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database.base import Base
 
 if TYPE_CHECKING:
+    from models.achievement_definition import AchievementDefinition
     from models.attempt import Attempt
+    from models.coin_transaction import CoinTransaction
+    from models.coin_wallet import CoinWallet
+    from models.experiment import Experiment
+    from models.exam_simulation_attempt import ExamSimulationAttempt
     from models.feedback import Feedback
+    from models.leaderboard_snapshot import LeaderboardSnapshot
     from models.payment import Payment
     from models.promo_redemption import PromoRedemption
     from models.refresh_session import RefreshSession
     from models.school_membership import SchoolMembership
     from models.subscription import Subscription
+    from models.user_achievement import UserAchievement
     from models.user_role import UserRole
     from models.user_adaptive_profile import UserAdaptiveProfile
+    from models.user_experiment import UserExperiment
     from models.user_notification import UserNotification
+    from models.user_streak import UserStreak
+    from models.user_exam_result import UserExamResult
+    from models.user_prediction_snapshot import UserPredictionSnapshot
+    from models.user_session import UserSession
     from models.verification_token import VerificationToken
     from models.user_training_history import UserTrainingHistory
     from models.user_skill import UserSkill
+    from models.xp_boost import XPBoost
+    from models.xp_event import XPEvent
+    from models.xp_wallet import XPWallet
 
 
 class User(Base):
@@ -73,6 +88,16 @@ class User(Base):
         default=False,
         nullable=False,
     )
+    is_premium: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        server_default="false",
+    )
+    subscription_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     
     # Relationships
     verification_tokens: Mapped[list["VerificationToken"]] = relationship(
@@ -82,6 +107,54 @@ class User(Base):
     )
     attempts: Mapped[list["Attempt"]] = relationship(
         "Attempt",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    exam_simulations: Mapped[list["ExamSimulationAttempt"]] = relationship(
+        "ExamSimulationAttempt",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    xp_wallet: Mapped["XPWallet | None"] = relationship(
+        "XPWallet",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    xp_events: Mapped[list["XPEvent"]] = relationship(
+        "XPEvent",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    xp_boosts: Mapped[list["XPBoost"]] = relationship(
+        "XPBoost",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    coin_wallet: Mapped["CoinWallet | None"] = relationship(
+        "CoinWallet",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    coin_transactions: Mapped[list["CoinTransaction"]] = relationship(
+        "CoinTransaction",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    streak: Mapped["UserStreak | None"] = relationship(
+        "UserStreak",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    user_achievements: Mapped[list["UserAchievement"]] = relationship(
+        "UserAchievement",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    leaderboard_snapshots: Mapped[list["LeaderboardSnapshot"]] = relationship(
+        "LeaderboardSnapshot",
         back_populates="user",
         cascade="all, delete-orphan",
     )
@@ -142,22 +215,26 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
-    
-    @property
-    def is_premium(self) -> bool:
-        """
-        Check if user has active premium subscription.
-        SAFE for async/Pydantic use - avoids lazy loading.
-        """
-        # If the relationship is not loaded, we return False by default
-        # to prevent MissingGreenlet/lazy loading errors.
-        if "subscription" not in self.__dict__ or self.subscription is None:
-            return False
-        
-        if self.subscription.plan == "free":
-            return False
-            
-        return self.subscription.is_active
+    experiment_assignments: Mapped[list["UserExperiment"]] = relationship(
+        "UserExperiment",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    prediction_snapshots: Mapped[list["UserPredictionSnapshot"]] = relationship(
+        "UserPredictionSnapshot",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    exam_results: Mapped[list["UserExamResult"]] = relationship(
+        "UserExamResult",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    sessions: Mapped[list["UserSession"]] = relationship(
+        "UserSession",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email={self.email})>"
