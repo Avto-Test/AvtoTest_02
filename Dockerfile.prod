@@ -7,6 +7,14 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV ENVIRONMENT=production
 ENV DEBUG=false
 
+# Database configuration (required for migrations)
+ARG DB_USER=autotest_prod
+ARG DB_NAME=autotest_prod
+ARG EXPECTED_DATABASE_NAME=autotest_prod
+ENV DB_USER=${DB_USER}
+ENV DB_NAME=${DB_NAME}
+ENV EXPECTED_DATABASE_NAME=${EXPECTED_DATABASE_NAME}
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
