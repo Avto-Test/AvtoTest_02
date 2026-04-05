@@ -1,9 +1,11 @@
+version: '3.8'
+
 services:
   db:
     image: postgres:16-alpine
     container_name: autotest-db-prod
     env_file:
-      - .env.prod
+      - .env
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
@@ -25,17 +27,55 @@ services:
       dockerfile: Dockerfile.prod
     container_name: autotest-backend-prod
     env_file:
-      - .env.prod
+      - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
       ENVIRONMENT: production
       DEBUG: "false"
       LOG_LEVEL: WARNING
-    ports:
-      - "8000:8000"
+      ALLOW_PROD_MIGRATIONS: "1"
+    expose:
+      - "8000"
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - autotest-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: autotest-frontend-prod
+    expose:
+      - "3000"
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000', (res) => {if(res.statusCode !== 200) throw new Error(res.statusCode)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      - backend
+    networks:
+      - autotest-network
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    container_name: autotest-nginx-prod
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - backend
+      - frontend
     networks:
       - autotest-network
     restart: unless-stopped
