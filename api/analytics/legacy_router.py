@@ -11,25 +11,26 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.admin.router import get_current_admin
-from api.analytics.schemas import (
+from api.analytics.user_router import get_dashboard, get_user_summary
+from api.auth.router import get_current_user, resolve_user_from_access_token
+from core.config import settings
+from database.session import get_db
+from models.user import User
+from modules.analytics.schemas import (
     DashboardResponse,
     FeatureFunnelResponse,
     FeaturePerformanceItem,
     MonetizationInsightItem,
     UserAnalyticsSummary,
 )
-from api.analytics.user_router import get_dashboard, get_user_summary
-from api.auth.router import get_current_user, resolve_user_from_access_token
-from core.config import settings
-from database.session import get_db
-from models.user import User
-from services.analytics_events import (
+from modules.analytics.service import (
     MONETIZATION_EVENT_TYPES,
+    generate_monetization_insights,
+    get_feature_funnel,
+    get_feature_performance,
     persist_analytics_event,
     record_analytics_event,
 )
-from services.monetization_insights import generate_monetization_insights
-from services.monetization_analytics import get_feature_funnel, get_feature_performance
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)

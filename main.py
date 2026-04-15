@@ -17,12 +17,8 @@ import asyncio
 
 from api.admin.router import router as admin_router
 from api.ai_coach.router import router as ai_coach_router
-from api.analytics.admin_router import router as admin_analytics_router
-from api.analytics.legacy_router import router as legacy_analytics_router
-from api.analytics.user_router import router as user_analytics_router
 from api.answers.router import router as answers_router
 from api.attempts.router import router as attempts_router
-from api.auth.router import router as auth_router
 from api.economy.router import router as economy_router
 from api.experiments.router import router as experiments_router
 from api.feedback.router import router as feedback_router
@@ -30,19 +26,14 @@ from api.features.router import router as features_router
 from api.gamification.router import router as gamification_router
 from api.notifications.router import router as notifications_router
 from api.payments.router import router as payments_router
-from api.promocode_router import router as promocode_router
 from api.lessons.router import router as lessons_router
 from api.learning.router import router as learning_router
 from api.leaderboard.router import router as leaderboard_router
 from api.simulation.router import router as simulation_router
-from api.school_router import router as school_router
 from api.settings.router import router as settings_router
-from api.driving_schools.router import router as driving_schools_router
-from api.driving_schools.admin_router import router as admin_driving_schools_router
 from api.driving_instructors.router import router as driving_instructors_router
 from api.driving_instructors.admin_router import router as admin_driving_instructors_router
 from api.tests.router import router as tests_router
-from api.users.router import router as users_router
 from api.violations.router import router as violations_router
 from core.config import settings
 from core.logging import setup_logging
@@ -52,6 +43,18 @@ from database.session import engine
 from middleware.error_handler import global_exception_handler, http_exception_handler
 from middleware.request_context import RequestContextMiddleware
 from middleware.rate_limit import RateLimitMiddleware
+from modules.analytics.router import (
+    admin_router as admin_analytics_router,
+    legacy_router as legacy_analytics_router,
+    user_router as user_analytics_router,
+)
+from modules.promocodes.router import router as promocode_router
+from modules.schools.router import (
+    admin_driving_schools_router,
+    driving_schools_router,
+    school_router,
+)
+from modules.users.router import auth_router, profile_router as users_router
 from services.gamification.leaderboard_scheduler import leaderboard_refresh_loop, refresh_leaderboards_once
 from ml.model_registry import get_inference_engine
 import models  # noqa: F401

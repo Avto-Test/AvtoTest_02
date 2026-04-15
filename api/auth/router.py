@@ -454,6 +454,11 @@ async def get_my_profile_via_auth(
     from core.rbac import get_effective_role_names
 
     roles = await get_effective_role_names(current_user, db)
+    subscription = current_user.subscription
+    is_premium = subscription.is_active if subscription is not None else current_user.is_premium
+    subscription_expires_at = (
+        subscription.expires_at if subscription is not None else current_user.subscription_expires_at
+    )
     await db.commit()
     return {
         "id": current_user.id,
@@ -463,8 +468,8 @@ async def get_my_profile_via_auth(
         "is_active": current_user.is_active,
         "is_admin": current_user.is_admin,
         "roles": roles,
-        "is_premium": current_user.is_premium,
-        "subscription_expires_at": current_user.subscription_expires_at,
+        "is_premium": is_premium,
+        "subscription_expires_at": subscription_expires_at,
         "has_instructor_profile": instructor_result.scalar_one_or_none() is not None,
         "has_school_profile": school_result.scalar_one_or_none() is not None,
         "created_at": current_user.created_at,

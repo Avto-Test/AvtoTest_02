@@ -8,8 +8,10 @@ async def create_db():
         # Database created successfully
     except asyncpg.exceptions.DuplicateDatabaseError:
         # Database already exists
+        pass
     except Exception as e:
         # Error creating database
+        print(f"Error: {e}")
     finally:
         await conn.close()
 

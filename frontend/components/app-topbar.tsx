@@ -214,13 +214,29 @@ function getUserInitials(user: User) {
   return source || "AU";
 }
 
+function hasPremiumAccess(user: User | null) {
+  if (!user) {
+    return false;
+  }
+  if (user.is_premium || user.plan === "premium") {
+    return true;
+  }
+  if (!user.subscription_expires_at) {
+    return false;
+  }
+  const expiresAt = Date.parse(user.subscription_expires_at);
+  return Number.isFinite(expiresAt) && expiresAt > Date.now();
+}
+
 function ProfileMenu({
   user,
+  isPremium,
   membershipLabel,
   onLogout,
   upgradeActionLabel,
 }: {
   user: User;
+  isPremium: boolean;
   membershipLabel: string;
   onLogout: () => void;
   upgradeActionLabel: string;
@@ -250,8 +266,8 @@ function ProfileMenu({
     },
     {
       href: "/upgrade",
-      label: user.is_premium ? "Premium" : upgradeActionLabel,
-      description: user.is_premium ? "Tarif va imkoniyatlarni ko'rish" : "Premium imkoniyatlarni ochish",
+      label: isPremium ? "Premium" : upgradeActionLabel,
+      description: isPremium ? "Tarif va imkoniyatlarni ko'rish" : "Premium imkoniyatlarni ochish",
       icon: Sparkles,
     },
   ];
@@ -413,7 +429,7 @@ export function AppTopbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
   const upgradeVariant = useExperimentVariant(UPGRADE_BUTTON_EXPERIMENT, "A");
   const pathname = usePathname();
   const [searchFocused, setSearchFocused] = useState(false);
-  const isPremiumUser = Boolean(user?.is_premium);
+  const isPremiumUser = hasPremiumAccess(user);
   const upgradeActionLabel = getUpgradeButtonLabel(upgradeVariant);
   const showLevelPanel = Boolean(user) && pathname !== "/simulation";
   const showSessionFallback = !user && (authLoading || sessionPresent || Boolean(authError));
@@ -483,6 +499,7 @@ export function AppTopbar({ onMenuToggle }: { onMenuToggle?: () => void }) {
             {user ? (
               <ProfileMenu
                 user={user}
+                isPremium={isPremiumUser}
                 membershipLabel={membershipLabel}
                 upgradeActionLabel={upgradeActionLabel}
                 onLogout={() => void logout()}
