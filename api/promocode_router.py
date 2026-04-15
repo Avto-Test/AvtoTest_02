@@ -6,12 +6,12 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth.router import get_current_user
-from api.promocode_schemas import ApplyPromocodeRequest, ApplyPromocodeResponse
 from core.errors import AppError, get_request_id
 from core.logger import log_info
 from database.session import get_db
 from models.user import User
-from services.promocodes import (
+from modules.promocodes.schemas import ApplyPromocodeRequest, ApplyPromocodeResponse
+from modules.promocodes.service import (
     PROMOCODE_INVALID_ERROR_CODE,
     PromoCodeServiceError,
     apply_promocode,

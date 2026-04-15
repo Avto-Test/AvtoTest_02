@@ -359,76 +359,45 @@ function getResolvedAnswer(
   };
 }
 
-function PracticeFeedbackPanels({ answer }: { answer: ResolvedQuestionAnswer | null }) {
-  if (!answer || (!answer.explanation && !answer.aiCoach)) {
-    return null;
-  }
-
-  const recommendations = Array.from(
-    new Set([...(answer.recommendations ?? []), answer.aiCoach?.recommendation].filter(Boolean) as string[]),
-  );
+function PracticeFeedbackPanels({
+  answer,
+  section,
+}: {
+  answer: ResolvedQuestionAnswer | null;
+  section: "explanation" | "analysis";
+}) {
+  const isExplanation = section === "explanation";
+  const title = isExplanation ? "Izoh" : "Tahlil";
+  const body = isExplanation ? answer?.explanation ?? "" : answer?.aiCoach?.mistake_analysis ?? "";
+  const emptyText = isExplanation
+    ? "Javobni tanlaganingizdan keyin izoh shu yerda ko'rinadi."
+    : "Javobni tanlaganingizdan keyin AI tahlil shu yerda ko'rinadi.";
 
   return (
-    <div className="mt-3 space-y-2.5">
-      <details
-        open
-        className="rounded-[1.15rem] border border-[rgba(94,200,255,0.14)] bg-[linear-gradient(180deg,rgba(94,200,255,0.08),rgba(255,255,255,0.02))] px-3.5 py-3 shadow-[0_18px_48px_-32px_rgba(94,200,255,0.18)]"
-      >
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
-          <span className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
-            <Eye className="h-4 w-4 text-[var(--accent-blue)]" />
-            Izoh
-          </span>
-          <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
-            Ochish / yopish
-          </span>
-        </summary>
-        <div className="mt-3 space-y-2.5 text-sm leading-6 text-[var(--text-secondary)]">
-          {answer.explanation ? <p>{answer.explanation}</p> : null}
-          {answer.correctAnswer ? (
-            <div className="rounded-[1rem] border border-[var(--border-soft)] bg-black/10 px-3 py-2.5 text-[var(--foreground)]">
-              <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--muted-foreground)]">To&apos;g&apos;ri javob</p>
-              <p className="mt-1 text-sm font-medium leading-6">{answer.correctAnswer}</p>
-            </div>
-          ) : null}
+    <div
+      className={cn(
+        "rounded-[0.95rem] border px-3 py-2.5 shadow-[0_14px_32px_-28px_rgba(0,0,0,0.32)]",
+        isExplanation
+          ? "border-[rgba(94,200,255,0.18)] bg-[linear-gradient(180deg,rgba(94,200,255,0.08),rgba(255,255,255,0.02))]"
+          : "border-[rgba(52,209,122,0.18)] bg-[linear-gradient(180deg,rgba(52,209,122,0.1),rgba(255,255,255,0.02))]",
+      )}
+    >
+      <div className="mb-1.5 flex items-center gap-1.5 text-[0.78rem] font-semibold text-[var(--foreground)]">
+        {isExplanation ? (
+          <Eye className="h-3.5 w-3.5 text-[var(--accent-blue)]" />
+        ) : (
+          <Sparkles className="h-3.5 w-3.5 text-[var(--accent-green)]" />
+        )}
+        {title}
+      </div>
+      <div className="subtle-scroll-area max-h-[4.8rem] overflow-y-auto pr-1 text-[0.82rem] leading-5 text-[var(--foreground)]">
+        {body ? <p>{body}</p> : <p className="text-[var(--muted-foreground)]">{emptyText}</p>}
+      </div>
+      {isExplanation && answer?.correctAnswer ? (
+        <div className="mt-1.5 rounded-[0.78rem] border border-[var(--border-soft)] bg-black/10 px-2.5 py-1.5">
+          <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-[var(--muted-foreground)]">To&apos;g&apos;ri javob</p>
+          <p className="mt-0.5 text-[0.78rem] font-medium leading-5 text-[var(--foreground)]">{answer.correctAnswer}</p>
         </div>
-      </details>
-
-      {answer.aiCoach ? (
-        <details
-          open
-          className="rounded-[1.15rem] border border-[rgba(52,209,122,0.16)] bg-[linear-gradient(180deg,rgba(52,209,122,0.1),rgba(255,255,255,0.02))] px-3.5 py-3 shadow-[0_18px_52px_-34px_rgba(52,209,122,0.18)]"
-        >
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
-            <span className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
-              <Sparkles className="h-4 w-4 text-[var(--accent-green)]" />
-              AI tavsiya
-            </span>
-            <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
-              Ochish / yopish
-            </span>
-          </summary>
-          <div className="mt-3 grid gap-2.5">
-            <div className="rounded-[1rem] border border-[var(--border-soft)] bg-black/10 px-3 py-2.5">
-              <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Tip</p>
-              <p className="mt-1 text-sm leading-6 text-[var(--foreground)]">{answer.aiCoach.tip}</p>
-            </div>
-            <div className="rounded-[1rem] border border-[var(--border-soft)] bg-black/10 px-3 py-2.5">
-              <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Tahlil</p>
-              <p className="mt-1 text-sm leading-6 text-[var(--foreground)]">{answer.aiCoach.mistake_analysis}</p>
-            </div>
-            {recommendations.length ? (
-              <div className="rounded-[1rem] border border-[var(--border-soft)] bg-black/10 px-3 py-2.5">
-                <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Tavsiya</p>
-                <div className="mt-1 space-y-1.5 text-sm leading-6 text-[var(--foreground)]">
-                  {recommendations.map((item) => (
-                    <p key={item}>{item}</p>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </details>
       ) : null}
     </div>
   );
@@ -1406,8 +1375,6 @@ export function PracticeSessionExperience({
                           })}
                         </div>
 
-                        <PracticeFeedbackPanels answer={currentResolvedAnswer} />
-
                         <div className="mt-2.5 flex flex-col gap-2 border-t border-white/[0.06] pt-2.5 lg:flex-row lg:items-center">
                           <CompactRewardStrip xpGain={rewardXpGain} coinGain={rewardCoinGain} />
                           <div className="ml-auto flex flex-col gap-2 sm:flex-row">
@@ -1448,6 +1415,14 @@ export function PracticeSessionExperience({
 
               <div>
                 <MediaPanel question={currentQuestion} />
+              </div>
+
+              <div>
+                <PracticeFeedbackPanels answer={currentResolvedAnswer} section="explanation" />
+              </div>
+
+              <div>
+                <PracticeFeedbackPanels answer={currentResolvedAnswer} section="analysis" />
               </div>
             </div>
           </div>

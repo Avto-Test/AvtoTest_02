@@ -305,12 +305,12 @@ export function AdminUsersPage() {
                             <AdminActionMenu
                               items={[
                                 {
-                                  label: user.is_admin ? "Admin rolini olish" : "Admin qilish",
+                                  label: user.is_admin ? "Adminni bekor qilish" : "Admin qilish",
                                   disabled: isBusy,
                                   onClick: () => void runAction(user.id, () => updateAdminUser(user.id, { is_admin: !user.is_admin })),
                                 },
                                 {
-                                  label: user.is_verified ? "Verifikatsiyani qaytarish" : "Verify qilish",
+                                  label: user.is_verified ? "Verifikatsiyani bekor qilish" : "Verify qilish",
                                   disabled: isBusy,
                                   onClick: () => void runAction(user.id, () => updateAdminUser(user.id, { is_verified: !user.is_verified })),
                                 },
@@ -320,7 +320,7 @@ export function AdminUsersPage() {
                                   onClick: () => void runAction(user.id, () => updateAdminUser(user.id, { is_active: !user.is_active })),
                                 },
                                 {
-                                  label: "30 kun premium",
+                                  label: user.is_premium ? "Premiumni 30 kunga uzaytirish" : "30 kun premium berish",
                                   disabled: isBusy,
                                   onClick: () => {
                                     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -335,7 +335,7 @@ export function AdminUsersPage() {
                                 },
                                 {
                                   label: "Premiumni bekor qilish",
-                                  disabled: isBusy,
+                                  disabled: isBusy || !user.is_premium,
                                   tone: "danger",
                                   onClick: () =>
                                     void runAction(user.id, () =>
@@ -392,7 +392,7 @@ export function AdminUsersPage() {
                 }
               >
                 <Shield className="h-4 w-4" />
-                {selectedUser.is_admin ? "Admin rolini olish" : "Admin qilish"}
+                {selectedUser.is_admin ? "Adminni bekor qilish" : "Admin qilish"}
               </Button>
               <Button
                 variant="outline"
@@ -404,7 +404,7 @@ export function AdminUsersPage() {
                 }
               >
                 <UserCheck className="h-4 w-4" />
-                {selectedUser.is_verified ? "Verifikatsiyani qaytarish" : "Verify qilish"}
+                {selectedUser.is_verified ? "Verifikatsiyani bekor qilish" : "Verify qilish"}
               </Button>
               <Button
                 variant="outline"
@@ -431,11 +431,11 @@ export function AdminUsersPage() {
                 }}
               >
                 <Crown className="h-4 w-4" />
-                30 kun premium
+                {selectedUser.is_premium ? "Premiumni 30 kunga uzaytirish" : "30 kun premium berish"}
               </Button>
               <Button
                 variant="destructive"
-                disabled={busyId === selectedUser.id}
+                disabled={busyId === selectedUser.id || !selectedUser.is_premium}
                 onClick={() =>
                   void runAction(selectedUser.id, () =>
                     updateAdminUserSubscription(selectedUser.id, {

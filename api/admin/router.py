@@ -25,9 +25,6 @@ from api.admin.schemas import (
     AdminUserResponse,
     AdminUserSubscriptionUpdate,
     AdminUserUpdate,
-    PromoCodeCreate,
-    PromoCodeResponse,
-    PromoCodeUpdate,
     ViolationLogResponse,
     SimulationExamSettingsResponse,
     SimulationExamSettingsUpdate,
@@ -49,7 +46,6 @@ from api.admin.schemas import (
     TestResponse,
     TestUpdate,
 )
-from api.analytics.schemas import AdminAnalyticsSummary, AdminExperimentSummary, AdminGrowthSummary
 from core.question_bank import QUESTION_BANK_TEST_DESCRIPTION, QUESTION_BANK_TEST_TITLE
 from core.rbac import RBACContext, SUPER_ADMIN_ROLE, require_role
 from database.session import get_db
@@ -67,9 +63,17 @@ from models.user import User
 from models.user_notification import UserNotification
 from models.violation_log import ViolationLog
 from models.simulation_exam_setting import SimulationExamSetting
-from services.admin_analytics import get_admin_analytics_summary
-from services.admin_experiments import get_admin_experiment_summary
-from services.admin_growth import get_admin_growth_summary
+from modules.analytics.schemas import AdminAnalyticsSummary, AdminExperimentSummary, AdminGrowthSummary
+from modules.analytics.service import (
+    get_admin_analytics_summary,
+    get_admin_experiment_summary,
+    get_admin_growth_summary,
+)
+from modules.promocodes.schemas import PromoCodeCreate, PromoCodeResponse, PromoCodeUpdate
+from modules.promocodes.service import (
+    set_promo_applicable_plans as _set_promo_applicable_plans,
+    validate_promo_school_link as _validate_promo_school_link,
+)
 from services.learning.simulation_service import get_or_create_simulation_exam_settings
 from services.subscriptions.lifecycle import sync_user_subscription_state
 
@@ -136,54 +140,6 @@ async def get_current_admin(
         HTTPException: If user is not an admin
     """
     return context.user
-
-
-async def _set_promo_applicable_plans(
-    promo: PromoCode,
-    applicable_plan_ids: list[UUID],
-    db: AsyncSession,
-) -> None:
-    """Assign promo applicability to specific plans."""
-    if not applicable_plan_ids:
-        promo.applicable_plans = []
-        return
-
-    unique_plan_ids = list(dict.fromkeys(applicable_plan_ids))
-    result = await db.execute(
-        select(SubscriptionPlan).where(SubscriptionPlan.id.in_(unique_plan_ids))
-    )
-    plans = list(result.scalars().all())
-    found_plan_ids = {plan.id for plan in plans}
-    missing_ids = [plan_id for plan_id in unique_plan_ids if plan_id not in found_plan_ids]
-    if missing_ids:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unknown plan IDs: {', '.join(str(pid) for pid in missing_ids)}",
-        )
-    promo.applicable_plans = plans
-
-
-async def _validate_promo_school_link(
-    db: AsyncSession,
-    *,
-    school_id: UUID | None,
-    group_id: UUID | None,
-) -> None:
-    if group_id is not None and school_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="group_id requires school_id",
-        )
-
-    if school_id is None:
-        return
-
-    result = await db.execute(select(DrivingSchool.id).where(DrivingSchool.id == school_id))
-    if result.scalar_one_or_none() is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Driving school not found",
-        )
 
 
 async def _get_or_create_question_bank_test(db: AsyncSession) -> Test:

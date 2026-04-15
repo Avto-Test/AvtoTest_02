@@ -1,0 +1,3 @@
+"""
+Promocode domain module.
+"""
