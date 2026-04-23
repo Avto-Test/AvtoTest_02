@@ -198,10 +198,10 @@ def upgrade() -> None:
                 END,
                 topic_id = q.category_id,
                 topic_label = COALESCE(qc.name, q.category, q.topic, 'General')
-            FROM attempts AS a
-            JOIN questions AS q ON q.id = aa.question_id
+            FROM attempts AS a, questions AS q
             LEFT JOIN question_categories AS qc ON qc.id = q.category_id
             WHERE aa.attempt_id = a.id
+              AND aa.question_id = q.id
             """
         )
     )

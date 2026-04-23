@@ -3,11 +3,11 @@ region: sgp1
 services:
   - name: api
     source_dir: /
-    dockerfile_path: Dockerfile
+    dockerfile_path: deploy/Dockerfile.prod
     git:
       repo_clone_url: https://github.com/Avto-Test/AvtoTest_02.git
       branch: main
-    run_command: alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port ${PORT}
+    run_command: cd /app && alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port ${PORT}
     http_port: 8000
     instance_count: 1
     instance_size_slug: apps-s-1vcpu-1gb
