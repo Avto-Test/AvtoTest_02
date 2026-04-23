@@ -17,11 +17,11 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Install Python dependencies
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy project
-COPY . .
+# Copy backend project
+COPY backend/ .
 
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash app \

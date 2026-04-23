@@ -20,15 +20,12 @@ RUN useradd --create-home --shell /bin/bash app
 WORKDIR /app
 
 # Install Python dependencies
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-cache-dir -r requirements.txt
 
-# Copy project with proper ownership
-COPY --chown=app:app . .
-
-# Copy entrypoint script
-COPY --chown=app:app entrypoint.sh /app/entrypoint.sh
+# Copy backend project with proper ownership
+COPY --chown=app:app backend/ .
 
 # Ensure entrypoint is executable
 RUN chmod +x /app/entrypoint.sh

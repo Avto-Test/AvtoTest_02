@@ -24,8 +24,8 @@ services:
   # FastAPI Backend (Local Development)
   backend:
     build:
-      context: .
-      dockerfile: Dockerfile.local
+      context: ..
+      dockerfile: deploy/Dockerfile.local
     container_name: autotest-backend
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/autotest
@@ -39,7 +39,7 @@ services:
       db:
         condition: service_healthy
     volumes:
-      - .:/app
+      - ../backend:/app
       - /app/__pycache__
       - /app/.venv
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload

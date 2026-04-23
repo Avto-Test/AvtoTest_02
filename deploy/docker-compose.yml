@@ -3,7 +3,7 @@ services:
     image: postgres:16-alpine
     container_name: autotest-db-prod
     env_file:
-      - .env
+      - ../.env
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
@@ -21,11 +21,11 @@ services:
 
   backend:
     build:
-      context: .
-      dockerfile: Dockerfile.prod
+      context: ..
+      dockerfile: deploy/Dockerfile.prod
     container_name: autotest-backend-prod
     env_file:
-      - .env
+      - ../.env
     environment:
       DATABASE_URL: postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
       ENVIRONMENT: production
@@ -43,8 +43,8 @@ services:
 
   frontend:
     build:
-      context: .
-      dockerfile: Dockerfile.frontend
+      context: ..
+      dockerfile: deploy/Dockerfile.frontend
     container_name: autotest-frontend-prod
     expose:
       - "3000"
