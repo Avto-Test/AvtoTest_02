@@ -6,7 +6,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,8 +33,16 @@ from modules.analytics.service import (
 )
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
-oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
+bearer_scheme_optional = HTTPBearer(auto_error=False, scheme_name="BearerAuth")
 MAX_BATCH_SIZE = 50
+
+
+async def _optional_bearer_token(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme_optional),
+) -> str | None:
+    if credentials is None:
+        return None
+    return credentials.credentials
 
 
 class TrackEventRequest(BaseModel):
@@ -101,7 +109,7 @@ async def track_event(
     payload: TrackEventRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    token: str | None = Depends(oauth2_scheme_optional),
+    token: str | None = Depends(_optional_bearer_token),
 ) -> Response:
     user_id = await _resolve_optional_user_id(token, db)
     normalized_event_type = payload.event_type or payload.event
@@ -134,7 +142,7 @@ async def track_event_batch(
     payloads: list[TrackEventRequest],
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    token: str | None = Depends(oauth2_scheme_optional),
+    token: str | None = Depends(_optional_bearer_token),
 ) -> Response:
     if not payloads:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
