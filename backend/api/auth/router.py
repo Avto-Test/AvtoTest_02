@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -84,6 +84,34 @@ def _database_unavailable_exception() -> HTTPException:
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         detail="Ma'lumotlar bazasi tayyor emas. Administrator `alembic upgrade head` ishga tushirishi kerak.",
     )
+
+
+def _set_auth_cookies(response: Response, token_pair: Token) -> None:
+    # secure=False vaqtinchalik: prod nginx hozir HTTP. HTTPS yoqilganidan keyin True ga o'tkazish kerak.
+    secure = False
+    response.set_cookie(
+        key=ACCESS_COOKIE_NAME,
+        value=token_pair.access_token,
+        max_age=token_pair.access_token_expires_in,
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        path="/",
+    )
+    response.set_cookie(
+        key=REFRESH_COOKIE_NAME,
+        value=token_pair.refresh_token,
+        max_age=token_pair.refresh_token_expires_in,
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        path="/",
+    )
+
+
+def _clear_auth_cookies(response: Response) -> None:
+    response.delete_cookie(ACCESS_COOKIE_NAME, path="/")
+    response.delete_cookie(REFRESH_COOKIE_NAME, path="/")
 
 
 def _resolve_access_token(request: Request) -> str | None:
@@ -575,6 +603,7 @@ async def register(
 async def login(
     user_data: UserLogin,
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> Token:
     """Login with email and password and issue a rotated session pair."""
@@ -640,6 +669,7 @@ async def login(
 
         token_pair, refresh_session = await _issue_auth_tokens(db=db, user=user, request=request)
         await db.commit()
+        _set_auth_cookies(response, token_pair)
         _log_auth_event(
             logging.INFO,
             event="login_success",
@@ -660,6 +690,7 @@ async def login(
 @router.post("/refresh", response_model=Token)
 async def refresh_session(
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> Token:
     """Rotate refresh tokens and detect reuse attempts."""
@@ -717,6 +748,7 @@ async def refresh_session(
     await _revoke_session(refresh_session, reason="rotated", revoked_at=now)
     refresh_session.replaced_by_session_id = rotated_session.id
     await db.commit()
+    _set_auth_cookies(response, token_pair)
     _log_auth_event(
         logging.INFO,
         event="refresh_rotation",
@@ -731,6 +763,7 @@ async def refresh_session(
 @router.post("/logout", response_model=MessageResponse)
 async def logout(
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> MessageResponse:
     """Invalidate the presented refresh token."""
@@ -752,6 +785,7 @@ async def logout(
                 ip_address=_get_request_ip(request),
             )
 
+    _clear_auth_cookies(response)
     return MessageResponse(message="Sessiya yopildi")
 
 
@@ -759,6 +793,7 @@ async def logout(
 async def verify_email(
     verify_data: VerifyEmail,
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> Token:
     """Verify email with code and create a hardened session pair."""
@@ -805,6 +840,7 @@ async def verify_email(
         await db.delete(pending)
         token_pair, _ = await _issue_auth_tokens(db=db, user=user, request=request)
         await db.commit()
+        _set_auth_cookies(response, token_pair)
         return token_pair
 
     result = await db.execute(select(User).where(User.email == normalized_email))
@@ -844,6 +880,7 @@ async def verify_email(
     user.is_active = True
     token_pair, _ = await _issue_auth_tokens(db=db, user=user, request=request)
     await db.commit()
+    _set_auth_cookies(response, token_pair)
     return token_pair
 
 
