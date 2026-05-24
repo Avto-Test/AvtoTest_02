@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "default" | "outline" | "ghost" | "secondary" | "destructive";
   size?: "default" | "sm" | "lg" | "icon";
+  asChild?: boolean;
 };
 
 const variantClasses: Record<NonNullable<ButtonProps["variant"]>, string> = {
@@ -46,14 +47,24 @@ export function buttonStyles({
 }
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = "default", size = "default", type = "button", ...props }, ref) => (
-    <button
-      ref={ref}
-      type={type}
-      className={buttonStyles({ className, variant, size })}
-      {...props}
-    />
-  ),
+  ({ className, variant = "default", size = "default", type = "button", asChild = false, children, ...props }, ref) => {
+    const styled = buttonStyles({ className, variant, size });
+
+    if (asChild && React.isValidElement(children)) {
+      const child = children as React.ReactElement<{ className?: string }>;
+      return React.cloneElement(child, {
+        ...props,
+        ref,
+        className: cn(styled, child.props.className),
+      } as React.HTMLAttributes<HTMLElement> & { ref?: React.Ref<HTMLElement> });
+    }
+
+    return (
+      <button ref={ref} type={type} className={styled} {...props}>
+        {children}
+      </button>
+    );
+  },
 );
 
 Button.displayName = "Button";
