@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 
 const ALLOWED_AUTH_PATHS = new Set([
   "login",
+  "google",
   "register",
   "verify",
   "resend-verification",

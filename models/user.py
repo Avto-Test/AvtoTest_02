@@ -68,6 +68,17 @@ class User(Base):
         String(255),
         nullable=True,
     )
+    google_id: Mapped[str | None] = mapped_column(
+        String(255),
+        unique=True,
+        index=True,
+        nullable=True,
+    )
+    auth_provider: Mapped[str | None] = mapped_column(
+        String(30),
+        default="local",
+        nullable=True,
+    )
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         default=True,

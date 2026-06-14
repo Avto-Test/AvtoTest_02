@@ -1771,6 +1771,58 @@ textarea {
   color: white;
 }
 
+.auth-social-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.google-auth-button {
+  border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--card) 88%, transparent), color-mix(in oklab, var(--card) 72%, transparent));
+  color: var(--foreground);
+  box-shadow: 0 10px 24px -20px rgba(15, 23, 42, 0.5);
+}
+
+.google-auth-button:hover {
+  border-color: color-mix(in oklab, var(--primary) 45%, var(--border));
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--card) 94%, transparent), color-mix(in oklab, var(--primary) 12%, var(--card)));
+  box-shadow: 0 14px 28px -22px color-mix(in oklab, var(--primary) 50%, transparent);
+  color: var(--foreground);
+}
+
+.google-auth-icon {
+  display: inline-flex;
+  height: 1.55rem;
+  width: 1.55rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.08);
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: color-mix(in oklab, var(--border) 76%, transparent);
+}
+
 .auth-progress-panel {
   border-radius: 1rem;
   border: 1px solid color-mix(in oklab, var(--border) 82%, transparent);
@@ -1821,5 +1873,384 @@ textarea {
 
   .auth-action-row {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Lovable auth export integration */
+.lovable-auth-stage {
+  --radius: 0.875rem;
+  --background: oklch(0.16 0.03 255);
+  --foreground: oklch(0.97 0.005 250);
+  --card: oklch(0.21 0.035 258 / 0.6);
+  --muted-foreground: oklch(0.7 0.02 250);
+  --primary: oklch(0.72 0.17 235);
+  --primary-foreground: oklch(0.12 0.02 255);
+  --primary-glow: oklch(0.78 0.18 230);
+  --border: oklch(1 0 0 / 0.08);
+  --input: oklch(1 0 0 / 0.06);
+  --ring: oklch(0.72 0.17 235 / 0.6);
+  --hero-overlay: linear-gradient(
+    180deg,
+    oklch(0.13 0.03 258 / 0.55) 0%,
+    oklch(0.13 0.03 258 / 0) 25%,
+    oklch(0.13 0.03 258 / 0) 60%,
+    oklch(0.13 0.03 258 / 0.85) 100%
+  );
+  --hero-vignette: radial-gradient(
+    ellipse 70% 80% at 20% 55%,
+    oklch(0.13 0.03 258 / 0.85) 0%,
+    oklch(0.13 0.03 258 / 0.35) 45%,
+    transparent 75%
+  );
+  --grid-color: oklch(1 0 0 / 0.04);
+  --shadow-glass: 0 30px 80px -20px oklch(0 0 0 / 0.6),
+    inset 0 1px 0 0 oklch(1 0 0 / 0.06);
+  background-color: var(--background);
+  color: var(--foreground);
+  font-feature-settings: "cv11", "ss01";
+}
+
+.light .lovable-auth-stage {
+  --background: oklch(0.985 0.005 250);
+  --foreground: oklch(0.18 0.03 255);
+  --card: oklch(1 0 0 / 0.7);
+  --muted-foreground: oklch(0.45 0.02 255);
+  --primary: oklch(0.55 0.18 245);
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-glow: oklch(0.65 0.18 240);
+  --border: oklch(0.18 0.03 255 / 0.1);
+  --input: oklch(0.18 0.03 255 / 0.08);
+  --ring: oklch(0.55 0.18 245 / 0.5);
+  --hero-overlay: linear-gradient(
+    180deg,
+    oklch(0.985 0.005 250 / 0.55) 0%,
+    oklch(0.985 0.005 250 / 0) 25%,
+    oklch(0.985 0.005 250 / 0) 55%,
+    oklch(0.985 0.005 250 / 0.9) 100%
+  );
+  --hero-vignette: radial-gradient(
+    ellipse 70% 80% at 20% 55%,
+    oklch(0.985 0.005 250 / 0.9) 0%,
+    oklch(0.985 0.005 250 / 0.4) 45%,
+    transparent 75%
+  );
+  --grid-color: oklch(0.18 0.03 255 / 0.05);
+  --shadow-glass: 0 30px 80px -25px oklch(0.18 0.03 255 / 0.25),
+    inset 0 1px 0 0 oklch(1 0 0 / 0.6);
+}
+
+.lovable-auth-hero {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: right;
+  transition: opacity 700ms ease;
+}
+
+.lovable-auth-hero-night {
+  opacity: 1;
+}
+
+.lovable-auth-hero-day {
+  opacity: 0;
+}
+
+.light .lovable-auth-hero-night {
+  opacity: 0;
+}
+
+.light .lovable-auth-hero-day {
+  opacity: 1;
+}
+
+.lovable-hero-fade {
+  background: var(--hero-overlay);
+}
+
+.lovable-hero-vignette {
+  background: var(--hero-vignette);
+}
+
+.lovable-bg-grid {
+  background-image:
+    linear-gradient(to right, var(--grid-color) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-color) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse at 30% 50%, black 0%, transparent 75%);
+}
+
+.lovable-brand-mark {
+  position: relative;
+  display: grid;
+  height: 2.25rem;
+  width: 2.25rem;
+  place-items: center;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--card) 50%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.lovable-theme-toggle {
+  position: relative;
+  display: inline-flex;
+  height: 2.25rem;
+  width: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--card) 40%, transparent);
+  color: var(--foreground);
+  backdrop-filter: blur(12px);
+  transition: background-color 0.2s ease;
+}
+
+.lovable-theme-toggle:hover {
+  background: color-mix(in oklab, var(--card) 70%, transparent);
+}
+
+.lovable-theme-icon {
+  height: 1rem;
+  width: 1rem;
+  color: var(--foreground);
+  transition:
+    transform 300ms ease,
+    opacity 300ms ease;
+}
+
+.lovable-theme-sun {
+  transform: scale(0) rotate(90deg);
+  opacity: 0;
+}
+
+.lovable-theme-moon {
+  position: absolute;
+  transform: scale(1) rotate(0deg);
+  opacity: 1;
+}
+
+.light .lovable-theme-sun {
+  transform: scale(1) rotate(0deg);
+  opacity: 1;
+}
+
+.light .lovable-theme-moon {
+  transform: scale(0) rotate(-90deg);
+  opacity: 0;
+}
+
+.lovable-glass-panel {
+  background: color-mix(in oklab, var(--card) 70%, transparent);
+  backdrop-filter: blur(36px) saturate(160%);
+  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  box-shadow: var(--shadow-glass);
+}
+
+.lovable-auth-label {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--muted-foreground);
+  text-transform: uppercase;
+}
+
+.lovable-field-shell {
+  position: relative;
+}
+
+.lovable-field-icon {
+  pointer-events: none;
+  position: absolute;
+  left: 0.875rem;
+  top: 50%;
+  height: 1rem;
+  width: 1rem;
+  transform: translateY(-50%);
+  color: var(--muted-foreground);
+  transition: color 0.2s ease;
+}
+
+.lovable-field-shell:focus-within .lovable-field-icon {
+  color: var(--primary);
+}
+
+.lovable-field-input {
+  height: 2.75rem;
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--input) 40%, transparent);
+  padding-left: 2.5rem;
+  padding-right: 2.5rem;
+  font-size: 0.875rem;
+  color: var(--foreground);
+  outline: none;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.lovable-field-input::placeholder {
+  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+}
+
+.lovable-field-input:focus {
+  border-color: color-mix(in oklab, var(--primary) 60%, transparent);
+  background: color-mix(in oklab, var(--input) 70%, transparent);
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+.lovable-field-input-password {
+  padding-right: 2.5rem;
+}
+
+.lovable-field-toggle {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted-foreground);
+  transition: color 0.2s ease;
+}
+
+.lovable-field-toggle:hover {
+  color: var(--foreground);
+}
+
+.lovable-auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.lovable-primary-button {
+  position: relative;
+  display: inline-flex;
+  height: 2.75rem;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  overflow: hidden;
+  border-radius: 0.75rem;
+  background: linear-gradient(to right, var(--primary), var(--primary-glow));
+  color: var(--primary-foreground);
+  font-size: 0.875rem;
+  font-weight: 600;
+  box-shadow: 0 10px 30px -10px oklch(0.72 0.17 235 / 0.7);
+  transition:
+    opacity 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.lovable-primary-button:hover {
+  box-shadow: 0 14px 40px -10px oklch(0.72 0.17 235 / 0.85);
+}
+
+.lovable-primary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.lovable-auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  color: var(--muted-foreground);
+}
+
+.lovable-google-button {
+  display: inline-flex;
+  height: 2.75rem;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--background) 60%, transparent);
+  padding: 0 1rem;
+  color: var(--foreground);
+  font-size: 0.875rem;
+  font-weight: 500;
+  box-shadow: 0 1px 2px 0 oklch(0 0 0 / 0.05);
+  transition:
+    background-color 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.lovable-google-button:hover {
+  background: color-mix(in oklab, var(--background) 90%, transparent);
+}
+
+.lovable-google-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.lovable-google-button .google-auth-icon {
+  height: 1.125rem;
+  width: 1.125rem;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.lovable-google-button .google-auth-icon svg {
+  height: 1.125rem;
+  width: 1.125rem;
+}
+
+.lovable-consent-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  padding-top: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.lovable-auth-stage .auth-notice {
+  border-radius: 0.875rem;
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--background) 50%, transparent);
+  padding: 0.75rem 0.875rem;
+  font-size: 0.8125rem;
+  color: var(--foreground);
+}
+
+.lovable-auth-stage .auth-notice-error {
+  border-color: oklch(0.62 0.22 25 / 0.3);
+}
+
+@media (max-width: 1023px) {
+  .lovable-auth-stage section {
+    align-items: start;
+  }
+}
+
+@media (max-width: 640px) {
+  .lovable-auth-stage header {
+    padding: 1.25rem 1.25rem 1rem;
+  }
+
+  .lovable-auth-stage section {
+    gap: 2rem;
+    min-height: auto;
+    padding: 1rem 1.25rem 2.5rem;
+  }
+
+  .lovable-glass-panel {
+    padding: 1.5rem;
   }
 }

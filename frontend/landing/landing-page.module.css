@@ -63,60 +63,60 @@
   z-index: 1;
 }
 
-:global(.landing-main) {
+.shell :global(.landing-main) {
   position: relative;
   overflow: hidden;
   background: var(--marketing-bg);
 }
 
-:global(.landing-main::before),
-:global(.landing-main::after) {
+.shell :global(.landing-main::before),
+.shell :global(.landing-main::after) {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
 }
 
-:global(.landing-main::before) {
+.shell :global(.landing-main::before) {
   background: none;
 }
 
-:global(.landing-main::after) {
+.shell :global(.landing-main::after) {
   background: linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--marketing-bg) 18%, transparent) 100%);
 }
 
-:global(.landing-section) {
+.shell :global(.landing-section) {
   position: relative;
   padding-block: clamp(5.75rem, 7vw, 6.5rem);
   background: transparent;
 }
 
-:global(.landing-container) {
+.shell :global(.landing-container) {
   position: relative;
   z-index: 1;
   margin-inline: auto;
   max-width: 80rem;
 }
 
-:global(.landing-section-plain) {
+.shell :global(.landing-section-plain) {
   background: transparent;
 }
 
-:global(.landing-section-surface) {
+.shell :global(.landing-section-surface) {
   background: var(--marketing-section-surface);
 }
 
-:global(.landing-section-muted) {
+.shell :global(.landing-section-muted) {
   background: var(--marketing-section-muted);
 }
 
-:global(.landing-section-contrast) {
+.shell :global(.landing-section-contrast) {
   background: var(--marketing-section-contrast);
 }
 
-:global(.landing-glow-blue::after),
-:global(.landing-glow-green::after),
-:global(.landing-glow-danger::after) {
+.shell :global(.landing-glow-blue::after),
+.shell :global(.landing-glow-green::after),
+.shell :global(.landing-glow-danger::after) {
   content: "";
   position: absolute;
   inset: 0;
@@ -124,7 +124,7 @@
   opacity: 0.35;
 }
 
-:global(.landing-glow-blue::after) {
+.shell :global(.landing-glow-blue::after) {
   background: radial-gradient(
     ellipse at top right,
     color-mix(in srgb, var(--marketing-text) 3%, transparent),
@@ -132,7 +132,7 @@
   );
 }
 
-:global(.landing-glow-green::after) {
+.shell :global(.landing-glow-green::after) {
   background: radial-gradient(
     ellipse at top left,
     color-mix(in srgb, var(--marketing-text) 3%, transparent),
@@ -140,7 +140,7 @@
   );
 }
 
-:global(.landing-glow-danger::after) {
+.shell :global(.landing-glow-danger::after) {
   background: radial-gradient(
     ellipse at top left,
     color-mix(in srgb, var(--marketing-text) 2%, transparent),
@@ -148,12 +148,12 @@
   );
 }
 
-:global(.landing-main > .landing-section + .landing-section) {
+.shell :global(.landing-main > .landing-section + .landing-section) {
   margin-top: clamp(-1.75rem, -2vw, -1rem);
   padding-top: clamp(6rem, 7.5vw, 6.75rem);
 }
 
-:global(.landing-main > .landing-section + .landing-section::before) {
+.shell :global(.landing-main > .landing-section + .landing-section::before) {
   content: "";
   position: absolute;
   inset-inline: 0;
@@ -165,14 +165,14 @@
   opacity: 1;
 }
 
-:global(.landing-navbar-glass) {
+.shell :global(.landing-navbar-glass) {
   background: var(--marketing-glass-bg);
   border-bottom: 1px solid var(--marketing-border);
   box-shadow: var(--marketing-shadow-soft);
   backdrop-filter: blur(12px) saturate(140%);
 }
 
-:global(.landing-navbar-glass::before) {
+.shell :global(.landing-navbar-glass::before) {
   content: "";
   position: absolute;
   inset: 0;
@@ -180,31 +180,31 @@
   background: linear-gradient(180deg, color-mix(in srgb, var(--marketing-text) 8%, transparent), transparent 58%);
 }
 
-:global(.landing-hero-image) {
+.shell :global(.landing-hero-image) {
   object-position: right center;
   filter: brightness(0.84) saturate(0.96) contrast(1.02);
   transform: scale(1.03);
 }
 
-:global(.landing-hero-overlay) {
+.shell :global(.landing-hero-overlay) {
   background: var(--marketing-hero-overlay);
 }
 
-:global(.landing-hero-vignette) {
+.shell :global(.landing-hero-vignette) {
   background: none;
 }
 
-:global(.landing-hero-title) {
+.shell :global(.landing-hero-title) {
   color: var(--foreground);
   text-shadow: 0 14px 38px color-mix(in srgb, var(--overlay-scrim) 84%, transparent);
 }
 
-:global(.landing-hero-lead) {
+.shell :global(.landing-hero-lead) {
   color: var(--marketing-text-secondary);
   text-shadow: 0 10px 28px color-mix(in srgb, var(--overlay-scrim) 72%, transparent);
 }
 
-:global(.landing-panel) {
+.shell :global(.landing-panel) {
   background:
     linear-gradient(
       180deg,
@@ -219,7 +219,7 @@
   backdrop-filter: blur(20px);
 }
 
-:global(.landing-panel-subtle) {
+.shell :global(.landing-panel-subtle) {
   background:
     linear-gradient(
       180deg,
@@ -234,7 +234,7 @@
   backdrop-filter: blur(16px);
 }
 
-:global(.landing-card-hover) {
+.shell :global(.landing-card-hover) {
   transition:
     transform 0.28s ease,
     border-color 0.28s ease,
@@ -242,7 +242,7 @@
     background-color 0.28s ease;
 }
 
-:global(.landing-card-hover:hover) {
+.shell :global(.landing-card-hover:hover) {
   transform: translateY(-6px);
   border-color: color-mix(in srgb, var(--accent-brand) 18%, transparent);
   box-shadow:
@@ -251,7 +251,7 @@
     inset 0 1px 0 color-mix(in srgb, var(--marketing-text) 6%, transparent);
 }
 
-:global(.landing-problem-panel) {
+.shell :global(.landing-problem-panel) {
   background:
     linear-gradient(
       180deg,
@@ -265,7 +265,7 @@
     inset 0 1px 0 color-mix(in srgb, var(--marketing-text) 4%, transparent);
 }
 
-:global(.landing-solution-panel) {
+.shell :global(.landing-solution-panel) {
   background:
     linear-gradient(
       180deg,
@@ -279,7 +279,7 @@
     inset 0 1px 0 color-mix(in srgb, var(--marketing-text) 4%, transparent);
 }
 
-:global(.landing-button-primary) {
+.shell :global(.landing-button-primary) {
   background: var(--primary-gradient);
   color: var(--accent-brand-contrast);
   box-shadow:
@@ -291,14 +291,14 @@
     background-color 0.28s ease;
 }
 
-:global(.landing-button-primary:hover) {
+.shell :global(.landing-button-primary:hover) {
   transform: translateY(-1px);
   box-shadow:
     0 20px 40px -18px color-mix(in srgb, var(--accent-brand) 62%, transparent),
     0 0 30px color-mix(in srgb, var(--accent-brand) 18%, transparent);
 }
 
-:global(.landing-button-secondary) {
+.shell :global(.landing-button-secondary) {
   background: color-mix(in srgb, var(--marketing-bg) 42%, transparent);
   border: 1px solid color-mix(in srgb, var(--marketing-text) 8%, transparent);
   color: var(--foreground);
@@ -309,13 +309,13 @@
     background-color 0.28s ease;
 }
 
-:global(.landing-button-secondary:hover) {
+.shell :global(.landing-button-secondary:hover) {
   transform: translateY(-1px);
   border-color: color-mix(in srgb, var(--accent-brand) 20%, transparent);
   background: color-mix(in srgb, var(--marketing-card-subtle) 92%, transparent);
 }
 
-:global(.landing-button-success) {
+.shell :global(.landing-button-success) {
   background: linear-gradient(
     180deg,
     color-mix(in srgb, var(--accent-green) 98%, transparent),
@@ -331,7 +331,7 @@
     background-color 0.28s ease;
 }
 
-:global(.landing-button-success:hover) {
+.shell :global(.landing-button-success:hover) {
   transform: translateY(-1px);
   box-shadow:
     0 18px 40px -18px color-mix(in srgb, var(--accent-green) 54%, transparent),
