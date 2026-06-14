@@ -1,28 +1,18 @@
 "use client";
 
-import Link from "next/link";
 import { ArrowRight, Check, Eye, EyeOff, Lock, Mail } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { register } from "@/api/auth";
 import { AuthShell } from "@/features/auth/auth-shell";
+import { GoogleAuthButton } from "@/features/auth/google-auth-button";
 import { useUser } from "@/hooks/use-user";
 import { Input } from "@/shared/ui/input";
-import { Progress } from "@/shared/ui/progress";
-
-function getPasswordStrength(password: string) {
-  let strength = 0;
-  if (password.length >= 8) strength += 35;
-  if (/[A-Z]/.test(password)) strength += 20;
-  if (/[0-9]/.test(password)) strength += 20;
-  if (/[^A-Za-z0-9]/.test(password)) strength += 25;
-  return Math.min(strength, 100);
-}
 
 export function RegisterPage() {
   const router = useRouter();
-  const { authenticated, loading } = useUser();
+  const { authenticated, loading, refreshUser } = useUser();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -36,17 +26,6 @@ export function RegisterPage() {
       router.replace("/dashboard");
     }
   }, [authenticated, loading, router]);
-
-  const passwordStrength = getPasswordStrength(password);
-  const strengthMeta = useMemo(() => {
-    if (passwordStrength < 40) {
-      return { label: "Zaif", className: "bg-rose-500" };
-    }
-    if (passwordStrength < 75) {
-      return { label: "O'rtacha", className: "bg-amber-500" };
-    }
-    return { label: "Kuchli", className: "bg-emerald-500" };
-  }, [passwordStrength]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -78,18 +57,18 @@ export function RegisterPage() {
     }
   };
 
+  const handleGoogleAuthenticated = async () => {
+    setError(null);
+    await refreshUser();
+    router.replace("/dashboard");
+    router.refresh();
+  };
+
   return (
     <AuthShell
+      mode="register"
       title="Ro'yxatdan o'tish"
-      description="Yangi hisob yarating va dashboard, practice va simulation modullariga kiring."
-      footer={
-        <p>
-          Allaqachon hisobingiz bormi?{" "}
-          <Link href="/login" className="font-semibold text-[var(--primary)]">
-            Kirish
-          </Link>
-        </p>
-      }
+      description="Yangi hisob yarating va tayyorgarlikni boshlang."
     >
       {error ? (
         <div className="auth-notice auth-notice-error">
@@ -98,70 +77,65 @@ export function RegisterPage() {
         </div>
       ) : null}
 
-      <form className="auth-form-stack" onSubmit={handleSubmit}>
+      <form className="lovable-auth-form" onSubmit={handleSubmit}>
         <div className="space-y-2">
-          <label htmlFor="register-email" className="auth-label">
+          <label htmlFor="register-email" className="lovable-auth-label">
             Email
           </label>
-          <div className="auth-field-shell">
-            <Mail className="auth-field-icon" />
+          <div className="lovable-field-shell group">
+            <Mail className="lovable-field-icon" />
             <Input
               id="register-email"
               type="email"
-              placeholder="sizning@email.com"
+              placeholder="you@example.com"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              className="auth-field-input pl-10"
+              className="lovable-field-input"
               required
             />
           </div>
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="register-password" className="auth-label">
+          <label htmlFor="register-password" className="lovable-auth-label">
             Parol
           </label>
-          <div className="auth-field-shell">
-            <Lock className="auth-field-icon" />
+          <div className="lovable-field-shell group">
+            <Lock className="lovable-field-icon" />
             <Input
               id="register-password"
               type={showPassword ? "text" : "password"}
-              placeholder="Kamida 8 ta belgi"
+              placeholder="••••••••"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="auth-field-input pl-10 pr-11"
+              className="lovable-field-input lovable-field-input-password"
               minLength={8}
               required
             />
             <button
               type="button"
-              className="auth-field-toggle"
+              className="lovable-field-toggle"
               onClick={() => setShowPassword((value) => !value)}
+              aria-label={showPassword ? "Hide password" : "Show password"}
             >
               {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
-          {password ? (
-            <div className="auth-progress-panel space-y-2">
-              <Progress value={passwordStrength} indicatorClassName={strengthMeta.className} />
-              <p className="text-xs text-[var(--muted-foreground)]">Parol kuchi: {strengthMeta.label}</p>
-            </div>
-          ) : null}
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="register-confirm-password" className="auth-label">
-            Parolni tasdiqlash
+          <label htmlFor="register-confirm-password" className="lovable-auth-label">
+            Parolni tasdiqlang
           </label>
-          <div className="auth-field-shell">
-            <Lock className="auth-field-icon" />
+          <div className="lovable-field-shell group">
+            <Lock className="lovable-field-icon" />
             <Input
               id="register-confirm-password"
               type="password"
-              placeholder="Parolni qayta kiriting"
+              placeholder="••••••••"
               value={confirmPassword}
               onChange={(event) => setConfirmPassword(event.target.value)}
-              className="auth-field-input pl-10 pr-10"
+              className="lovable-field-input lovable-field-input-password"
               minLength={8}
               required
             />
@@ -171,23 +145,38 @@ export function RegisterPage() {
           </div>
         </div>
 
-        <label className="auth-consent-row">
+        <label className="lovable-consent-row">
           <input
             type="checkbox"
             checked={agreeTerms}
             onChange={(event) => setAgreeTerms(event.target.checked)}
-            className="mt-1 h-4 w-4 rounded border-[var(--border)] bg-transparent"
+            className="mt-0.5 h-4 w-4 cursor-pointer rounded border-[var(--border)] bg-[var(--input)] accent-[oklch(0.72_0.17_235)]"
           />
           <span className="text-[var(--muted-foreground)]">
-            Foydalanish shartlari va maxfiylik siyosatiga roziman.
+            Foydalanish shartlari bilan{" "}
+            <span className="text-[var(--foreground)] underline-offset-2 hover:underline">
+              roziman
+            </span>
           </span>
         </label>
 
-        <button type="submit" className="auth-action auth-action-primary w-full" disabled={submitting || !agreeTerms}>
+        <button type="submit" className="lovable-primary-button group" disabled={submitting || !agreeTerms}>
           <span>{submitting ? "Yuborilmoqda..." : "Ro'yxatdan o'tish"}</span>
-          {!submitting ? <ArrowRight className="h-4 w-4" /> : null}
+          {!submitting ? <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" /> : null}
         </button>
       </form>
+
+      <div className="lovable-auth-divider">
+        <span className="h-px flex-1 bg-[var(--border)]" />
+        YOKI
+        <span className="h-px flex-1 bg-[var(--border)]" />
+      </div>
+
+      <GoogleAuthButton
+        mode="register"
+        onAuthenticated={handleGoogleAuthenticated}
+        onError={(message) => setError(message || null)}
+      />
     </AuthShell>
   );
 }

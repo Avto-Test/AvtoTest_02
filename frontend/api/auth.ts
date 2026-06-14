@@ -42,6 +42,16 @@ export function login(payload: { email: string; password: string }) {
   });
 }
 
+export function googleAuth(payload: { credential: string }) {
+  return apiRequest<AuthTokenResponse>("/api/auth/google", {
+    method: "POST",
+    body: payload,
+    baseUrl: "/",
+    retryOnAuth: false,
+    timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
+  });
+}
+
 export function register(payload: { email: string; password: string }) {
   return apiRequest<MessageResponse>("/api/auth/register", {
     method: "POST",

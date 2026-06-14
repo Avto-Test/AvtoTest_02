@@ -8,6 +8,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { login } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { AuthShell } from "@/features/auth/auth-shell";
+import { GoogleAuthButton } from "@/features/auth/google-auth-button";
 import { useUser } from "@/hooks/use-user";
 import { Input } from "@/shared/ui/input";
 
@@ -52,10 +53,18 @@ export function LoginPage() {
     }
   };
 
+  const handleGoogleAuthenticated = async () => {
+    setError(null);
+    await refreshUser();
+    router.replace(nextHref);
+    router.refresh();
+  };
+
   return (
     <AuthShell
+      mode="login"
       title="Xush kelibsiz"
-      description="Hisobingizga kiring va AUTOTEST paneliga o'ting."
+      description="Hisobingizga kiring va yo'lda davom eting."
     >
       {registered ? (
         <div className="auth-notice auth-notice-success">
@@ -76,65 +85,75 @@ export function LoginPage() {
         </div>
       ) : null}
 
-      <form className="auth-form-stack" onSubmit={handleSubmit}>
+      <form className="lovable-auth-form" onSubmit={handleSubmit}>
         <div className="space-y-2">
-          <label htmlFor="login-email" className="auth-label">
+          <label htmlFor="login-email" className="lovable-auth-label">
             Email
           </label>
-          <div className="auth-field-shell">
-            <Mail className="auth-field-icon" />
+          <div className="lovable-field-shell group">
+            <Mail className="lovable-field-icon" />
             <Input
               id="login-email"
               type="email"
-              placeholder="sizning@email.com"
+              placeholder="you@example.com"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              className="auth-field-input pl-10"
+              className="lovable-field-input"
               required
             />
           </div>
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="login-password" className="auth-label">
+          <label htmlFor="login-password" className="lovable-auth-label">
             Parol
           </label>
-          <div className="auth-field-shell">
-            <Lock className="auth-field-icon" />
+          <div className="lovable-field-shell group">
+            <Lock className="lovable-field-icon" />
             <Input
               id="login-password"
               type={showPassword ? "text" : "password"}
-              placeholder="Kamida 8 ta belgi"
+              placeholder="••••••••"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="auth-field-input pl-10 pr-11"
+              className="lovable-field-input lovable-field-input-password"
               minLength={8}
               required
             />
             <button
               type="button"
-              className="auth-field-toggle"
+              className="lovable-field-toggle"
               onClick={() => setShowPassword((value) => !value)}
+              aria-label={showPassword ? "Hide password" : "Show password"}
             >
               {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
         </div>
 
-        <div className="auth-action-row">
-          <button type="submit" className="auth-action auth-action-primary" disabled={submitting}>
-            <span>{submitting ? "Kirilmoqda..." : "Kirish"}</span>
-            {!submitting ? <ArrowRight className="h-4 w-4" /> : null}
-          </button>
-          <Link href="/register" className="auth-action auth-action-secondary">
-            Ro&apos;yxatdan o&apos;tish
+        <div className="flex justify-end">
+          <Link href="/forgot-password" className="text-xs text-[var(--muted-foreground)] transition hover:text-[var(--foreground)]">
+            Parolni unutdingizmi?
           </Link>
         </div>
 
-        <Link href="/verify" className="auth-action auth-action-tertiary">
-          Emailni tasdiqlash
-        </Link>
+        <button type="submit" className="lovable-primary-button group" disabled={submitting}>
+          <span>{submitting ? "Kirilmoqda..." : "Kirish"}</span>
+          {!submitting ? <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" /> : null}
+        </button>
       </form>
+
+      <div className="lovable-auth-divider">
+        <span className="h-px flex-1 bg-[var(--border)]" />
+        YOKI
+        <span className="h-px flex-1 bg-[var(--border)]" />
+      </div>
+
+      <GoogleAuthButton
+        mode="login"
+        onAuthenticated={handleGoogleAuthenticated}
+        onError={(message) => setError(message || null)}
+      />
     </AuthShell>
   );
 }

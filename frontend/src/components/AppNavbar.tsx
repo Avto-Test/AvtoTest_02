@@ -8,6 +8,7 @@ import { LogOut, Sparkles } from "lucide-react";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { useI18n } from "@/components/i18n-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { Button } from "@/components/ui/button";
 import { Avatar, SecondaryButton } from "@/components/ui/product-primitives";
 import { useAuth } from "@/store/useAuth";
 

@@ -45,12 +45,21 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+      args:
+        GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID}
     container_name: autotest-frontend-prod
+    env_file:
+      - .env
     expose:
       - "3000"
     environment:
       NODE_ENV: production
       NEXT_TELEMETRY_DISABLED: "1"
+      API_URL: http://backend:8000
+      NEXT_PUBLIC_API_BASE: /api
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID}
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000', (res) => {if(res.statusCode !== 200) throw new Error(res.statusCode)})"]
       interval: 30s

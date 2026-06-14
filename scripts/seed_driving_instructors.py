@@ -371,7 +371,7 @@ async def seed() -> None:
                     requested_transmission=instructor.transmission,
                     comment="Mos jadval bo'lsa tezroq bog'laning.",
                     source="web",
-                    status="new" if idx % 2 == 0 else "contacted",
+                    status="NEW" if idx % 2 == 0 else "CONTACTED",
                 )
             )
 
@@ -385,15 +385,15 @@ async def seed() -> None:
                         phone=f"+99893{8000000 + idx:07d}",
                         reason=COMPLAINT_REASONS[idx % len(COMPLAINT_REASONS)],
                         comment="Admin tekshirishi uchun test complaint.",
-                        status="new",
+                        status="NEW",
                     )
                 )
 
-        app_statuses = ["pending", "approved", "rejected", "pending", "approved"]
+        app_statuses = ["PENDING", "APPROVED", "REJECTED", "PENDING", "APPROVED"]
         for idx, status_value in enumerate(app_statuses):
             user = users[idx % len(users)] if users else None
             created_at = now - timedelta(days=idx + 2)
-            reviewed_at = created_at + timedelta(hours=5) if status_value != "pending" else None
+            reviewed_at = created_at + timedelta(hours=5) if status_value != "PENDING" else None
             session.add(
                 DrivingInstructorApplication(
                     user_id=user.id if user else None,
@@ -411,12 +411,12 @@ async def seed() -> None:
                     profile_image_url=PROFILE_IMAGES[idx % len(PROFILE_IMAGES)],
                     extra_images_json=json.dumps([MEDIA_POOL[idx % len(MEDIA_POOL)]]),
                     status=status_value,
-                    rejection_reason="Hujjatlar to'liq emas" if status_value == "rejected" else None,
-                    reviewed_by_id=user.id if (status_value != "pending" and user) else None,
+                    rejection_reason="Hujjatlar to'liq emas" if status_value == "REJECTED" else None,
+                    reviewed_by_id=user.id if (status_value != "PENDING" and user) else None,
                     reviewed_at=reviewed_at,
                     submitted_from="web",
                     created_at=created_at,
-                    updated_at=created_at if status_value == "pending" else reviewed_at or created_at,
+                    updated_at=created_at if status_value == "PENDING" else reviewed_at or created_at,
                 )
             )
 

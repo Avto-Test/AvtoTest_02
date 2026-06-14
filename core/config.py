@@ -80,6 +80,8 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 20
     REFRESH_TOKEN_EXPIRE_DAYS: int = 14
     ALGORITHM: str = "HS256"
+    GOOGLE_CLIENT_ID: str = ""
+    BACKEND_GOOGLE_CLIENT_ID: str = ""
     
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/autotest"

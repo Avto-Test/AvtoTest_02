@@ -9,9 +9,13 @@ import logging
 import random
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
+from urllib.parse import urlencode
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from google.auth.exceptions import GoogleAuthError, TransportError
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +23,7 @@ from sqlalchemy.orm import selectinload
 
 from api.auth.schemas import (
     ForgotPasswordRequest,
+    GoogleAuthRequest,
     MessageResponse,
     ResendVerificationRequest,
     ResetPasswordRequest,
@@ -43,6 +48,7 @@ from models.pending_registration import PendingRegistration
 from models.refresh_session import RefreshSession
 from models.driving_instructor import DrivingInstructor
 from models.driving_school import DrivingSchool
+from models.subscription import Subscription
 from models.user import User
 from models.verification_token import VerificationToken
 from services.gamification.rewards import award_daily_login
@@ -60,6 +66,7 @@ PASSWORD_RESET_CODE_EXPIRE_MINUTES = 15
 PENDING_REGISTRATION_EXPIRE_MINUTES = 15
 TOKEN_TYPE_EMAIL_VERIFICATION = "email_verification"
 TOKEN_TYPE_PASSWORD_RESET = "password_reset"
+GOOGLE_HTTP_TIMEOUT_SECONDS = 5
 
 
 def generate_verification_code() -> str:
@@ -318,6 +325,153 @@ async def _issue_auth_tokens(
     )
 
 
+def _get_google_backend_client_id() -> str:
+    return (settings.BACKEND_GOOGLE_CLIENT_ID or settings.GOOGLE_CLIENT_ID).strip()
+
+
+def _google_http_request() -> Callable[..., Any]:
+    request = google_requests.Request()
+
+    def request_with_timeout(*args: Any, **kwargs: Any) -> Any:
+        kwargs.setdefault("timeout", GOOGLE_HTTP_TIMEOUT_SECONDS)
+        return request(*args, **kwargs)
+
+    return request_with_timeout
+
+
+def _looks_like_jwt(credential: str) -> bool:
+    return credential.count(".") == 2
+
+
+def _google_verification_unavailable_exception() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Google tokenini tekshirish vaqtincha imkonsiz. Qayta urinib ko'ring.",
+    )
+
+
+async def _verify_google_credential(credential: str) -> dict[str, str]:
+    client_id = _get_google_backend_client_id()
+    if not client_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google OAuth client ID sozlanmagan",
+        )
+
+    if _looks_like_jwt(credential):
+        try:
+            token_info = await asyncio.to_thread(
+                id_token.verify_oauth2_token,
+                credential,
+                _google_http_request(),
+                client_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Google token yaroqsiz",
+                headers={"WWW-Authenticate": "Bearer"},
+            ) from exc
+        except (GoogleAuthError, TransportError) as exc:
+            logger.warning("Google ID token verification transport failed: %s", exc)
+            raise _google_verification_unavailable_exception() from exc
+    else:
+        token_info = await _verify_google_access_token(credential=credential, client_id=client_id)
+
+    email = str(token_info.get("email") or "").strip().lower()
+    google_sub_id = str(token_info.get("sub") or "").strip()
+    email_verified = token_info.get("email_verified")
+    if email_verified not in (True, "true", "True", "1", 1):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google email tasdiqlanmagan",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if not email or not google_sub_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google token to'liq profil ma'lumotlarini bermadi",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return {
+        "email": email,
+        "given_name": str(token_info.get("given_name") or "").strip(),
+        "family_name": str(token_info.get("family_name") or "").strip(),
+        "picture": str(token_info.get("picture") or "").strip(),
+        "google_sub_id": google_sub_id,
+    }
+
+
+def _google_request_json(url: str, headers: dict[str, str] | None = None) -> dict[str, Any]:
+    response = google_requests.Request()(
+        url=url,
+        method="GET",
+        headers=headers or {},
+        timeout=GOOGLE_HTTP_TIMEOUT_SECONDS,
+    )
+    if response.status != 200:
+        raise ValueError("Google token verification failed")
+    payload = json.loads(response.data.decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Google response was not a JSON object")
+    return payload
+
+
+def _google_token_audience_candidates(token_info: dict[str, Any]) -> set[str]:
+    audience_keys = ("aud", "audience", "issued_to", "azp")
+    return {
+        str(token_info.get(key) or "").strip()
+        for key in audience_keys
+        if str(token_info.get(key) or "").strip()
+    }
+
+
+async def _verify_google_access_token(*, credential: str, client_id: str) -> dict[str, Any]:
+    try:
+        token_info = await asyncio.to_thread(
+            _google_request_json,
+            f"https://oauth2.googleapis.com/tokeninfo?{urlencode({'access_token': credential})}",
+        )
+        audience_candidates = _google_token_audience_candidates(token_info)
+        logger.info(
+            "Google access tokeninfo received: keys=%s audience_match=%s",
+            sorted(token_info.keys()),
+            client_id in audience_candidates,
+        )
+        if client_id not in audience_candidates:
+            logger.warning(
+                "Google access token audience mismatch: keys=%s audience_candidates=%s",
+                sorted(token_info.keys()),
+                sorted(audience_candidates),
+            )
+            raise ValueError("Google token audience mismatch")
+
+        profile = await asyncio.to_thread(
+            _google_request_json,
+            "https://www.googleapis.com/oauth2/v3/userinfo",
+            {"Authorization": f"Bearer {credential}"},
+        )
+        logger.info(
+            "Google userinfo received: has_email=%s has_sub=%s email_verified=%s",
+            bool(str(profile.get("email") or "").strip()),
+            bool(str(profile.get("sub") or "").strip()),
+            profile.get("email_verified"),
+        )
+    except (ValueError, GoogleAuthError, TransportError) as exc:
+        if isinstance(exc, (GoogleAuthError, TransportError)):
+            logger.warning("Google access token verification transport failed: %s", exc)
+            raise _google_verification_unavailable_exception() from exc
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google token yaroqsiz",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+    return profile
+
+
 async def _revoke_session(
     session: RefreshSession,
     *,
@@ -438,13 +592,15 @@ async def get_current_user(
         raise credentials_exception
 
 
-@router.get("/me", response_model=UserMeResponse)
-async def get_my_profile_via_auth(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+async def _build_current_user_payload(
+    *,
+    db: AsyncSession,
+    current_user: User,
+    award_login: bool = False,
 ) -> dict:
-    """Backward-compatible profile endpoint."""
-    await award_daily_login(db, current_user.id)
+    if award_login:
+        await award_daily_login(db, current_user.id)
+
     instructor_result = await db.execute(
         select(DrivingInstructor.id).where(DrivingInstructor.user_id == current_user.id)
     )
@@ -459,7 +615,6 @@ async def get_my_profile_via_auth(
     subscription_expires_at = (
         subscription.expires_at if subscription is not None else current_user.subscription_expires_at
     )
-    await db.commit()
     return {
         "id": current_user.id,
         "email": current_user.email,
@@ -474,6 +629,21 @@ async def get_my_profile_via_auth(
         "has_school_profile": school_result.scalar_one_or_none() is not None,
         "created_at": current_user.created_at,
     }
+
+
+@router.get("/me", response_model=UserMeResponse)
+async def get_my_profile_via_auth(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Backward-compatible profile endpoint."""
+    payload = await _build_current_user_payload(
+        db=db,
+        current_user=current_user,
+        award_login=True,
+    )
+    await db.commit()
+    return payload
 
 
 @router.post("/register", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
@@ -654,6 +824,138 @@ async def login(
         raise
     except SQLAlchemyError as exc:
         logger.error("Database error during login for %s: %s", normalized_email, exc)
+        raise _database_unavailable_exception() from exc
+
+
+@router.post("/google")
+async def google_auth(
+    google_data: GoogleAuthRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Authenticate with a Google ID token and issue AUTOTEST tokens."""
+    google_profile = await _verify_google_credential(google_data.credential)
+    normalized_email = google_profile["email"]
+    google_sub_id = google_profile["google_sub_id"]
+    full_name = " ".join(
+        part for part in [google_profile["given_name"], google_profile["family_name"]] if part
+    ).strip()
+    request_ip = _get_request_ip(request)
+
+    try:
+        google_user_result = await db.execute(
+            select(User)
+            .where(User.google_id == google_sub_id)
+            .options(selectinload(User.subscription))
+        )
+        google_user = google_user_result.scalar_one_or_none()
+        if google_user is not None and google_user.email.lower() != normalized_email:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Bu Google hisob boshqa email bilan bog'langan",
+            )
+
+        if google_user is None:
+            result = await db.execute(
+                select(User)
+                .where(User.email == normalized_email)
+                .options(selectinload(User.subscription))
+            )
+            user = result.scalar_one_or_none()
+        else:
+            user = google_user
+
+        if user is None:
+            user = User(
+                email=normalized_email,
+                hashed_password=await get_password_hash_async(generate_refresh_token()),
+                full_name=full_name or None,
+                google_id=google_sub_id,
+                auth_provider="google",
+                is_verified=True,
+                is_active=True,
+            )
+            db.add(user)
+            await db.flush()
+            db.add(
+                Subscription(
+                    user_id=user.id,
+                    plan="free",
+                    status="inactive",
+                    provider="google",
+                )
+            )
+        else:
+            if user.google_id and user.google_id != google_sub_id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Bu email boshqa Google hisob bilan bog'langan",
+                )
+
+            if not user.is_active:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Foydalanuvchi faol emas",
+                )
+
+            user.google_id = google_sub_id
+            user.auth_provider = "google"
+            user.is_verified = True
+            if not user.full_name and full_name:
+                user.full_name = full_name
+            if user.subscription is None:
+                db.add(
+                    Subscription(
+                        user_id=user.id,
+                        plan="free",
+                        status="inactive",
+                        provider="google",
+                    )
+                )
+
+        pending_result = await db.execute(
+            select(PendingRegistration).where(PendingRegistration.email == normalized_email)
+        )
+        pending = pending_result.scalar_one_or_none()
+        if pending is not None:
+            await db.delete(pending)
+
+        await db.flush()
+        refreshed_result = await db.execute(
+            select(User)
+            .where(User.id == user.id)
+            .options(selectinload(User.subscription))
+        )
+        refreshed_user = refreshed_result.scalar_one()
+        await enforce_subscription_status(user=refreshed_user, db=db)
+        token_pair, refresh_session = await _issue_auth_tokens(
+            db=db,
+            user=refreshed_user,
+            request=request,
+        )
+        user_payload = await _build_current_user_payload(
+            db=db,
+            current_user=refreshed_user,
+            award_login=False,
+        )
+        await db.commit()
+        _log_auth_event(
+            logging.INFO,
+            event="google_login_success",
+            user_id=str(refreshed_user.id),
+            email=normalized_email,
+            session_id=str(refresh_session.id),
+            family_id=str(refresh_session.family_id),
+            ip_address=request_ip,
+        )
+        return {
+            **token_pair.model_dump(),
+            "user": user_payload,
+        }
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        logger.error("Database error during Google login for %s: %s", normalized_email, exc)
         raise _database_unavailable_exception() from exc
 
 

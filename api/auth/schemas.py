@@ -27,6 +27,15 @@ class UserLogin(BaseModel):
     }
 
 
+class GoogleAuthRequest(BaseModel):
+    """Schema for Google ID token authentication."""
+    credential: str = Field(min_length=20, max_length=8192)
+
+    model_config = {
+        "str_strip_whitespace": True,
+    }
+
+
 class Token(BaseModel):
     """Schema for access + refresh token response."""
     access_token: str

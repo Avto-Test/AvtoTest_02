@@ -6,16 +6,19 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
-
-  async rewrites() {
+  async headers() {
     return [
       {
-        source: "/api/:path*",
-        destination: `${process.env.API_URL || "http://localhost:8000"}/api/:path*`,
+        source: "/:path*",
+        headers: [
+          {
+            key: "Cross-Origin-Opener-Policy",
+            value: "same-origin-allow-popups",
+          },
+        ],
       },
     ];
   },
-
   async redirects() {
     return [
       {

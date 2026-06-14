@@ -171,7 +171,7 @@ async def seed() -> None:
                     phone=school.phone,
                     email=f"partner{index + 1}@autotest.uz",
                     note="Platformaga qo'shilish bo'yicha test ariza.",
-                    status="new",
+                    status="PENDING",
                 )
             )
 

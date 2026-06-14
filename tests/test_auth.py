@@ -3,12 +3,102 @@ AUTOTEST Authentication Tests
 """
 
 import pytest
+from fastapi import HTTPException
+from google.auth.exceptions import TransportError
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.auth import router as auth_router
 from models.pending_registration import PendingRegistration
 from models.user import User
+
+
+@pytest.mark.asyncio
+async def test_google_access_token_skips_id_token_verification(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(auth_router.settings, "BACKEND_GOOGLE_CLIENT_ID", "client-id")
+    monkeypatch.setattr(auth_router.settings, "GOOGLE_CLIENT_ID", "")
+
+    async def fake_verify_access_token(*, credential: str, client_id: str):
+        assert credential == "opaque-google-access-token"
+        assert client_id == "client-id"
+        return {
+            "email": "google@example.com",
+            "sub": "google-sub",
+            "email_verified": True,
+            "given_name": "Google",
+            "family_name": "User",
+        }
+
+    def fail_id_token_verification(*args, **kwargs):
+        raise AssertionError("Access tokens must not use ID-token verification")
+
+    monkeypatch.setattr(auth_router.id_token, "verify_oauth2_token", fail_id_token_verification)
+    monkeypatch.setattr(auth_router, "_verify_google_access_token", fake_verify_access_token)
+
+    profile = await auth_router._verify_google_credential("opaque-google-access-token")
+
+    assert profile["email"] == "google@example.com"
+    assert profile["google_sub_id"] == "google-sub"
+
+
+@pytest.mark.asyncio
+async def test_google_id_token_transport_error_returns_503(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(auth_router.settings, "BACKEND_GOOGLE_CLIENT_ID", "client-id")
+    monkeypatch.setattr(auth_router.settings, "GOOGLE_CLIENT_ID", "")
+
+    def raise_transport_error(*args, **kwargs):
+        raise TransportError("Google certs timed out")
+
+    monkeypatch.setattr(auth_router.id_token, "verify_oauth2_token", raise_transport_error)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await auth_router._verify_google_credential("header.payload.signature")
+
+    assert exc_info.value.status_code == 503
+    assert "Google tokenini tekshirish" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_google_auth_creates_user_and_issues_tokens(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(auth_router.settings, "BACKEND_GOOGLE_CLIENT_ID", "client-id")
+    monkeypatch.setattr(auth_router.settings, "GOOGLE_CLIENT_ID", "")
+
+    async def fake_verify_google_credential(credential: str):
+        assert credential == "opaque-google-access-token"
+        return {
+            "email": "new-google-user@example.com",
+            "google_sub_id": "google-sub-123",
+            "given_name": "New",
+            "family_name": "Google",
+            "picture": "",
+        }
+
+    monkeypatch.setattr(auth_router, "_verify_google_credential", fake_verify_google_credential)
+
+    response = await client.post(
+        "/auth/google",
+        json={"credential": "opaque-google-access-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["access_token"]
+    assert payload["refresh_token"]
+    assert payload["token_type"] == "bearer"
+    assert payload["user"]["email"] == "new-google-user@example.com"
+
+    user_result = await db_session.execute(
+        select(User).where(User.email == "new-google-user@example.com")
+    )
+    user = user_result.scalar_one()
+    assert user.google_id == "google-sub-123"
+    assert user.is_verified is True
+    assert user.is_active is True
 
 @pytest.mark.asyncio
 async def test_register_success(client: AsyncClient, db_session: AsyncSession):
