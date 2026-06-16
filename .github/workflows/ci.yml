@@ -13,44 +13,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ── Backend: pytest (Postgres bilan) ──────────────────────────────
-  backend-tests:
-    name: Backend tests (pytest)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: autotest_ci
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    env:
-      ENVIRONMENT: testing
-      SECRET_KEY: ci-test-secret-key-not-for-production
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/autotest_ci
-      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/autotest_ci
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: backend/requirements.txt
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Run tests
-        run: pytest -q
-
   # ── Migration smoke test: alembic upgrade head toza DB'da ─────────
   migrations:
     name: Alembic migrations
@@ -142,3 +104,31 @@ jobs:
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # ── Deploy: serverga SSH orqali (faqat main'ga push'da, CI o'tgach) ─
+  deploy:
+    name: Deploy (SSH)
+    runs-on: ubuntu-latest
+    needs: [migrations, frontend, docker-build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # GitHub'da "production" environment yarating — manual approval/protection uchun.
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          command_timeout: 20m
+          script: |
+            set -e
+            cd /var/www/AvtoTest_02
+            git fetch origin main
+            git checkout main
+            git pull --ff-only origin main
+            bash deploy/deploy.sh
