@@ -56,6 +56,12 @@ compose build
 log "Servislar ko'tarilmoqda..."
 compose up -d
 
+# nginx upstream'larni (backend/frontend) container nomi orqali resolve qiladi.
+# Ular qayta yaratilganda IP o'zgaradi, nginx esa eski IP'ni cache qilib qoladi -> 502.
+# Shu sabab nginx'ni majburan qayta ishga tushiramiz (yangi IP'larni oladi).
+log "nginx qayta ishga tushirilmoqda (yangi upstream IP'lari uchun)..."
+compose restart nginx
+
 # ── 4. Smoke test ─────────────────────────────────────────────────────
 log "Smoke test (60s gacha kutiladi)..."
 ok=0
