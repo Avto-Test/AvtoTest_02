@@ -107,8 +107,10 @@ jobs:
 
   # ── Deploy: serverga SSH orqali (faqat main'ga push'da, CI o'tgach) ─
   deploy:
-    name: Deploy (SSH)
-    runs-on: ubuntu-latest
+    name: Deploy (self-hosted)
+    # Server NAT orqasida — bulutli runner ulanolmaydi. Serverning o'zidagi
+    # self-hosted runner ishlatiladi (outbound ulanish, SSH kerak emas).
+    runs-on: [self-hosted, linux]
     needs: [migrations, frontend, docker-build]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     # GitHub'da "production" environment yarating — manual approval/protection uchun.
@@ -117,18 +119,13 @@ jobs:
       group: deploy-production
       cancel-in-progress: false
     steps:
-      - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
-          command_timeout: 20m
-          script: |
-            set -e
-            cd /var/www/AvtoTest_02
-            git fetch origin main
-            git checkout main
-            git pull --ff-only origin main
-            bash deploy/deploy.sh
+      # actions/checkout SHART EMAS — deploy /var/www/AvtoTest_02 ustida ishlaydi,
+      # runner'ning ish katalogida emas.
+      - name: Deploy
+        run: |
+          set -e
+          cd /var/www/AvtoTest_02
+          git fetch origin main
+          git checkout main
+          git pull --ff-only origin main
+          bash deploy/deploy.sh
